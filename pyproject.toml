@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xai-rationalization"
+dynamic = ["version"]
+description = "A simple library implementing Select-Then-Predict (SPP) models."
+readme = "README.md"
+authors = [
+    { name = "Federico Ruggeri", email = "federico.ruggeri6@unibo.it" }
+]
+license = { text = "MIT" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+# Adjust your minimum Python version requirement here if needed
+requires-python = ">=3.10"
+dependencies = [
+    "cinnamon>=1.1.0"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "ruff>=0.15.20",
+    "mypy>=1.0.0"
+]
+
+[tool.setuptools]
+packages = ["xai-rationalization"]
+
+[tool.setuptools.dynamic]
+version = { attr = "xai-rationalization.__version__" }
+
+[tool.ruff]
+# Target Python 3.10+ compatibility
+target-version = "py310"
+line-length = 88
+lint.select = ["E", "F", "I", "W"] # Basic styles, Pyflakes, and Import sorting
