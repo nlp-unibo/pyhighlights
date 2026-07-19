@@ -1,16 +1,5 @@
 import torch as th
 
-
-class SelectItem(th.nn.Module):
-    def __init__(self, item_index):
-        super(SelectItem, self).__init__()
-        self._name = 'selectitem'
-        self.item_index = item_index
-
-    def forward(self, inputs):
-        return inputs[self.item_index]
-
-
 class AttentionPooling(th.nn.Module):
     def __init__(
             self,
@@ -37,17 +26,17 @@ class AttentionPooling(th.nn.Module):
     def forward(
             self,
             hidden_states: th.Tensor,
-            masks: th.Tensor = None
+            mask: th.Tensor | None = None
     ):
         """
         :param hidden_states: [batch,seq_len,dim]
-        :param masks: bool tensor [batch,seq_len]
+        :param mask: bool tensor [batch,seq_len]
         :return: converge_representations [batch,dim]
         """
         weight = self.attention(hidden_states).squeeze()
-        if masks is not None:
-            masks = masks.bool()
-            weight.masked_fill_(~masks, th.finfo(th.float).min)
+        if mask is not None:
+            mask = mask.bool()
+            weight.masked_fill_(~mask, th.finfo(th.float).min)
         weight = th.nn.functional.softmax(weight, dim=-1)
         self._weights = weight
         weight = weight.unsqueeze(dim=1)

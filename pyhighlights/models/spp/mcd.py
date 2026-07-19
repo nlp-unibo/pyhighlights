@@ -16,7 +16,7 @@ from pyhighlights.models.spp.implementations import (
 )
 
 
-class FR(SPP):
+class MCD(SPP):
 
     def __init__(
             self,
@@ -26,13 +26,6 @@ class FR(SPP):
         super().__init__(**kwargs)
 
         self.temperature = temperature
-
-        if self.selector_embedder != self.predictor_embedder:
-            raise AttributeError(
-                'Folded Rationalization (FR) requires a shared embedder between selector and predictor')
-
-        if self.selector_encoder != self.predictor_encoder:
-            raise AttributeError('Folded Rationalization (FR) requires a shared encoder between selector and predictor')
 
     def select_activation(
             self,
@@ -47,10 +40,10 @@ class FR(SPP):
 
 
 # ---------------------------------------------------------------------------
-# GRU-backed FR
+# GRU-backed MCD
 # ---------------------------------------------------------------------------
 
-class GRUFR(FR):
+class GRUMCD(MCD):
 
     def __init__(
             self,
@@ -94,7 +87,7 @@ class GRUFR(FR):
 # Transformer-backed FR
 # ---------------------------------------------------------------------------
 
-class TransformerFR(FR):
+class TransformerMCD(MCD):
 
     def __init__(
             self,

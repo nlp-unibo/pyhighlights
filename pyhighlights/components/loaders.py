@@ -122,7 +122,7 @@ class HatexplainLoader:
             df
     ):
         highlights = []
-        for highlight_group, text in zip(df['rationales'].values, df['text'].values):
+        for highlight_group, text in zip(df['highlights'].values, df['text'].values):
             total_tokens = len(text)
 
             if len(highlight_group) == 1:
@@ -264,7 +264,7 @@ class HotelData(Dataset):
         Convert a set of train/dev examples numpy arrays.
         Outputs:
             data -- (num_examples, max_seq_length).
-            masks -- (num_examples, max_seq_length).
+            mask -- (num_examples, max_seq_length).
             labels -- (num_examples, num_classes) in a one-hot format.
         """
 
