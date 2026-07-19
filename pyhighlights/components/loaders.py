@@ -8,7 +8,7 @@ import pandas as pd
 import torch as th
 from torch.utils.data import Dataset
 
-
+# https://github.com/federicoruggeri/neural-fragments/blob/main/sequence_toy/components/data_loader.py
 class ToyLoader:
 
     def __init__(
