@@ -20,7 +20,8 @@ classifiers = [
 # Adjust your minimum Python version requirement here if needed
 requires-python = ">=3.10"
 dependencies = [
-    "cinnamon>=1.1.0"
+    "cinnamon>=1.1.0",
+    "lightning>=2.0.0"
 ]
 
 [project.optional-dependencies]
