@@ -31,12 +31,12 @@ class GRAT(SPP):
 
     def select_activation(
         self,
-        selector_logits: th.Tensor,
+        highlight_logits: th.Tensor,
     ) -> th.Tensor:
-        # selector_logits: [bs, F, 2]
+        # highlight_logits: [bs, F, 2]
 
         # [bs, F]
-        return gumbel_softmax(logits=selector_logits, tau=self.temperature, hard=True)[
+        return gumbel_softmax(logits=highlight_logits, tau=self.temperature, hard=True)[
             :, :, 1
         ]
 

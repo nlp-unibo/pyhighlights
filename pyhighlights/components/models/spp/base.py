@@ -1,28 +1,10 @@
 import abc
-from typing import Sequence, Tuple, Union, Dict
+from typing import List, Tuple, Union
 
 import torch as th
-from dataclasses import dataclass
+from cinnamon.registry import RegistrationKey, Registry
 
-from pyhighlights.components.models.base import Model
-
-# ---------------------------------------------------------------------------
-# Data containers
-# ---------------------------------------------------------------------------
-
-@dataclass
-class SPPInputData:
-    features: th.Tensor
-    mask: th.Tensor
-    sample_ids: th.Tensor
-    y_true: th.Tensor
-
-
-@dataclass
-class SPPOutputData:
-    selectors_logits: th.Tensor
-    predictors_logits: th.Tensor
-    highlight_masks: th.Tensor
+from pyhighlights.components.models.base import InputData, Model, OutputData, Split
 
 # ---------------------------------------------------------------------------
 # Component interfaces
@@ -60,38 +42,60 @@ class SPPPredictor(th.nn.Module, abc.ABC):
     def forward(self, encodings: th.Tensor) -> th.Tensor: ...
 
 
+class SPPAggregator(th.nn.Module, abc.ABC):
+    @abc.abstractmethod
+    def forward(self, output_data: OutputData) -> OutputData: ...
+
+
+class SPPFirstAggregator(SPPAggregator):
+    def forward(self, output_data: OutputData) -> OutputData:
+        output_data.highlight_logits = output_data.highlight_logits[:, 0, :, :]
+        output_data.highlight_pred = output_data.highlight_pred[:, 0, :]
+        output_data.y_pred = output_data.y_pred[:, 0, :]
+        return output_data
+
+
 # ---------------------------------------------------------------------------
 # Base SPP model
 # ---------------------------------------------------------------------------
 
 
-class SPP(Model):
-
-    # TODO: add highlight metrics
-    # TODO: add classification loss
-    # TODO: add regularization losses (sparsity, contiguity)
+class SPP(Model, abc.ABC):
+    # TODO: add skew setup
     def __init__(
         self,
-        selector_embedder: SPPEmbedder,
-        predictor_embedder: SPPEmbedder,
-        selector_encoder: SPPEncoder,
-        predictor_encoder: SPPEncoder,
-        selectors: Union[SPPSelector, Sequence[SPPSelector]],
-        predictor: SPPPredictor,
+        selector_embedder: RegistrationKey[SPPEmbedder],
+        selector_encoder: RegistrationKey[SPPEncoder],
+        selectors: Union[
+            RegistrationKey[SPPSelector], List[RegistrationKey[SPPSelector]]
+        ],
+        predictor: RegistrationKey[SPPPredictor],
+        predictor_embedder: RegistrationKey[SPPEmbedder] | None = None,
+        predictor_encoder: RegistrationKey[SPPEncoder] | None = None,
+        aggregator: RegistrationKey[SPPAggregator] | None = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
 
-        self.selector_embedder = selector_embedder
-        self.selector_encoder = selector_encoder
+        self.selector_embedder = Registry.from_key(selector_embedder)
+        self.selector_encoder = Registry.from_key(selector_encoder)
 
-        if isinstance(selectors, SPPSelector):
+        if isinstance(selectors, RegistrationKey):
             selectors = [selectors]
-        self.selectors = th.nn.ModuleList(selectors)
+        self.selectors = th.nn.ModuleList([Registry.from_key(key) for key in selectors])
 
-        self.predictor_embedder = predictor_embedder
-        self.predictor_encoder = predictor_encoder
-        self.predictor = predictor
+        if predictor_embedder is not None:
+            self.predictor_embedder = Registry.from_key(predictor_embedder)
+        else:
+            self.predictor_embedder = selector_embedder
+
+        if predictor_encoder is not None:
+            self.predictor_encoder = Registry.from_key(predictor_encoder)
+        else:
+            self.predictor_encoder = selector_encoder
+        self.predictor = Registry.from_key(predictor)
+
+        self.aggregator = aggregator or SPPFirstAggregator()
 
     def encode_features(
         self, embeddings: th.Tensor, mask: th.Tensor, encoder: SPPEncoder
@@ -114,7 +118,7 @@ class SPP(Model):
         return encodings
 
     def select(
-        self, data: SPPInputData, selector: SPPSelector
+        self, data: InputData, selector: SPPSelector
     ) -> Tuple[th.Tensor, th.Tensor]:
 
         # [bs, F, d]
@@ -128,40 +132,40 @@ class SPP(Model):
         )
 
         # [bs, F, 2]
-        selector_logits = selector.forward(encodings=encodings)
+        highlight_logits = selector.forward(encodings=encodings)
 
         # [bs, F]
-        highlight_mask = self.select_activation(selector_logits=selector_logits)
+        highlight_pred = self.select_activation(highlight_logits=highlight_logits)
 
-        return selector_logits, highlight_mask
+        return highlight_logits, highlight_pred
 
     def select_activation(
         self,
-        selector_logits: th.Tensor,
+        highlight_logits: th.Tensor,
     ) -> th.Tensor:
-        # selector_logits: [bs, F, 2]
+        # highlight_logits: [bs, F, 2]
 
         # [bs, F]
-        return th.nn.functional.softmax(selector_logits, dim=-1)[:, :, 1]
+        return th.nn.functional.softmax(highlight_logits, dim=-1)[:, :, 1]
 
-    def predict(self, data: SPPInputData, highlight_mask: th.Tensor):
+    def predict(self, data: InputData, highlight_pred: th.Tensor):
         # data.features:        [bs, F]
         # data.mask:            [bs, F]
-        # highlight_mask:       [bs, F]
+        # highlight_pred:       [bs, F]
 
         # [bs, F, d]
         embeddings = self.selector_embedder.forward(
-            features=data.features, mask=highlight_mask
+            features=data.features, mask=highlight_pred
         )
 
         # [bs, F, d_2]
         encodings = self.encode_features(
-            embeddings=embeddings, mask=highlight_mask, encoder=self.predictor_encoder
+            embeddings=embeddings, mask=highlight_pred, encoder=self.predictor_encoder
         )
 
         # [bs, F, d_3]
         pooled_encodings = self.pool_encodings(
-            encodings=encodings, mask=highlight_mask, encoder=self.predictor_encoder
+            encodings=encodings, mask=highlight_pred, encoder=self.predictor_encoder
         )
 
         # [bs, C]
@@ -169,102 +173,46 @@ class SPP(Model):
 
         return predictor_logits
 
-    def forward(self, data: SPPInputData) -> SPPOutputData:
+    def forward(self, data: InputData) -> OutputData:
         # data.features:    [bs, F]
         # data.mask:        [bs, F]
         # data.sample_ids:  [bs,]
 
         # [bs, S, F, 2] where S = len(self.selectors)
-        selectors_logits = []
+        highlights_logits = []
 
         # [bs, S, F]
-        highlight_masks = []
+        highlight_preds = []
 
         # [bs, S, C]
         predictors_logits = []
 
         for selector in self.selectors:
             # [bs, F, 2], [bs, F]
-            selector_logits, highlight_mask = self.select(data=data, selector=selector)
-            selectors_logits.append(selector_logits)
-            highlight_masks.append(highlight_mask)
+            highlight_logits, highlight_pred = self.select(data=data, selector=selector)
+            highlights_logits.append(highlight_logits)
+            highlight_preds.append(highlight_pred)
 
             # [bs, C] where C = no. of classes
-            predictor_logits = self.predict(data=data, highlight_mask=highlight_mask)
+            predictor_logits = self.predict(data=data, highlight_pred=highlight_pred)
             predictors_logits.append(predictor_logits)
 
-        selectors_logits = th.stack(selectors_logits, dim=1)
-        highlight_masks = th.stack(highlight_masks, dim=1)
+        highlights_logits = th.stack(highlights_logits, dim=1)
+        highlight_preds = th.stack(highlight_preds, dim=1)
         predictors_logits = th.stack(predictors_logits, dim=1)
 
-        return SPPOutputData(selectors_logits=selectors_logits,
-                             predictors_logits=predictors_logits,
-                             highlight_masks=highlight_masks)
-
-    # TODO: hard to inherit for subclasses. Find a better way
-    def compute_loss(
-            self,
-            input_data: SPPInputData,
-            output_data: SPPOutputData
-    ) -> Tuple[th.Tensor, Dict[str, th.Tensor]]:
-        total_loss = th.Tensor(0.0, device=input_data.y_true.device)
-        losses = {}
-
-        # [bs,]
-        sample_weights = th.where(input_data.y_true == 1, self.class_weights[1], self.class_weights[0])
-
-        # y_hat:            [bs, F, C]
-        # highlight_mask:   [bs, F]
-        for y_hat, highlight_mask in zip(th.unbind(output_data.predictors_logits, dim=1),
-                                         th.unbind(output_data.highlight_masks, dim=1)):
-            clf_loss = self.clf_loss(y_hat, input_data.y_true)
-            sample_weights = sample_weights.to(clf_loss.device)
-            clf_loss = (clf_loss * sample_weights).sum() / sample_weights.sum()
-
-            total_loss += clf_loss
-            losses['CE'] = losses.get('CE', 0) + clf_loss
-
-        return total_loss, losses
-
-    def training_step(self, batch: SPPInputData, batch_idx: int):
-        output_data = self.forward(data=batch)
-
-        batch_size = output_data.selectors_logits.shape[0]
-
-        total_loss, losses = self.compute_loss(input_data=batch,
-                                               output_data=output_data)
-
-        self.log(
-            name="train_loss",
-            value=total_loss,
-            on_step=False,
-            on_epoch=True,
-            prog_bar=True,
-            batch_size=batch_size,
+        return OutputData(
+            highlight_logits=highlights_logits,
+            y_pred=predictors_logits,
+            highlight_pred=highlight_preds,
         )
-        for loss_name, loss_value in losses.items():
-            self.log(
-                name=f"train_{loss_name}",
-                value=loss_value,
-                on_step=False,
-                on_epoch=True,
-                prog_bar=True,
-                batch_size=batch_size,
-            )
 
-        # TODO: define aggregator for computing metrics!
-        if self.train_classification_metrics is not None:
-            y_hat = th.argmax(output_data.predictors_logits, dim=-1)
-            self.train_classification_metrics.update(y_hat, batch.y_true)
+    def update_metrics(
+        self, split: Split, input_data: InputData, output_data: OutputData
+    ):
+        output_data = self.aggregator.forward(output_data=output_data)
+        super().update_metrics(
+            split=split, input_data=input_data, output_data=output_data
+        )
 
-        # TODO: SPPInputData and SPPOutputData could implement a method to simplify this
-        # if self.store_predictions:
-        #     self.predictions.append(
-        #         [
-        #             input_ids.detach().cpu().numpy(),
-        #             y_hat.detach().cpu().numpy(),
-        #             y_true.detach().cpu().numpy(),
-        #         ]
-        #     )
-
-        return total_loss
+    # TODO: override compute_loss to iterate over S

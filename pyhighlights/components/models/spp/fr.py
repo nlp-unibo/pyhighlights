@@ -24,24 +24,26 @@ class FR(SPP):
 
         if self.selector_embedder != self.predictor_embedder:
             raise AttributeError(
-                "Folded Rationalization (FR) requires a shared embedder between selector and predictor"
+                "Folded Rationalization (FR) requires a shared"
+                " embedder between selector and predictor"
             )
 
         if self.selector_encoder != self.predictor_encoder:
             raise AttributeError(
-                "Folded Rationalization (FR) requires a shared encoder between selector and predictor"
+                "Folded Rationalization (FR) requires a shared"
+                " encoder between selector and predictor"
             )
 
     def select_activation(
         self,
-        selector_logits: th.Tensor,
+        highlight_logits: th.Tensor,
     ) -> th.Tensor:
-        # selector_logits: [bs, F, 2]
+        # highlight_logits: [bs, F, 2]
 
         # [bs, F]
-        return gumbel_softmax(logits=selector_logits, tau=self.temperature, hard=True)[
-            :, :, 1
-        ]
+        return gumbel_softmax(logits=highlight_logits,
+                              tau=self.temperature,
+                              hard=True)[:, :, 1]
 
 
 # ---------------------------------------------------------------------------

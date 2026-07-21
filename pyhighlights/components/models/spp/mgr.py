@@ -1,9 +1,9 @@
-from typing import List, Tuple
+from typing import List
 
 import torch as th
 from torch.nn.functional import gumbel_softmax
 
-from pyhighlights.components.models.spp.base import SPP, SPPInputData
+from pyhighlights.components.models.spp.base import SPP, InputData, OutputData
 from pyhighlights.components.models.spp.implementations import (
     GRUEmbedder,
     GRUEncoder,
@@ -24,33 +24,34 @@ class MGR(SPP):
 
     def select_activation(
         self,
-        selector_logits: th.Tensor,
+        highlight_logits: th.Tensor,
     ) -> th.Tensor:
-        # selector_logits: [bs, F, 2]
+        # highlight_logits: [bs, F, 2]
 
         # [bs, F]
-        return gumbel_softmax(logits=selector_logits, tau=self.temperature, hard=True)[
-            :, :, 1
-        ]
+        return gumbel_softmax(logits=highlight_logits,
+                              tau=self.temperature,
+                              hard=True)[:, :, 1]
 
     def forward_one_head(
-        self, data: SPPInputData, selector_idx: int
-    ) -> Tuple[th.Tensor, th.Tensor, th.Tensor, SPPInputData]:
+        self, data: InputData, selector_idx: int) -> OutputData:
         # data.features:    [bs, F]
         # data.mask:        [bs, F]
         # data.sample_ids:  [bs,]
 
         # [bs, F, 2], [bs, F]
-        selector_logits, highlight_mask = self.select(
-            data=data, selector=self.selectors[selector_idx]
-        )
+        highlight_logits, highlight_pred = self.select(data=data,
+                                                      selector=self.selectors[selector_idx])
 
         # [bs, C]
-        predictor_logits = self.predict(data=data, highlight_mask=highlight_mask)
+        predictor_logits = self.predict(data=data, highlight_pred=highlight_pred)
 
-        return selector_logits, predictor_logits, highlight_mask, data
+        return OutputData(highlight_logits=highlight_logits,
+                          highlight_pred=highlight_pred,
+                          y_pred=predictor_logits)
 
 
+# TODO: move to another package (not needed)
 # ---------------------------------------------------------------------------
 # GRU-backed MGR
 # ---------------------------------------------------------------------------
