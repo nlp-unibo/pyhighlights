@@ -3,7 +3,7 @@ import torchmetrics
 
 from pyhighlights.utility.metrics import build_torchmetric, build_torchmetrics
 
-
+# TODO: update
 def test_creating_metric_flat():
     metric = build_torchmetric(name="F1Score", task="multiclass", num_classes=5)
     assert isinstance(metric, torchmetrics.Metric)

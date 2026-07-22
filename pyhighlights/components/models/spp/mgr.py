@@ -23,8 +23,8 @@ class MGR(SPP):
         self.temperature = temperature
 
     def select_activation(
-        self,
-        highlight_logits: th.Tensor,
+            self,
+            highlight_logits: th.Tensor,
     ) -> th.Tensor:
         # highlight_logits: [bs, F, 2]
 
@@ -34,21 +34,28 @@ class MGR(SPP):
                               hard=True)[:, :, 1]
 
     def forward_one_head(
-        self, data: InputData, selector_idx: int) -> OutputData:
+            self, data: InputData, selector_idx: int = 0) -> OutputData:
         # data.features:    [bs, F]
         # data.mask:        [bs, F]
         # data.sample_ids:  [bs,]
 
         # [bs, F, 2], [bs, F]
         highlight_logits, highlight_pred = self.select(data=data,
-                                                      selector=self.selectors[selector_idx])
+                                                       selector=self.selectors[selector_idx])
 
         # [bs, C]
         predictor_logits = self.predict(data=data, highlight_pred=highlight_pred)
 
-        return OutputData(highlight_logits=highlight_logits,
-                          highlight_pred=highlight_pred,
-                          y_pred=predictor_logits)
+        # Unsqueeze to make it compatible with base class (S = 1)
+        return OutputData(highlight_logits=highlight_logits.unsqueeze(dim=1),
+                          highlight_pred=highlight_pred.unsqueeze(dim=1),
+                          y_pred=predictor_logits.unsqueeze(dim=1))
+
+    def validation_forward(self, data: InputData) -> OutputData:
+        return self.forward_one_head(data=data, selector_idx=0)
+
+    def test_forward(self, batch: InputData) -> OutputData:
+        return self.forward_one_head(data=batch, selector_idx=0)
 
 
 # TODO: move to another package (not needed)
@@ -59,21 +66,21 @@ class MGR(SPP):
 
 class GRUMGR(MGR):
     def __init__(
-        self,
-        vocab_size: int,
-        embedding_dim: int,
-        encoder_input_size: int,
-        encoder_hidden_size: int,
-        selector_hidden_sizes: List[int],
-        predictor_hidden_sizes: List[int],
-        num_classes: int,
-        num_selectors=1,
-        embedding_matrix: th.Tensor | None = None,
-        freeze_embeddings: bool = False,
-        num_layers: int = 1,
-        bidirectional: bool = True,
-        dropout_rate=0.0,
-        **kwargs,
+            self,
+            vocab_size: int,
+            embedding_dim: int,
+            encoder_input_size: int,
+            encoder_hidden_size: int,
+            selector_hidden_sizes: List[int],
+            predictor_hidden_sizes: List[int],
+            num_classes: int,
+            num_selectors=1,
+            embedding_matrix: th.Tensor | None = None,
+            freeze_embeddings: bool = False,
+            num_layers: int = 1,
+            bidirectional: bool = True,
+            dropout_rate=0.0,
+            **kwargs,
     ):
         embedder = GRUEmbedder(
             vocab_size=vocab_size,
@@ -115,15 +122,15 @@ class GRUMGR(MGR):
 
 class TransformerMGR(MGR):
     def __init__(
-        self,
-        pretrained_model_card: str,
-        num_features: int,
-        selector_hidden_sizes: List[int],
-        predictor_hidden_sizes: List[int],
-        num_classes: int,
-        num_selectors: int = 1,
-        freeze_transformer: bool = False,
-        **kwargs,
+            self,
+            pretrained_model_card: str,
+            num_features: int,
+            selector_hidden_sizes: List[int],
+            predictor_hidden_sizes: List[int],
+            num_classes: int,
+            num_selectors: int = 1,
+            freeze_transformer: bool = False,
+            **kwargs,
     ):
         embedder = TransformerEmbedder(
             pretrained_model_card=pretrained_model_card,

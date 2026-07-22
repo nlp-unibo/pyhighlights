@@ -20,6 +20,8 @@ class MCD(SPP):
     def __init__(self, temperature: float = 1.0, **kwargs):
         super().__init__(**kwargs)
 
+        self.automatic_optimization = False
+
         self.temperature = temperature
 
     def select_activation(

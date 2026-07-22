@@ -1,16 +1,18 @@
 import abc
-from dataclasses import dataclass
-from typing import Dict, List, Literal, Tuple
+from dataclasses import dataclass, fields
+from typing import Dict, List, Literal, Tuple, TypeVar, Generator
 
 import lightning as L
 import torch as th
-from cinnamon.registry import RegistrationKey
+from cinnamon.registry import RegistrationKey, Registry
 from torchmetrics import Metric, MetricCollection
 
 from pyhighlights.utility.losses import Loss, build_losses
 from pyhighlights.utility.metrics import build_torchmetrics
 
 Split = Literal["train", "val", "test"]
+D = TypeVar("D", bound="OutputData")
+
 
 # ---------------------------------------------------------------------------
 # Data containers
@@ -42,6 +44,40 @@ class OutputData(ModelData):
     highlight_logits: th.Tensor
     highlight_pred: th.Tensor
 
+    def unbind(self: D, dim=0) -> Generator[D]:
+        unbound_fields = {}
+        unbound_size: int | None = None
+
+        for field in fields(self):
+            field_value = getattr(self, field.name)
+
+            if not isinstance(field_value, th.Tensor):
+                continue
+
+            unbound_field = th.unbind(field_value, dim=dim)
+
+            field_size = len(unbound_field)
+            if unbound_size is None:
+                unbound_size = field_size
+
+            if unbound_size != field_size:
+                raise RuntimeError(f'Cannot unbind tensors of different size!'
+                                   f' Expected {unbound_size} but got {field_size}')
+
+            unbound_fields[field.name] = unbound_field
+
+        if unbound_size is None:
+            raise RuntimeError('No tensors found to unbind..')
+
+        valid_fields = unbound_fields.keys()
+        for idx in range(unbound_size):
+            kwargs = {
+                field.name: unbound_fields[field.name][idx]
+                if field.name in valid_fields else getattr(self, field.name)
+                for field in fields(self)
+            }
+            yield type(self)(**kwargs)
+
 
 # ---------------------------------------------------------------------------
 # Base model
@@ -50,20 +86,20 @@ class OutputData(ModelData):
 
 class Model(L.LightningModule, abc.ABC):
     def __init__(
-        self,
-        name: str,
-        losses: List[RegistrationKey[Loss]],
-        learning_rate: float = 1e-03,
-        train_metrics: Dict[str, RegistrationKey[Metric]] | None = None,
-        val_metrics: Dict[str, RegistrationKey[Metric]] | None = None,
-        test_metrics: Dict[str, RegistrationKey[Metric]] | None = None
+            self,
+            name: str,
+            losses: List[RegistrationKey[Loss]],
+            optimizer: RegistrationKey[th.optim.Optimizer],
+            train_metrics: Dict[str, RegistrationKey[Metric]] | None = None,
+            val_metrics: Dict[str, RegistrationKey[Metric]] | None = None,
+            test_metrics: Dict[str, RegistrationKey[Metric]] | None = None
     ):
         super().__init__()
 
         self.save_hyperparameters(ignore=self.ignore_hyperparameters())
 
         self.name = name
-        self.learning_rate = learning_rate
+        self.optimizer = optimizer
 
         # Metrics
         self.train_metrics: MetricCollection | None = None
@@ -93,7 +129,8 @@ class Model(L.LightningModule, abc.ABC):
             "test": self.test_forward,
         }
 
-    def ignore_hyperparameters(self) -> List[str]: ...
+    def ignore_hyperparameters(self) -> List[str]:
+        ...
 
     def enable_storing_predictions(self):
         self.store_predictions = True
@@ -105,7 +142,7 @@ class Model(L.LightningModule, abc.ABC):
         self.predictions.clear()
 
     def update_metrics(
-        self, split: Split, input_data: InputData, output_data: OutputData
+            self, split: Split, input_data: InputData, output_data: OutputData
     ):
         # input_data.features:  [bs, F]
         # input_data.mask:      [bs, F]
@@ -136,14 +173,15 @@ class Model(L.LightningModule, abc.ABC):
         self.compute_classification_metrics(split="test")
 
     def configure_optimizers(self):
-        return th.optim.AdamW(self.parameters(), lr=self.learning_rate)
+        params = self.parameters()
+        return Registry.from_key(self.optimizer, params=params)
 
     def log_metrics(
-        self,
-        split: Split,
-        total_loss: th.Tensor,
-        losses: Dict[str, th.Tensor],
-        batch_size: int,
+            self,
+            split: Split,
+            total_loss: th.Tensor,
+            losses: Dict[str, th.Tensor],
+            batch_size: int,
     ):
         self.log(
             name=f"{split}_loss",
@@ -174,9 +212,9 @@ class Model(L.LightningModule, abc.ABC):
 
     def _step(self, batch: InputData, batch_idx: int, split: Split) -> th.Tensor:
         forward_method = self.forward_mapping[split]
-        output_data = forward_method(data=batch)
+        output_data = forward_method(batch)
 
-        batch_size = output_data.y_pred.shape[0]
+        batch_size = batch.y_true.shape[0]
 
         total_loss, losses = self.compute_loss(
             input_data=batch, output_data=output_data
@@ -205,9 +243,9 @@ class Model(L.LightningModule, abc.ABC):
         return self._step(batch=batch, batch_idx=batch_idx, split="test")
 
     def compute_loss(
-        self,
-        input_data: InputData,
-        output_data: OutputData,
+            self,
+            input_data: InputData,
+            output_data: OutputData,
     ) -> Tuple[th.Tensor, Dict[str, th.Tensor]]:
         total_loss = th.Tensor(0.0, device=input_data.y_true.device)
         losses = {}

@@ -1,10 +1,11 @@
 import abc
-from typing import List, Tuple, Union
+from typing import List, Tuple, Union, Dict
 
 import torch as th
 from cinnamon.registry import RegistrationKey, Registry
 
 from pyhighlights.components.models.base import InputData, Model, OutputData, Split
+
 
 # ---------------------------------------------------------------------------
 # Component interfaces
@@ -63,17 +64,17 @@ class SPPFirstAggregator(SPPAggregator):
 class SPP(Model, abc.ABC):
     # TODO: add skew setup
     def __init__(
-        self,
-        selector_embedder: RegistrationKey[SPPEmbedder],
-        selector_encoder: RegistrationKey[SPPEncoder],
-        selectors: Union[
-            RegistrationKey[SPPSelector], List[RegistrationKey[SPPSelector]]
-        ],
-        predictor: RegistrationKey[SPPPredictor],
-        predictor_embedder: RegistrationKey[SPPEmbedder] | None = None,
-        predictor_encoder: RegistrationKey[SPPEncoder] | None = None,
-        aggregator: RegistrationKey[SPPAggregator] | None = None,
-        **kwargs,
+            self,
+            selector_embedder: RegistrationKey[SPPEmbedder],
+            selector_encoder: RegistrationKey[SPPEncoder],
+            selectors: Union[
+                RegistrationKey[SPPSelector], List[RegistrationKey[SPPSelector]]
+            ],
+            predictor: RegistrationKey[SPPPredictor],
+            predictor_embedder: RegistrationKey[SPPEmbedder] | None = None,
+            predictor_encoder: RegistrationKey[SPPEncoder] | None = None,
+            aggregator: RegistrationKey[SPPAggregator] | None = None,
+            **kwargs,
     ):
         super().__init__(**kwargs)
 
@@ -87,18 +88,21 @@ class SPP(Model, abc.ABC):
         if predictor_embedder is not None:
             self.predictor_embedder = Registry.from_key(predictor_embedder)
         else:
-            self.predictor_embedder = selector_embedder
+            self.predictor_embedder = self.selector_embedder
 
         if predictor_encoder is not None:
             self.predictor_encoder = Registry.from_key(predictor_encoder)
         else:
-            self.predictor_encoder = selector_encoder
+            self.predictor_encoder = self.selector_encoder
         self.predictor = Registry.from_key(predictor)
 
-        self.aggregator = aggregator or SPPFirstAggregator()
+        if aggregator is not None:
+            self.aggregator = Registry.from_key(aggregator)
+        else:
+            self.aggregator = SPPFirstAggregator()
 
     def encode_features(
-        self, embeddings: th.Tensor, mask: th.Tensor, encoder: SPPEncoder
+            self, embeddings: th.Tensor, mask: th.Tensor, encoder: SPPEncoder
     ) -> th.Tensor:
         # embeddings:   [bs, F, d]
         # mask:         [bs, F]
@@ -109,7 +113,7 @@ class SPP(Model, abc.ABC):
         return encodings
 
     def pool_encodings(
-        self, encodings: th.Tensor, mask: th.Tensor, encoder: SPPEncoder
+            self, encodings: th.Tensor, mask: th.Tensor, encoder: SPPEncoder
     ) -> th.Tensor:
         # encodings:    [bs, F, d_2]
 
@@ -118,7 +122,7 @@ class SPP(Model, abc.ABC):
         return encodings
 
     def select(
-        self, data: InputData, selector: SPPSelector
+            self, data: InputData, selector: SPPSelector
     ) -> Tuple[th.Tensor, th.Tensor]:
 
         # [bs, F, d]
@@ -140,8 +144,8 @@ class SPP(Model, abc.ABC):
         return highlight_logits, highlight_pred
 
     def select_activation(
-        self,
-        highlight_logits: th.Tensor,
+            self,
+            highlight_logits: th.Tensor,
     ) -> th.Tensor:
         # highlight_logits: [bs, F, 2]
 
@@ -208,11 +212,28 @@ class SPP(Model, abc.ABC):
         )
 
     def update_metrics(
-        self, split: Split, input_data: InputData, output_data: OutputData
+            self, split: Split, input_data: InputData, output_data: OutputData
     ):
         output_data = self.aggregator.forward(output_data=output_data)
         super().update_metrics(
             split=split, input_data=input_data, output_data=output_data
         )
 
-    # TODO: override compute_loss to iterate over S
+    def compute_loss(
+            self,
+            input_data: InputData,
+            output_data: OutputData,
+    ) -> Tuple[th.Tensor, Dict[str, th.Tensor]]:
+        total_loss = th.Tensor(0.0, device=self.device)
+        losses = {}
+
+        for unbound_output_data in output_data.unbind(dim=1):
+            unbound_loss, unbound_losses = super().compute_loss(input_data=input_data,
+                                                                output_data=unbound_output_data)
+            total_loss += unbound_loss
+            losses = {
+                key: losses.get(key, th.Tensor(0.0, device=self.device)) + unbound_losses[key] for key in
+                unbound_losses.keys()
+            }
+
+        return total_loss, losses
