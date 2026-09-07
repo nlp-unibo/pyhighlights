@@ -222,6 +222,93 @@ Three rows carry one rationale flag more than their text has tokens —
 and the surplus flag is always ``0``. An all-zero surplus is trimmed; any other
 misalignment raises, since a real shift corrupts every label after it.
 
+HateXplain
+----------
+
+Twitter and Gab posts labelled for hate speech, with token-level rationales
+from three annotators. Mathew et al., 2021, *HateXplain: A Benchmark Dataset
+for Explainable Hate Speech Detection*.
+
+:Download: ``dataset.json`` (12 MB) and ``post_id_divisions.json`` from the
+           ``hate-alert/HateXplain`` repository
+:Rows: 20148 posts, 3 annotators each; splits come from the published
+       ``post_id_divisions.json``
+:Labels: ``hatespeech``, ``normal``, ``offensive``
+:Loader: :class:`pyhighlights.components.datasets.HateXplainLoader`
+:Key: :data:`pyhighlights.configurations.datasets.HATEXPLAIN`
+
+Both the label and the highlights are aggregated across annotators:
+
+``label``
+   Majority vote. 919 of the 20148 posts have all three annotators
+   disagreeing, so no majority exists; ``ties="drop"`` removes them, as the
+   paper does, and ``ties="keep"`` resolves them by annotator order.
+
+``highlights``
+   ``rationale="majority"`` (the default) keeps a token marked by more than
+   half of the rationale vectors, ``"union"`` by any of them,
+   ``"intersection"`` by all.
+
+``normal`` posts carry no rationale by design, and 580 non-normal ones carry
+none either. Both come back as all-zero highlights — "no token was marked",
+not "not annotated" — so a highlight metric sees them as examples with no
+positive tokens rather than skipping them.
+
+The published splits share no post id, but they do share text: 6 test posts
+and 3 validation posts also appear in training, and 28 training posts are
+duplicates of each other. Small, but nonzero — and invisible to an id-based
+check. The default repair removes 37 rows in total.
+
+ERASER
+------
+
+Document classification with human evidence spans, from DeYoung et al., 2020,
+*ERASER: A Benchmark to Evaluate Rationalized NLP Models*. A task ships a
+``docs`` directory of whitespace-tokenized documents and one JSONL file per
+split whose rows carry a ``classification`` and ``evidences`` — groups of
+``[start_token, end_token)`` spans that become the highlights.
+
+:Download: ``https://www.eraserbenchmark.com/zipped/<task>.tar.gz``
+:Tasks: ``movies`` (1600 / 200 / 199 rows, 3.9 MB)
+:Labels: binary (``NEG`` / ``POS``)
+:Loader: :class:`pyhighlights.components.datasets.ERASERLoader`
+:Key: :data:`pyhighlights.configurations.datasets.ERASER`
+
+**Only single-document tasks are supported.** A select-then-predict model
+takes one token sequence and no query, so ``boolq``, ``esnli``,
+``evidence_inference``, ``fever``, ``multirc`` and ``scifact`` are refused with
+an explanation rather than silently folded into a document — pyhighlights has
+nowhere to put a query yet. ``movies`` needs no such compromise.
+
+Every split is annotated. Rows with an empty ``evidences`` list — one in
+``movies`` — come back as all-zero highlights. The test split is annotated far
+more densely than training (a 0.31 highlight rate against 0.09), since its
+rationales aggregate several annotators; a sparsity target tuned on training
+data is not tuned for it.
+
+``movies`` has no cross-split leakage: one training row duplicates another,
+and that is all the default repair removes.
+
+Toy
+---
+
+A synthetic corpus, generated in memory: each document is filler tokens with
+one trigger phrase per class inserted at a random position, and the highlights
+are exactly that trigger.
+
+:Download: none
+:Loader: :class:`pyhighlights.components.datasets.ToyLoader`
+:Key: :data:`pyhighlights.configurations.datasets.TOY`
+
+.. code-block:: python
+
+   ToyLoader(sizes={"train": 64, "val": 16, "test": 16},
+             triggers=("a great film", "a dull film"), seed=0)
+
+Every split is annotated, a seed makes the corpus reproducible, and there is
+nothing to fetch — which makes it the cheap way to exercise a model, a
+configuration or a training loop before pointing it at a real corpus.
+
 API
 ---
 
