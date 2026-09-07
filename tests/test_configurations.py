@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import lightning as L
+import pytest
 import torch as th
 from cinnamon.registry import Registry
 from torch.utils.data import DataLoader
@@ -147,6 +148,27 @@ def test_registered_gru_mgr_has_independent_generators_and_head_policy():
         model.predictor_backbone is not backbone
         for backbone in model.selector_backbones
     )
+
+    optimizer = model.configure_optimizers()
+    assert [group["lr"] for group in optimizer.param_groups] == pytest.approx(
+        [1e-3 / 3, 1e-3, 2e-3, 3e-3]
+    )
+    assert {id(parameter) for parameter in optimizer.param_groups[0]["params"]} == {
+        id(parameter)
+        for parameter in [
+            *model.predictor_backbone.parameters(),
+            *model.predictor.parameters(),
+        ]
+    }
+    for index, (backbone, selector) in enumerate(
+        zip(model.selector_backbones, model.selectors), start=1
+    ):
+        assert {
+            id(parameter) for parameter in optimizer.param_groups[index]["params"]
+        } == {
+            id(parameter)
+            for parameter in [*backbone.parameters(), *selector.parameters()]
+        }
 
     batch = InputData(
         features=th.tensor([[1, 2, 3, 0], [4, 5, 0, 0]]),

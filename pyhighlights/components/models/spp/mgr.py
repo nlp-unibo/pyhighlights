@@ -1,7 +1,7 @@
 from typing import Dict, Literal, Tuple
 
 import torch as th
-from cinnamon.registry import RegistrationKey
+from cinnamon.registry import RegistrationKey, Registry
 
 from pyhighlights.components.models.base import InputData, Split
 from pyhighlights.components.models.data import SPPOutput
@@ -9,7 +9,11 @@ from pyhighlights.components.models.spp.base import SPP, SPPBackbone
 
 
 class MGR(SPP):
-    """Multiple independent generators with one shared predictor."""
+    """Multiple independent generators with one shared predictor.
+
+    Generator ``i`` uses learning rate ``i * eta``; the predictor uses
+    ``eta / n`` for ``n`` generators, following the original training policy.
+    """
 
     def __init__(
         self,
@@ -29,6 +33,28 @@ class MGR(SPP):
             raise ValueError("loss_reduction must be 'sum' or 'mean'")
         self.inference_head = inference_head
         self.loss_reduction = loss_reduction
+
+    def configure_optimizers(self):
+        generators = [
+            [*backbone.parameters(), *selector.parameters()]
+            for backbone, selector in zip(self.selector_backbones, self.selectors)
+        ]
+        optimizer = Registry.from_key(
+            self.optimizer,
+            params=[
+                {
+                    "params": [
+                        *self.predictor_backbone.parameters(),
+                        *self.predictor.parameters(),
+                    ]
+                },
+                *({"params": parameters} for parameters in generators),
+            ],
+        )
+        scales = [1 / len(generators), *range(1, len(generators) + 1)]
+        for group, scale in zip(optimizer.param_groups, scales):
+            group["lr"] *= scale
+        return optimizer
 
     def forward_one_head(
         self, data: InputData, selector_idx: int | None = None
