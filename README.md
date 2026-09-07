@@ -1,6 +1,20 @@
 # pyhighlights
 
+[![Tests](https://github.com/federicoruggeri/pyhighlights/actions/workflows/ci.yml/badge.svg)](https://github.com/federicoruggeri/pyhighlights/actions/workflows/ci.yml)
+[![Documentation](https://github.com/federicoruggeri/pyhighlights/actions/workflows/docs.yml/badge.svg)](https://federicoruggeri.github.io/pyhighlights/)
+[![PyPI](https://img.shields.io/pypi/v/pyhighlights)](https://pypi.org/project/pyhighlights/)
+
 Research library for highlight-based explainable AI models.
+
+[Documentation](https://federicoruggeri.github.io/pyhighlights/) · [Contributing](CONTRIBUTING.md)
+
+## Installation
+
+```bash
+pip install pyhighlights
+```
+
+Use `pip install "pyhighlights[transformers]"` for Transformer backends.
 
 ## GRU folded rationalization
 
