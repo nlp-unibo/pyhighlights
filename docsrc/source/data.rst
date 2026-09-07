@@ -8,3 +8,5 @@ to vocabulary tokens or Hugging Face subtokens, then emits model-ready
 .. automodule:: pyhighlights.components.data
    :members:
    :show-inheritance:
+
+Corpora and their loaders have their own page: :doc:`datasets`.
