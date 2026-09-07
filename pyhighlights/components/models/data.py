@@ -10,6 +10,9 @@ D = TypeVar("D", bound="ModelData")
 
 @dataclass
 class ModelData:
+    def as_dict(self):
+        return {field.name: getattr(self, field.name) for field in fields(self)}
+
     def as_numpy(self):
         return {
             field.name: value.detach().cpu().numpy()

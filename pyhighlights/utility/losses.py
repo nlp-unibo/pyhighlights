@@ -1,130 +1,134 @@
 from __future__ import annotations
 
-import abc
 import math
-from typing import List
+from typing import Dict, Iterable, List, Mapping, Sequence, Tuple
 
 import torch as th
 from cinnamon.registry import RegistrationKey, Registry
 
-from pyhighlights.components.models.data import InputData, OutputData, SPPOutput
 
+class Loss(th.nn.Module):
+    """Binds a criterion to the fields feeding it.
 
-class Loss(th.nn.Module, abc.ABC):
+    The criterion is any ``th.nn.Module`` taking tensors, so it stays reusable
+    across bindings: the same criterion can score different pairs of fields by
+    registering it twice with different ``inputs``.
+    """
+
     def __init__(
         self,
         name: str,
+        loss: RegistrationKey[th.nn.Module],
+        inputs: Sequence[str],
         coefficient: float = 1.0,
         enabled: bool = True,
     ):
         super().__init__()
+        if not inputs:
+            raise ValueError(f"Loss {name} requires at least one input field")
         self.name = name
+        self.loss = Registry.from_key(loss, expected_type=th.nn.Module)
+        self.inputs = list(inputs)
         self.coefficient = coefficient
         self.enabled = enabled
 
-    @abc.abstractmethod
-    def forward(self, input_data: InputData, output_data: OutputData) -> th.Tensor: ...
-
-
-def build_loss(key: RegistrationKey[Loss]) -> Loss:
-    return Registry.from_key(key, expected_type=Loss)
+    def forward(self, values: Mapping[str, th.Tensor]) -> th.Tensor:
+        missing = [name for name in self.inputs if name not in values]
+        if missing:
+            raise KeyError(f"Loss {self.name} misses input fields {missing}")
+        return self.loss(*(values[name] for name in self.inputs))
 
 
 def build_losses(keys: List[RegistrationKey[Loss]]) -> List[Loss]:
     return Registry.from_keys(keys, expected_type=Loss)
 
 
-class LossWrapper(Loss):
-    def __init__(
-        self,
-        loss: RegistrationKey[th.nn.Module],
-        loss_input: str,
-        loss_target: str,
-        **kwargs,
-    ):
-        super().__init__(**kwargs)
-        self.loss = Registry.from_key(loss, expected_type=th.nn.Module)
-        self.loss_input = loss_input
-        self.loss_target = loss_target
+def compute_losses(
+    losses: Iterable[Loss],
+    values: Mapping[str, th.Tensor],
+    scales: Mapping[str, float] | None = None,
+) -> Tuple[th.Tensor, Dict[str, th.Tensor]]:
+    """Sum enabled losses over ``values``, reporting each term unscaled.
 
-    @staticmethod
-    def _tensor_attribute(
-        name: str, input_data: InputData, output_data: OutputData
-    ) -> th.Tensor:
-        for data in (input_data, output_data):
-            value = getattr(data, name, None)
-            if isinstance(value, th.Tensor):
-                return value
-        raise AttributeError(f"Could not find tensor attribute {name}")
+    ``scales`` applies an extra per-name factor on top of the loss coefficient,
+    which is how annealed terms are weighted without mutating the loss.
+    """
+    total = None
+    computed: Dict[str, th.Tensor] = {}
 
-    def forward(self, input_data: InputData, output_data: OutputData) -> th.Tensor:
-        return self.loss(
-            self._tensor_attribute(self.loss_input, input_data, output_data),
-            self._tensor_attribute(self.loss_target, input_data, output_data),
+    for loss in losses:
+        if not loss.enabled:
+            continue
+        value = loss(values)
+        computed[loss.name] = value
+        scale = loss.coefficient * (scales.get(loss.name, 1.0) if scales else 1.0)
+        total = value * scale if total is None else total + value * scale
+
+    if total is None:
+        reference = next(
+            (value for value in values.values() if isinstance(value, th.Tensor)), None
         )
+        total = th.zeros(()) if reference is None else reference.new_zeros(())
+
+    return total, computed
 
 
-class ClassificationLoss(Loss):
-    def __init__(
-        self,
-        loss: RegistrationKey[th.nn.CrossEntropyLoss],
-        **kwargs,
-    ):
-        super().__init__(**kwargs)
-        self.loss = Registry.from_key(loss, expected_type=th.nn.CrossEntropyLoss)
+class MaskedCrossEntropy(th.nn.Module):
+    """Token-level cross entropy over valid, labelled positions."""
 
-    def forward(self, input_data: InputData, output_data: OutputData) -> th.Tensor:
-        return self.loss(input=output_data.class_logits, target=input_data.y_true)
+    def __init__(self, ignore_index: int = -1):
+        super().__init__()
+        self.ignore_index = ignore_index
 
-
-class HighlightLoss(Loss):
-    def __init__(
-        self,
-        loss: RegistrationKey[th.nn.CrossEntropyLoss],
-        **kwargs,
-    ):
-        super().__init__(**kwargs)
-        self.loss = Registry.from_key(loss, expected_type=th.nn.CrossEntropyLoss)
-
-    def forward(self, input_data: InputData, output_data: OutputData) -> th.Tensor:
-        if not isinstance(output_data, SPPOutput):
-            raise TypeError("HighlightLoss requires SPPOutput")
-
-        logits = output_data.highlight_logits.reshape(-1, 2)
-        targets = input_data.highlight_true.reshape(-1)
-        valid = (targets != -1) & input_data.mask.reshape(-1).bool()
+    def forward(
+        self, logits: th.Tensor, targets: th.Tensor, mask: th.Tensor
+    ) -> th.Tensor:
+        logits = logits.reshape(-1, logits.shape[-1])
+        targets = targets.reshape(-1)
+        valid = (targets != self.ignore_index) & mask.reshape(-1).bool()
         if not valid.any():
             return logits.sum() * 0
-        return self.loss(input=logits[valid], target=targets[valid].long())
+        return th.nn.functional.cross_entropy(logits[valid], targets[valid].long())
 
 
-class HighlightSparsityLoss(Loss):
-    def __init__(self, sparsity_threshold: float = 0.15, **kwargs):
-        super().__init__(**kwargs)
-        self.sparsity_threshold = sparsity_threshold
+class MaskedBinaryCrossEntropy(th.nn.Module):
+    """Binary cross entropy with logits over valid positions."""
 
-    def forward(self, input_data: InputData, output_data: OutputData) -> th.Tensor:
-        if not isinstance(output_data, SPPOutput):
-            raise TypeError("HighlightSparsityLoss requires SPPOutput")
-        denominator = input_data.mask.sum().clamp_min(1)
-        sparsity = output_data.highlight_mask.sum() / denominator
-        return th.abs(sparsity - self.sparsity_threshold)
-
-
-class HighlightContiguityLoss(Loss):
-    def forward(self, input_data: InputData, output_data: OutputData) -> th.Tensor:
-        if not isinstance(output_data, SPPOutput):
-            raise TypeError("HighlightContiguityLoss requires SPPOutput")
-        if output_data.highlight_mask.shape[1] < 2:
-            return output_data.highlight_mask.sum() * 0
-
-        valid_pairs = input_data.mask[:, 1:].bool() & input_data.mask[:, :-1].bool()
-        differences = th.abs(
-            output_data.highlight_mask[:, 1:] - output_data.highlight_mask[:, :-1]
+    def forward(
+        self, logits: th.Tensor, targets: th.Tensor, mask: th.Tensor
+    ) -> th.Tensor:
+        valid = mask.bool()
+        if not valid.any():
+            return logits.sum() * 0
+        return th.nn.functional.binary_cross_entropy_with_logits(
+            logits[valid], targets[valid]
         )
-        if not valid_pairs.any():
+
+
+class SparsityPenalty(th.nn.Module):
+    """Distance between the selection rate and a target rate."""
+
+    def __init__(self, threshold: float = 0.15):
+        super().__init__()
+        self.threshold = threshold
+
+    def forward(self, selection: th.Tensor, mask: th.Tensor) -> th.Tensor:
+        rate = selection.sum() / mask.sum().clamp_min(1)
+        return th.abs(rate - self.threshold)
+
+
+class ContiguityPenalty(th.nn.Module):
+    """Mean absolute transition between neighbouring valid selections."""
+
+    def forward(self, selection: th.Tensor, mask: th.Tensor) -> th.Tensor:
+        if selection.shape[-1] < 2:
+            return selection.sum() * 0
+
+        valid = mask[..., 1:].bool() & mask[..., :-1].bool()
+        differences = th.abs(selection[..., 1:] - selection[..., :-1])
+        if not valid.any():
             return differences.sum() * 0
-        return differences[valid_pairs].mean()
+        return differences[valid].mean()
 
 
 class KLDiv(th.nn.Module):

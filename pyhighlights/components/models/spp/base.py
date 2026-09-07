@@ -179,6 +179,12 @@ class SPP(Model):
             highlight_mask=th.stack(highlight_masks, dim=1),
         )
 
+    def head_namespace(
+        self, input_data: InputData, output_data: SPPOutput, **extra: th.Tensor
+    ) -> Dict[str, th.Tensor]:
+        """Namespace of the first head, with the head dimension dropped."""
+        return self.namespace(input_data, next(output_data.unbind(dim=1)), **extra)
+
     def update_metrics(
         self, split: Split, input_data: InputData, output_data: SPPOutput
     ):

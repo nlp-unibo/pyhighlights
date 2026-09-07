@@ -14,7 +14,7 @@ from pyhighlights.components.models.spp.base import (
     SPPPredictor,
     SPPSelector,
 )
-from pyhighlights.utility.losses import JSDiv, Loss
+from pyhighlights.utility.losses import Loss, build_losses, compute_losses
 
 
 @dataclass
@@ -67,7 +67,13 @@ class AttentionGuider(GRATGuider):
 
 
 class GRAT(SPP):
-    """Guider-regularized rationalizer with staged optimization."""
+    """Guider-regularized rationalizer with staged optimization.
+
+    ``losses`` scores the rationalizer over a namespace holding the guider
+    fields (``selection_logits``, ``guide_target``, ``guider_class_logits``)
+    next to the model ones; ``guider_losses`` scores the guider alone. The
+    guide and JSD terms are annealed against each other by name.
+    """
 
     def __init__(
         self,
@@ -76,19 +82,17 @@ class GRAT(SPP):
         predictor: RegistrationKey[SPPPredictor],
         predictor_backbone: RegistrationKey[SPPBackbone] | None,
         guider: RegistrationKey[GRATGuider],
-        classification_loss: RegistrationKey[Loss],
-        rationale_losses: List[RegistrationKey[Loss]],
+        guider_losses: List[RegistrationKey[Loss]],
         pretrain_epochs: int = 10,
-        guide_coefficient: float = 1.0,
-        jsd_coefficient: float = 1.0,
         guide_decay: float = 1e-4,
+        guide_loss: str = "guide",
+        jsd_loss: str = "jsd",
         **kwargs,
     ):
         if predictor_backbone is None:
             raise ValueError("G-RAT requires a separate predictor backbone")
-        values = (guide_coefficient, jsd_coefficient, guide_decay)
-        if any(not math.isfinite(value) or value < 0 for value in values):
-            raise ValueError("G-RAT coefficients must be finite and non-negative")
+        if not math.isfinite(guide_decay) or guide_decay < 0:
+            raise ValueError("guide_decay must be finite and non-negative")
         if pretrain_epochs < 0:
             raise ValueError("pretrain_epochs must be non-negative")
         super().__init__(
@@ -96,23 +100,18 @@ class GRAT(SPP):
             selectors=selectors,
             predictor=predictor,
             predictor_backbone=predictor_backbone,
-            losses=[classification_loss, *rationale_losses],
             **kwargs,
         )
         if len(self.selectors) != 1:
             raise ValueError("G-RAT requires exactly one selector")
         self.guider = Registry.from_key(guider, expected_type=GRATGuider)
+        self.guider_losses = th.nn.ModuleList(build_losses(guider_losses))
         self.pretrain_epochs = pretrain_epochs
-        self.guide_coefficient = guide_coefficient
-        self.jsd_coefficient = jsd_coefficient
         self.guide_decay = guide_decay
-        self.jsd = JSDiv()
+        self.guide_loss = guide_loss
+        self.jsd_loss = jsd_loss
         self.register_buffer("_model_steps", th.zeros((), dtype=th.long))
         self.automatic_optimization = False
-
-    @property
-    def classification_loss(self) -> Loss:
-        return self.losses[0]
 
     @property
     def guide_factor(self) -> float:
@@ -121,10 +120,12 @@ class GRAT(SPP):
 
     def guider_loss(
         self, input_data: InputData, output_data: GRATGuiderOutput
-    ) -> th.Tensor:
-        return self.classification_loss(
-            input_data=input_data,
-            output_data=OutputData(class_logits=output_data.class_logits),
+    ) -> Tuple[th.Tensor, Dict[str, th.Tensor]]:
+        return compute_losses(
+            self.guider_losses,
+            self.namespace(
+                input_data, OutputData(class_logits=output_data.class_logits)
+            ),
         )
 
     def guide_target(self, attention: th.Tensor, mask: th.Tensor) -> th.Tensor:
@@ -140,28 +141,21 @@ class GRAT(SPP):
         output_data: SPPOutput,
         guider_output: GRATGuiderOutput,
     ) -> Tuple[th.Tensor, Dict[str, th.Tensor]]:
-        total, losses = super().compute_loss(input_data, output_data)
-        valid = input_data.mask.bool()
-        guide_target = self.guide_target(
-            guider_output.attention.detach(), input_data.mask
-        )
-        selection_logits = output_data.highlight_logits[:, 0, :, 1]
-        if valid.any():
-            guide = th.nn.functional.binary_cross_entropy_with_logits(
-                selection_logits[valid], guide_target[valid]
-            )
-        else:
-            guide = selection_logits.sum() * 0
-        jsd = self.jsd(
-            output_data.class_logits[:, 0], guider_output.class_logits.detach()
+        values = self.head_namespace(
+            input_data,
+            output_data,
+            selection_logits=output_data.highlight_logits[:, 0, :, 1],
+            guide_target=self.guide_target(
+                guider_output.attention.detach(), input_data.mask
+            ),
+            guider_class_logits=guider_output.class_logits.detach(),
         )
         factor = self.guide_factor
-        total = (
-            total
-            + guide * self.guide_coefficient * factor
-            + jsd * self.jsd_coefficient * (1 - factor)
+        return compute_losses(
+            self.losses,
+            values,
+            scales={self.guide_loss: factor, self.jsd_loss: 1 - factor},
         )
-        return total, {**losses, "guide": guide, "jsd": jsd}
 
     def compute_loss(
         self, input_data: InputData, output_data: SPPOutput
@@ -186,7 +180,7 @@ class GRAT(SPP):
         guider_optimizer, model_optimizer = self.optimizers()
         guider_optimizer.zero_grad()
         guider_output = self.guider(batch)
-        guider_total = self.guider_loss(batch, guider_output)
+        guider_total, guider_losses = self.guider_loss(batch, guider_output)
         self.manual_backward(guider_total)
         guider_optimizer.step()
         guider_optimizer.zero_grad()
@@ -210,7 +204,10 @@ class GRAT(SPP):
         self.log_metrics(
             split="train",
             total_loss=total,
-            losses={"guider_classification": guider_total, **model_losses},
+            losses={
+                **{f"guider_{name}": value for name, value in guider_losses.items()},
+                **model_losses,
+            },
             batch_size=batch.y_true.shape[0],
         )
         self.update_metrics(split="train", input_data=batch, output_data=output)
