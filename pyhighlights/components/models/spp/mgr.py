@@ -1,158 +1,78 @@
-from typing import List
+from typing import Dict, Literal, Tuple
 
 import torch as th
-from torch.nn.functional import gumbel_softmax
+from cinnamon.registry import RegistrationKey
 
-from pyhighlights.components.models.spp.base import SPP, InputData, OutputData
-from pyhighlights.components.models.spp.implementations import (
-    GRUEmbedder,
-    GRUEncoder,
-    GRUPredictor,
-    GRUSelector,
-    TransformerEmbedder,
-    TransformerEncoder,
-    TransformerPredictor,
-    TransformerSelector,
-)
+from pyhighlights.components.models.base import InputData, Split
+from pyhighlights.components.models.data import SPPOutput
+from pyhighlights.components.models.spp.base import SPP, SPPBackbone
 
 
 class MGR(SPP):
-    def __init__(self, temperature: float = 1.0, **kwargs):
-        super().__init__(**kwargs)
+    """Multiple independent generators with one shared predictor."""
 
-        self.temperature = temperature
-
-    def select_activation(
-            self,
-            highlight_logits: th.Tensor,
-    ) -> th.Tensor:
-        # highlight_logits: [bs, F, 2]
-
-        # [bs, F]
-        return gumbel_softmax(logits=highlight_logits,
-                              tau=self.temperature,
-                              hard=True)[:, :, 1]
+    def __init__(
+        self,
+        predictor_backbone: RegistrationKey[SPPBackbone] | None = None,
+        inference_head: int = 0,
+        loss_reduction: Literal["sum", "mean"] = "sum",
+        **kwargs,
+    ):
+        if predictor_backbone is None:
+            raise ValueError("MGR requires a separate predictor backbone")
+        super().__init__(predictor_backbone=predictor_backbone, **kwargs)
+        if len(self.selectors) < 2:
+            raise ValueError("MGR requires at least two generators")
+        if not 0 <= inference_head < len(self.selectors):
+            raise ValueError("inference_head is outside the generator range")
+        if loss_reduction not in ("sum", "mean"):
+            raise ValueError("loss_reduction must be 'sum' or 'mean'")
+        self.inference_head = inference_head
+        self.loss_reduction = loss_reduction
 
     def forward_one_head(
-            self, data: InputData, selector_idx: int = 0) -> OutputData:
-        # data.features:    [bs, F]
-        # data.mask:        [bs, F]
-        # data.sample_ids:  [bs,]
+        self, data: InputData, selector_idx: int | None = None
+    ) -> SPPOutput:
+        selector_idx = self.inference_head if selector_idx is None else selector_idx
+        if not 0 <= selector_idx < len(self.selectors):
+            raise ValueError("selector_idx is outside the generator range")
+        highlight_logits, highlight_mask = self.select(
+            data=data,
+            selector=self.selectors[selector_idx],
+            backbone=self.selector_backbones[selector_idx],
+        )
+        class_logits = self.predict(data=data, highlight_mask=highlight_mask)
+        return SPPOutput(
+            class_logits=class_logits.unsqueeze(1),
+            highlight_logits=highlight_logits.unsqueeze(1),
+            highlight_mask=highlight_mask.unsqueeze(1),
+        )
 
-        # [bs, F, 2], [bs, F]
-        highlight_logits, highlight_pred = self.select(data=data,
-                                                       selector=self.selectors[selector_idx])
+    def validation_forward(self, batch: InputData) -> SPPOutput:
+        return self.forward_one_head(data=batch)
 
-        # [bs, C]
-        predictor_logits = self.predict(data=data, highlight_pred=highlight_pred)
+    def test_forward(self, batch: InputData) -> SPPOutput:
+        return self.forward_one_head(data=batch)
 
-        # Unsqueeze to make it compatible with base class (S = 1)
-        return OutputData(highlight_logits=highlight_logits.unsqueeze(dim=1),
-                          highlight_pred=highlight_pred.unsqueeze(dim=1),
-                          y_pred=predictor_logits.unsqueeze(dim=1))
-
-    def validation_forward(self, data: InputData) -> OutputData:
-        return self.forward_one_head(data=data, selector_idx=0)
-
-    def test_forward(self, batch: InputData) -> OutputData:
-        return self.forward_one_head(data=batch, selector_idx=0)
-
-
-# TODO: move to another package (not needed)
-# ---------------------------------------------------------------------------
-# GRU-backed MGR
-# ---------------------------------------------------------------------------
-
-
-class GRUMGR(MGR):
-    def __init__(
-            self,
-            vocab_size: int,
-            embedding_dim: int,
-            encoder_input_size: int,
-            encoder_hidden_size: int,
-            selector_hidden_sizes: List[int],
-            predictor_hidden_sizes: List[int],
-            num_classes: int,
-            num_selectors=1,
-            embedding_matrix: th.Tensor | None = None,
-            freeze_embeddings: bool = False,
-            num_layers: int = 1,
-            bidirectional: bool = True,
-            dropout_rate=0.0,
-            **kwargs,
+    def update_metrics(
+        self, split: Split, input_data: InputData, output_data: SPPOutput
     ):
-        embedder = GRUEmbedder(
-            vocab_size=vocab_size,
-            embedding_dim=embedding_dim,
-            embedding_matrix=embedding_matrix,
-            freeze_embeddings=freeze_embeddings,
-        )
+        if output_data.class_logits.shape[1] > 1:
+            head = self.inference_head
+            output_data = SPPOutput(
+                class_logits=output_data.class_logits[:, head : head + 1],
+                highlight_logits=output_data.highlight_logits[:, head : head + 1],
+                highlight_mask=output_data.highlight_mask[:, head : head + 1],
+            )
+        super().update_metrics(split, input_data, output_data)
 
-        encoder = GRUEncoder(
-            input_size=encoder_input_size,
-            hidden_size=encoder_hidden_size,
-            num_layers=num_layers,
-            bidirectional=bidirectional,
-            dropout_rate=dropout_rate,
-        )
-
-        selectors = [
-            GRUSelector(hidden_sizes=selector_hidden_sizes)
-            for _ in range(num_selectors)
-        ]
-
-        super().__init__(
-            selector_embedder=embedder,
-            predictor_embedder=embedder,
-            selector_encoder=encoder,
-            predictor_encoder=encoder,
-            selector=selectors,
-            predictor=GRUPredictor(
-                hidden_sizes=predictor_hidden_sizes, num_classes=num_classes
-            ),
-            **kwargs,
-        )
-
-
-# ---------------------------------------------------------------------------
-# Transformer-backed MGR
-# ---------------------------------------------------------------------------
-
-
-class TransformerMGR(MGR):
-    def __init__(
-            self,
-            pretrained_model_card: str,
-            num_features: int,
-            selector_hidden_sizes: List[int],
-            predictor_hidden_sizes: List[int],
-            num_classes: int,
-            num_selectors: int = 1,
-            freeze_transformer: bool = False,
-            **kwargs,
-    ):
-        embedder = TransformerEmbedder(
-            pretrained_model_card=pretrained_model_card,
-            num_features=num_features,
-            freeze_transformer=freeze_transformer,
-        )
-
-        encoder = TransformerEncoder()
-
-        selectors = [
-            TransformerSelector(hidden_sizes=selector_hidden_sizes)
-            for _ in range(num_selectors)
-        ]
-
-        super().__init__(
-            selector_embedder=embedder,
-            predictor_embedder=embedder,
-            selector_encoder=encoder,
-            predictor_encoder=encoder,
-            selectors=selectors,
-            predictor=TransformerPredictor(
-                hidden_sizes=predictor_hidden_sizes, num_classes=num_classes
-            ),
-            **kwargs,
-        )
+    def compute_loss(
+        self, input_data: InputData, output_data: SPPOutput
+    ) -> Tuple[th.Tensor, Dict[str, th.Tensor]]:
+        total, losses = super().compute_loss(input_data, output_data)
+        if self.loss_reduction == "mean":
+            heads = output_data.class_logits.shape[1]
+            return total / heads, {
+                name: value / heads for name, value in losses.items()
+            }
+        return total, losses

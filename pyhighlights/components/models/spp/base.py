@@ -1,239 +1,205 @@
+from __future__ import annotations
+
 import abc
-from typing import List, Tuple, Union, Dict
+import math
+from typing import Dict, List, Tuple, Union
 
 import torch as th
 from cinnamon.registry import RegistrationKey, Registry
 
 from pyhighlights.components.models.base import InputData, Model, OutputData, Split
+from pyhighlights.components.models.data import SPPOutput
 
 
-# ---------------------------------------------------------------------------
-# Component interfaces
-# ---------------------------------------------------------------------------
+class SPPBackbone(th.nn.Module, abc.ABC):
+    """Backend-specific token encoder and pooler."""
 
-
-class SPPEmbedder(th.nn.Module, abc.ABC):
-    """Encodes raw input into a representation for the selector/predictor."""
+    @property
+    @abc.abstractmethod
+    def output_size(self) -> int:
+        """Token and pooled state width."""
 
     @abc.abstractmethod
-    def forward(self, features: th.Tensor, mask: th.Tensor) -> th.Tensor: ...
-
-
-class SPPEncoder(th.nn.Module, abc.ABC):
-    """Encodes raw input into a representation for the selector/predictor."""
+    def encode(
+        self,
+        features: th.Tensor,
+        mask: th.Tensor,
+        selection_mask: th.Tensor | None = None,
+    ) -> th.Tensor:
+        """Return token states shaped [B, T, D]."""
 
     @abc.abstractmethod
-    def encode_features(self, embeddings: th.Tensor) -> th.Tensor: ...
-
-    @abc.abstractmethod
-    def pool_encodings(self, encodings: th.Tensor, mask: th.Tensor) -> th.Tensor: ...
+    def pool(self, states: th.Tensor, mask: th.Tensor) -> th.Tensor:
+        """Return sequence states shaped [B, D]."""
 
 
 class SPPSelector(th.nn.Module, abc.ABC):
-    """Produces the rationale (e.g. per-token selection scores)."""
-
     @abc.abstractmethod
-    def forward(self, encodings: th.Tensor) -> th.Tensor: ...
+    def forward(self, states: th.Tensor) -> th.Tensor:
+        """Return selection logits shaped [B, T, 2]."""
 
 
 class SPPPredictor(th.nn.Module, abc.ABC):
-    """Produces the final prediction from the selected rationale."""
-
     @abc.abstractmethod
-    def forward(self, encodings: th.Tensor) -> th.Tensor: ...
+    def forward(self, states: th.Tensor) -> th.Tensor:
+        """Return class logits shaped [B, C]."""
 
 
 class SPPAggregator(th.nn.Module, abc.ABC):
     @abc.abstractmethod
-    def forward(self, output_data: OutputData) -> OutputData: ...
+    def forward(self, output_data: SPPOutput) -> OutputData: ...
 
 
 class SPPFirstAggregator(SPPAggregator):
-    def forward(self, output_data: OutputData) -> OutputData:
-        output_data.highlight_logits = output_data.highlight_logits[:, 0, :, :]
-        output_data.highlight_pred = output_data.highlight_pred[:, 0, :]
-        output_data.y_pred = output_data.y_pred[:, 0, :]
-        return output_data
+    def forward(self, output_data: SPPOutput) -> SPPOutput:
+        return next(output_data.unbind(dim=1))
 
 
-# ---------------------------------------------------------------------------
-# Base SPP model
-# ---------------------------------------------------------------------------
-
-
-class SPP(Model, abc.ABC):
-    # TODO: add skew setup
+class SPP(Model):
     def __init__(
-            self,
-            selector_embedder: RegistrationKey[SPPEmbedder],
-            selector_encoder: RegistrationKey[SPPEncoder],
-            selectors: Union[
-                RegistrationKey[SPPSelector], List[RegistrationKey[SPPSelector]]
-            ],
-            predictor: RegistrationKey[SPPPredictor],
-            predictor_embedder: RegistrationKey[SPPEmbedder] | None = None,
-            predictor_encoder: RegistrationKey[SPPEncoder] | None = None,
-            aggregator: RegistrationKey[SPPAggregator] | None = None,
-            **kwargs,
+        self,
+        selector_backbones: Union[
+            RegistrationKey[SPPBackbone], List[RegistrationKey[SPPBackbone]]
+        ],
+        selectors: Union[
+            RegistrationKey[SPPSelector], List[RegistrationKey[SPPSelector]]
+        ],
+        predictor: RegistrationKey[SPPPredictor],
+        predictor_backbone: RegistrationKey[SPPBackbone] | None = None,
+        aggregator: RegistrationKey[SPPAggregator] | None = None,
+        temperature: float = 1.0,
+        **kwargs,
     ):
         super().__init__(**kwargs)
 
-        self.selector_embedder = Registry.from_key(selector_embedder)
-        self.selector_encoder = Registry.from_key(selector_encoder)
+        backbone_keys = (
+            [selector_backbones]
+            if isinstance(selector_backbones, RegistrationKey)
+            else selector_backbones
+        )
+        selector_keys = (
+            [selectors] if isinstance(selectors, RegistrationKey) else selectors
+        )
+        if not backbone_keys or len(backbone_keys) != len(selector_keys):
+            raise ValueError("SPP requires one selector backbone per selector")
 
-        if isinstance(selectors, RegistrationKey):
-            selectors = [selectors]
-        self.selectors = th.nn.ModuleList([Registry.from_key(key) for key in selectors])
+        self.selector_backbones = th.nn.ModuleList(
+            Registry.from_keys(backbone_keys, expected_type=SPPBackbone)
+        )
+        self.selectors = th.nn.ModuleList(
+            Registry.from_key(
+                key,
+                expected_type=SPPSelector,
+                input_size=backbone.output_size,
+            )
+            for key, backbone in zip(selector_keys, self.selector_backbones)
+        )
 
-        if predictor_embedder is not None:
-            self.predictor_embedder = Registry.from_key(predictor_embedder)
-        else:
-            self.predictor_embedder = self.selector_embedder
+        self.predictor_backbone = (
+            Registry.from_key(predictor_backbone, expected_type=SPPBackbone)
+            if predictor_backbone is not None
+            else self.selector_backbones[0]
+        )
+        self.predictor = Registry.from_key(
+            predictor,
+            expected_type=SPPPredictor,
+            input_size=self.predictor_backbone.output_size,
+        )
+        self.aggregator = (
+            Registry.from_key(aggregator, expected_type=SPPAggregator)
+            if aggregator is not None
+            else SPPFirstAggregator()
+        )
+        if not math.isfinite(temperature) or temperature <= 0:
+            raise ValueError("temperature must be finite and greater than zero")
+        self.temperature = temperature
 
-        if predictor_encoder is not None:
-            self.predictor_encoder = Registry.from_key(predictor_encoder)
-        else:
-            self.predictor_encoder = self.selector_encoder
-        self.predictor = Registry.from_key(predictor)
+    @property
+    def selector_backbone(self) -> SPPBackbone:
+        return self.selector_backbones[0]
 
-        if aggregator is not None:
-            self.aggregator = Registry.from_key(aggregator)
-        else:
-            self.aggregator = SPPFirstAggregator()
-
-    def encode_features(
-            self, embeddings: th.Tensor, mask: th.Tensor, encoder: SPPEncoder
-    ) -> th.Tensor:
-        # embeddings:   [bs, F, d]
-        # mask:         [bs, F]
-
-        # [bs, F, d_1]
-        encodings = encoder.encode_features(embeddings=embeddings)
-        encodings *= mask[:, :, None]
-        return encodings
-
-    def pool_encodings(
-            self, encodings: th.Tensor, mask: th.Tensor, encoder: SPPEncoder
-    ) -> th.Tensor:
-        # encodings:    [bs, F, d_2]
-
-        # [bs, d_3]
-        encodings = encoder.pool_encodings(encodings=encodings, mask=mask)
-        return encodings
+    def select_activation(self, highlight_logits: th.Tensor) -> th.Tensor:
+        if self.training:
+            return th.nn.functional.gumbel_softmax(
+                highlight_logits, tau=self.temperature, hard=True, dim=-1
+            )[..., 1]
+        return highlight_logits.argmax(dim=-1).to(highlight_logits.dtype)
 
     def select(
-            self, data: InputData, selector: SPPSelector
+        self,
+        data: InputData,
+        selector: SPPSelector,
+        backbone: SPPBackbone,
     ) -> Tuple[th.Tensor, th.Tensor]:
+        states = backbone.encode(data.features, data.mask)
+        highlight_logits = selector(states)
+        highlight_mask = self.select_activation(highlight_logits)
+        valid = data.mask.bool()
+        highlight_mask = highlight_mask * valid.to(highlight_mask.dtype)
 
-        # [bs, F, d]
-        embeddings = self.selector_embedder.forward(
-            features=data.features, mask=data.mask
+        needs_fallback = valid.any(dim=1) & ~highlight_mask.bool().any(dim=1)
+        if needs_fallback.any():
+            scores = th.softmax(highlight_logits / self.temperature, dim=-1)[..., 1]
+            scores = scores * valid.to(scores.dtype)
+            fallback_hard = th.nn.functional.one_hot(
+                scores.masked_fill(~valid, -th.inf).argmax(dim=1),
+                num_classes=scores.shape[1],
+            ).to(scores.dtype)
+            fallback = fallback_hard + scores - scores.detach()
+            highlight_mask = th.where(
+                needs_fallback.unsqueeze(1), fallback, highlight_mask
+            )
+
+        return highlight_logits, highlight_mask
+
+    def predict(self, data: InputData, highlight_mask: th.Tensor) -> th.Tensor:
+        prediction_mask = data.mask.to(highlight_mask.dtype) * highlight_mask
+        states = self.predictor_backbone.encode(
+            data.features, data.mask, selection_mask=prediction_mask
         )
+        pooled = self.predictor_backbone.pool(states, prediction_mask)
+        return self.predictor(pooled)
 
-        # [bs, F, d_1]
-        encodings = self.encode_features(
-            embeddings=embeddings, mask=data.mask, encoder=self.selector_encoder
-        )
+    def forward(self, data: InputData) -> SPPOutput:
+        highlight_logits = []
+        highlight_masks = []
+        class_logits = []
 
-        # [bs, F, 2]
-        highlight_logits = selector.forward(encodings=encodings)
+        for backbone, selector in zip(self.selector_backbones, self.selectors):
+            head_logits, head_mask = self.select(
+                data=data, selector=selector, backbone=backbone
+            )
+            highlight_logits.append(head_logits)
+            highlight_masks.append(head_mask)
+            class_logits.append(self.predict(data=data, highlight_mask=head_mask))
 
-        # [bs, F]
-        highlight_pred = self.select_activation(highlight_logits=highlight_logits)
-
-        return highlight_logits, highlight_pred
-
-    def select_activation(
-            self,
-            highlight_logits: th.Tensor,
-    ) -> th.Tensor:
-        # highlight_logits: [bs, F, 2]
-
-        # [bs, F]
-        return th.nn.functional.softmax(highlight_logits, dim=-1)[:, :, 1]
-
-    def predict(self, data: InputData, highlight_pred: th.Tensor):
-        # data.features:        [bs, F]
-        # data.mask:            [bs, F]
-        # highlight_pred:       [bs, F]
-
-        # [bs, F, d]
-        embeddings = self.selector_embedder.forward(
-            features=data.features, mask=highlight_pred
-        )
-
-        # [bs, F, d_2]
-        encodings = self.encode_features(
-            embeddings=embeddings, mask=highlight_pred, encoder=self.predictor_encoder
-        )
-
-        # [bs, F, d_3]
-        pooled_encodings = self.pool_encodings(
-            encodings=encodings, mask=highlight_pred, encoder=self.predictor_encoder
-        )
-
-        # [bs, C]
-        predictor_logits = self.predictor.forward(encodings=pooled_encodings)
-
-        return predictor_logits
-
-    def forward(self, data: InputData) -> OutputData:
-        # data.features:    [bs, F]
-        # data.mask:        [bs, F]
-        # data.sample_ids:  [bs,]
-
-        # [bs, S, F, 2] where S = len(self.selectors)
-        highlights_logits = []
-
-        # [bs, S, F]
-        highlight_preds = []
-
-        # [bs, S, C]
-        predictors_logits = []
-
-        for selector in self.selectors:
-            # [bs, F, 2], [bs, F]
-            highlight_logits, highlight_pred = self.select(data=data, selector=selector)
-            highlights_logits.append(highlight_logits)
-            highlight_preds.append(highlight_pred)
-
-            # [bs, C] where C = no. of classes
-            predictor_logits = self.predict(data=data, highlight_pred=highlight_pred)
-            predictors_logits.append(predictor_logits)
-
-        highlights_logits = th.stack(highlights_logits, dim=1)
-        highlight_preds = th.stack(highlight_preds, dim=1)
-        predictors_logits = th.stack(predictors_logits, dim=1)
-
-        return OutputData(
-            highlight_logits=highlights_logits,
-            y_pred=predictors_logits,
-            highlight_pred=highlight_preds,
+        return SPPOutput(
+            class_logits=th.stack(class_logits, dim=1),
+            highlight_logits=th.stack(highlight_logits, dim=1),
+            highlight_mask=th.stack(highlight_masks, dim=1),
         )
 
     def update_metrics(
-            self, split: Split, input_data: InputData, output_data: OutputData
+        self, split: Split, input_data: InputData, output_data: SPPOutput
     ):
-        output_data = self.aggregator.forward(output_data=output_data)
         super().update_metrics(
-            split=split, input_data=input_data, output_data=output_data
+            split=split,
+            input_data=input_data,
+            output_data=self.aggregator(output_data),
         )
 
     def compute_loss(
-            self,
-            input_data: InputData,
-            output_data: OutputData,
+        self,
+        input_data: InputData,
+        output_data: SPPOutput,
     ) -> Tuple[th.Tensor, Dict[str, th.Tensor]]:
-        total_loss = th.Tensor(0.0, device=self.device)
-        losses = {}
+        total_loss = output_data.class_logits.new_zeros(())
+        losses: Dict[str, th.Tensor] = {}
 
-        for unbound_output_data in output_data.unbind(dim=1):
-            unbound_loss, unbound_losses = super().compute_loss(input_data=input_data,
-                                                                output_data=unbound_output_data)
-            total_loss += unbound_loss
-            losses = {
-                key: losses.get(key, th.Tensor(0.0, device=self.device)) + unbound_losses[key] for key in
-                unbound_losses.keys()
-            }
+        for head_output in output_data.unbind(dim=1):
+            head_loss, head_losses = super().compute_loss(input_data, head_output)
+            total_loss = total_loss + head_loss
+            for name, value in head_losses.items():
+                losses[name] = losses.get(name, value.new_zeros(())) + value
 
         return total_loss, losses

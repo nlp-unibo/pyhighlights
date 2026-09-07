@@ -1,204 +1,141 @@
+from __future__ import annotations
+
 from typing import List
 
 import torch as th
-from transformers import AutoModel
 
 from pyhighlights.components.models.spp.base import (
-    SPPEmbedder,
-    SPPEncoder,
+    SPPBackbone,
     SPPPredictor,
     SPPSelector,
 )
 
-# ---------------------------------------------------------------------------
-# GRU-backed SPP
-# ---------------------------------------------------------------------------
 
-
-class GRUEmbedder(SPPEmbedder):
+class GRUBackbone(SPPBackbone):
     def __init__(
         self,
         vocab_size: int,
         embedding_dim: int,
+        hidden_size: int,
         embedding_matrix: th.Tensor | None = None,
         freeze_embeddings: bool = False,
-    ):
-        super().__init__()
-
-        self.embedding = th.nn.Embedding(
-            num_embeddings=vocab_size, embedding_dim=embedding_dim
-        )
-        if embedding_matrix is not None:
-            self.embedding.weight.data = embedding_matrix
-
-        if freeze_embeddings:
-            self.embedding.weight.requires_grad = False
-
-    def forward(self, features: th.Tensor, mask: th.Tensor) -> th.Tensor:
-        # features:     [bs, F]
-        # mask:         [bs, F]
-
-        # [bs, F, embedding_dim]
-        return self.embedding(features) * mask[:, :, None]
-
-
-class GRUEncoder(SPPEncoder):
-    def __init__(
-        self,
-        input_size: int,
-        hidden_size: int,
         num_layers: int = 1,
         bidirectional: bool = True,
-        dropout_rate=0.0,
+        dropout_rate: float = 0.0,
     ):
         super().__init__()
+        self.embedding = th.nn.Embedding(vocab_size, embedding_dim)
+        if embedding_matrix is not None:
+            with th.no_grad():
+                self.embedding.weight.copy_(embedding_matrix)
+        self.embedding.weight.requires_grad_(not freeze_embeddings)
 
         self.encoder = th.nn.GRU(
-            input_size=input_size,
+            input_size=embedding_dim,
             hidden_size=hidden_size,
             num_layers=num_layers,
             batch_first=True,
             bidirectional=bidirectional,
         )
-        self.dropout = th.nn.Dropout(p=dropout_rate)
+        self._output_size = hidden_size * (2 if bidirectional else 1)
+        self.layer_norm = th.nn.LayerNorm(self.output_size)
+        self.dropout = th.nn.Dropout(dropout_rate)
 
-        self.layer_norm = th.nn.LayerNorm(
-            hidden_size * 2 if bidirectional else hidden_size
+    @property
+    def output_size(self) -> int:
+        return self._output_size
+
+    def encode(
+        self,
+        features: th.Tensor,
+        mask: th.Tensor,
+        selection_mask: th.Tensor | None = None,
+    ) -> th.Tensor:
+        valid = mask.bool()
+        selected = mask if selection_mask is None else mask * selection_mask
+        embeddings = self.embedding(features) * selected.unsqueeze(-1)
+        packed = th.nn.utils.rnn.pack_padded_sequence(
+            embeddings,
+            lengths=valid.sum(dim=1).clamp_min(1).cpu(),
+            batch_first=True,
+            enforce_sorted=False,
         )
+        states, _ = self.encoder(packed)
+        states, _ = th.nn.utils.rnn.pad_packed_sequence(
+            states, batch_first=True, total_length=features.shape[1]
+        )
+        states = self.dropout(self.layer_norm(states))
+        return states * valid.unsqueeze(-1)
 
-    def encode_features(self, embeddings: th.Tensor) -> th.Tensor:
-        # embeddings:   [bs, F, input_size]
-
-        # [bs, F, hidden_size] or [bs, F, hidden_size *2] if bidirectional is True
-        encodings, _ = self.encoder(embeddings)
-        encodings = self.layer_norm(encodings)
-        encodings = self.dropout(encodings)
-        return encodings
-
-    def pool_encodings(self, encodings: th.Tensor, mask: th.Tensor) -> th.Tensor:
-        # encodings:    [bs, F, hidden_size]
-        # mask:         [bs, F]
-
-        encodings = encodings * mask[:, :, None] + (1.0 - mask[:, :, None]) * (-1e6)
-        encodings = th.transpose(encodings, 1, 2)
-
-        # [bs, hidden_size]
-        hl_emb, _ = th.max(encodings, dim=2)
-        return hl_emb
+    def pool(self, states: th.Tensor, mask: th.Tensor) -> th.Tensor:
+        valid = mask.bool()
+        pooled = states.masked_fill(~valid.unsqueeze(-1), -th.inf).amax(dim=1)
+        return th.where(valid.any(dim=1, keepdim=True), pooled, th.zeros_like(pooled))
 
 
-class GRUSelector(SPPSelector):
-    def __init__(self, hidden_sizes: List[int]):
-        super().__init__()
-
-        self.selector = th.nn.Sequential()
-        for input_size, hidden_size in zip(hidden_sizes[:-1], hidden_sizes[1:]):
-            self.selector.append(th.nn.Linear(input_size, hidden_size))
-        self.selector.append(th.nn.Linear(hidden_sizes[-1], 2))
-
-    def forward(self, encodings: th.Tensor) -> th.Tensor:
-        # [bs, F, d]
-
-        # [bs, F, 2]
-        return self.selector(encodings)
-
-
-class GRUPredictor(SPPPredictor):
-    def __init__(self, hidden_sizes: List[int], num_classes: int):
-        super().__init__()
-
-        self.predictor = th.nn.Sequential()
-        for input_size, hidden_size in zip(hidden_sizes[:-1], hidden_sizes[1:]):
-            self.predictor.append(th.nn.Linear(input_size, hidden_size))
-        self.predictor.append(th.nn.Linear(hidden_sizes[-1], num_classes))
-
-    def forward(self, encodings: th.Tensor) -> th.Tensor:
-        # [bs, d]
-
-        # [bs, C]
-        return self.predictor(encodings)
-
-
-# ---------------------------------------------------------------------------
-# Transformer-backed SPP
-# ---------------------------------------------------------------------------
-
-
-class TransformerEmbedder(SPPEmbedder):
+class TransformerBackbone(SPPBackbone):
     def __init__(
         self,
         pretrained_model_card: str,
-        num_features: int,
+        num_features: int | None = None,
         freeze_transformer: bool = False,
     ):
         super().__init__()
+        try:
+            from transformers import AutoModel
+        except ImportError as error:
+            raise ImportError(
+                "TransformerBackbone requires pyhighlights[transformers]"
+            ) from error
 
-        self.transformer = AutoModel.from_pretrained(
-            pretrained_model_name_or_path=pretrained_model_card
-        )
-        self.transformer.resize_token_embeddings(num_features)
+        self.transformer = AutoModel.from_pretrained(pretrained_model_card)
+        if num_features is not None:
+            self.transformer.resize_token_embeddings(num_features)
+        self.transformer.requires_grad_(not freeze_transformer)
 
-        self.freeze_transformer = freeze_transformer
-        if freeze_transformer:
-            for module in self.transformer.modules():
-                for param in module.parameters():
-                    param.requires_grad = False
-        else:
-            self.transformer.train()
+    @property
+    def output_size(self) -> int:
+        return self.transformer.config.hidden_size
 
-    def forward(self, features: th.Tensor, mask: th.Tensor) -> th.Tensor:
-        # features:     [bs, F]
-        # mask:         [bs, F]
-
-        # [bs, F, d]
-        return self.transformer(
-            input_ids=features, attention_mask=mask
+    def encode(
+        self,
+        features: th.Tensor,
+        mask: th.Tensor,
+        selection_mask: th.Tensor | None = None,
+    ) -> th.Tensor:
+        attention_mask = mask if selection_mask is None else mask * selection_mask
+        states = self.transformer(
+            input_ids=features, attention_mask=attention_mask
         ).last_hidden_state
+        return states * mask.to(states.dtype).unsqueeze(-1)
+
+    def pool(self, states: th.Tensor, mask: th.Tensor) -> th.Tensor:
+        float_mask = mask.to(states.dtype).unsqueeze(-1)
+        return (states * float_mask).sum(dim=1) / float_mask.sum(dim=1).clamp_min(1)
 
 
-class TransformerEncoder(SPPEncoder):
-    def encode_features(self, embeddings: th.Tensor) -> th.Tensor:
-        # [bs, F, d]
-        return embeddings
-
-    def pool_encodings(self, encodings: th.Tensor, mask: th.Tensor) -> th.Tensor:
-        # encodings:    [bs, F, d]
-        # mask:         [bs, F]
-
-        # [bs, d]
-        pooled_encodings = (encodings * mask[:, :, None]).sum(dim=1) / mask.sum(dim=1)[
-            :, None
-        ]
-        return pooled_encodings
+def _mlp(sizes: List[int]) -> th.nn.Sequential:
+    layers: List[th.nn.Module] = []
+    for index, (source, target) in enumerate(zip(sizes, sizes[1:])):
+        layers.append(th.nn.Linear(source, target))
+        if index < len(sizes) - 2:
+            layers.append(th.nn.GELU())
+    return th.nn.Sequential(*layers)
 
 
-class TransformerSelector(SPPSelector):
-    def __init__(self, hidden_sizes: List[int]):
+class MLPSelector(SPPSelector):
+    def __init__(self, input_size: int, hidden_sizes: List[int]):
         super().__init__()
+        self.selector = _mlp([input_size, *hidden_sizes, 2])
 
-        self.selector = th.nn.Sequential()
-        for input_size, hidden_size in zip(hidden_sizes[:-1], hidden_sizes[1:]):
-            self.selector.append(th.nn.Linear(input_size, hidden_size))
-        self.selector.append(th.nn.Linear(hidden_sizes[-1], 2))
-
-    def forward(self, encodings: th.Tensor) -> th.Tensor:
-        # [bs, F, d]
-
-        # [bs, F, 2]
-        return self.selector(encodings)
+    def forward(self, states: th.Tensor) -> th.Tensor:
+        return self.selector(states)
 
 
-class TransformerPredictor(SPPPredictor):
-    def __init__(self, hidden_sizes: List[int], num_classes: int):
+class MLPPredictor(SPPPredictor):
+    def __init__(self, input_size: int, hidden_sizes: List[int], num_classes: int):
         super().__init__()
+        self.predictor = _mlp([input_size, *hidden_sizes, num_classes])
 
-        self.predictor = th.nn.Sequential()
-        for input_size, hidden_size in zip(hidden_sizes[:-1], hidden_sizes[1:]):
-            self.predictor.append(th.nn.Linear(input_size, hidden_size))
-        self.predictor.append(th.nn.Linear(hidden_sizes[-1], num_classes))
-
-    def forward(self, encodings: th.Tensor) -> th.Tensor:
-        # [bs, d]
-
-        # [bs, C]
-        return self.predictor(encodings)
+    def forward(self, states: th.Tensor) -> th.Tensor:
+        return self.predictor(states)

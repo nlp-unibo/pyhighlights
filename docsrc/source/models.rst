@@ -1,0 +1,33 @@
+Models
+======
+
+Algorithms depend on ``SPPBackbone`` rather than GRU or Transformer details.
+Output tensors retain a stable head dimension.
+
+Base contracts
+--------------
+
+.. automodule:: pyhighlights.components.models.spp.base
+   :members:
+   :show-inheritance:
+
+Algorithms
+----------
+
+.. automodule:: pyhighlights.components.models.spp.fr
+   :members:
+
+.. automodule:: pyhighlights.components.models.spp.mgr
+   :members:
+
+.. automodule:: pyhighlights.components.models.spp.mcd
+   :members:
+
+.. automodule:: pyhighlights.components.models.spp.grat
+   :members:
+
+Backends
+--------
+
+.. automodule:: pyhighlights.components.models.spp.implementations
+   :members:

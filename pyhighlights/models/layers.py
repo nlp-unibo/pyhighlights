@@ -1,10 +1,8 @@
 import torch as th
 
+
 class AttentionPooling(th.nn.Module):
-    def __init__(
-            self,
-            in_dim: int,
-            hidden_size: int):
+    def __init__(self, in_dim: int, hidden_size: int):
         """
         AttentionPoolingBlock
         """
@@ -13,21 +11,15 @@ class AttentionPooling(th.nn.Module):
             th.nn.Linear(in_dim, hidden_size),
             th.nn.LayerNorm(hidden_size),
             th.nn.GELU(),
-            th.nn.Linear(hidden_size, 1)
+            th.nn.Linear(hidden_size, 1),
         )
         self._weights = None
 
     @property
-    def attn_weights(
-            self
-    ):
+    def attn_weights(self):
         return self._weights
 
-    def forward(
-            self,
-            hidden_states: th.Tensor,
-            mask: th.Tensor | None = None
-    ):
+    def forward(self, hidden_states: th.Tensor, mask: th.Tensor | None = None):
         """
         :param hidden_states: [batch,seq_len,dim]
         :param mask: bool tensor [batch,seq_len]
@@ -45,11 +37,7 @@ class AttentionPooling(th.nn.Module):
 
 
 class FactorAnnealer:
-    def __init__(
-            self,
-            factor: float,
-            decay_callback
-    ):
+    def __init__(self, factor: float, decay_callback):
         self.factor = factor
         self.decay_callback = decay_callback
         self.current_step = 0
