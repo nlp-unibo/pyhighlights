@@ -92,8 +92,7 @@ def test_transformer_registrations_are_algorithm_interchangeable(monkeypatch):
         assert not output.highlight_mask[:, :, 3].any()
 
     th.manual_seed(0)
-    classification_output = next(fr(batch).unbind(dim=1))
-    classification_loss = fr.losses[0](batch, classification_output)
+    classification_loss = fr.losses[0](fr.head_namespace(batch, fr(batch)))
     classification_loss.backward()
     selector_gradient = fr.selectors[0].selector[-1].weight.grad
     assert selector_gradient is not None

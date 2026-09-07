@@ -6,7 +6,6 @@ from typing import Dict, List, Literal, Tuple
 import lightning as L
 import torch as th
 from cinnamon.registry import RegistrationKey, Registry
-from torchmetrics import Metric, MetricCollection
 
 from pyhighlights.components.models.data import (
     InputData,
@@ -14,8 +13,8 @@ from pyhighlights.components.models.data import (
     OutputData,
     SPPOutput,
 )
-from pyhighlights.utility.losses import Loss, build_losses
-from pyhighlights.utility.metrics import build_torchmetrics
+from pyhighlights.utility.losses import Loss, build_losses, compute_losses
+from pyhighlights.utility.metrics import BoundMetric, build_metrics
 
 Split = Literal["train", "val", "test"]
 
@@ -29,9 +28,9 @@ class Model(L.LightningModule, abc.ABC):
         name: str,
         losses: List[RegistrationKey[Loss]],
         optimizer: RegistrationKey[th.optim.Optimizer],
-        train_metrics: Dict[str, RegistrationKey[Metric]] | None = None,
-        val_metrics: Dict[str, RegistrationKey[Metric]] | None = None,
-        test_metrics: Dict[str, RegistrationKey[Metric]] | None = None,
+        train_metrics: List[RegistrationKey[BoundMetric]] | None = None,
+        val_metrics: List[RegistrationKey[BoundMetric]] | None = None,
+        test_metrics: List[RegistrationKey[BoundMetric]] | None = None,
     ):
         super().__init__()
 
@@ -39,9 +38,9 @@ class Model(L.LightningModule, abc.ABC):
         self.name = name
         self.optimizer = optimizer
 
-        self.train_metrics = self._build_metrics(train_metrics)
-        self.val_metrics = self._build_metrics(val_metrics)
-        self.test_metrics = self._build_metrics(test_metrics)
+        self.train_metrics = build_metrics(train_metrics)
+        self.val_metrics = build_metrics(val_metrics)
+        self.test_metrics = build_metrics(test_metrics)
         self.losses = th.nn.ModuleList(build_losses(keys=losses))
 
         self.store_predictions = False
@@ -51,12 +50,6 @@ class Model(L.LightningModule, abc.ABC):
             "val": self.validation_forward,
             "test": self.test_forward,
         }
-
-    @staticmethod
-    def _build_metrics(
-        keys: Dict[str, RegistrationKey[Metric]] | None,
-    ) -> MetricCollection | None:
-        return build_torchmetrics(keys) if keys is not None else None
 
     def ignore_hyperparameters(self) -> List[str]:
         return []
@@ -70,21 +63,23 @@ class Model(L.LightningModule, abc.ABC):
     def flush_predictions(self):
         self.predictions.clear()
 
+    def namespace(
+        self, input_data: InputData, output_data: OutputData, **extra: th.Tensor
+    ) -> Dict[str, th.Tensor]:
+        """Fields losses and metrics can bind to, latest definition winning."""
+        return {**input_data.as_dict(), **output_data.as_dict(), **extra}
+
     def update_metrics(
         self, split: Split, input_data: InputData, output_data: OutputData
     ):
-        metrics: MetricCollection | None = getattr(self, f"{split}_metrics")
-        if metrics is not None:
-            metrics.update(output_data.class_logits, input_data.y_true)
+        values = self.namespace(input_data, output_data)
+        for metric in getattr(self, f"{split}_metrics"):
+            metric.update(values)
 
     def compute_metrics(self, split: Split):
-        metrics: MetricCollection | None = getattr(self, f"{split}_metrics")
-        if metrics is None:
-            return
-
-        for key, value in metrics.compute().items():
-            self.log(f"{split}_{key}", value, prog_bar=True)
-        metrics.reset()
+        for metric in getattr(self, f"{split}_metrics"):
+            self.log(f"{split}_{metric.name}", metric.compute(), prog_bar=True)
+            metric.reset()
 
     def on_train_epoch_end(self) -> None:
         self.compute_metrics(split="train")
@@ -165,14 +160,4 @@ class Model(L.LightningModule, abc.ABC):
         input_data: InputData,
         output_data: OutputData,
     ) -> Tuple[th.Tensor, Dict[str, th.Tensor]]:
-        total_loss = output_data.class_logits.new_zeros(())
-        losses = {}
-
-        for loss in self.losses:
-            if not loss.enabled:
-                continue
-            loss_value = loss(input_data=input_data, output_data=output_data)
-            total_loss = total_loss + loss_value * loss.coefficient
-            losses[loss.name] = loss_value
-
-        return total_loss, losses
+        return compute_losses(self.losses, self.namespace(input_data, output_data))

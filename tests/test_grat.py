@@ -51,7 +51,8 @@ def test_registered_gru_grat_guidance_and_staged_training():
     assert all(parameter.grad is None for parameter in model.guider.parameters())
 
     model.zero_grad(set_to_none=True)
-    guider_total = model.guider_loss(data, model.guider(data))
+    guider_total, guider_losses = model.guider_loss(data, model.guider(data))
+    assert set(guider_losses) == {"classification"}
     guider_total.backward()
     assert any(parameter.grad is not None for parameter in model.guider.parameters())
     assert all(parameter.grad is None for parameter in model.selectors.parameters())

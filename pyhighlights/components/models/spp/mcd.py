@@ -3,7 +3,7 @@ from typing import Dict, List, Tuple
 import torch as th
 from cinnamon.registry import RegistrationKey, Registry
 
-from pyhighlights.components.models.base import InputData, OutputData
+from pyhighlights.components.models.base import InputData
 from pyhighlights.components.models.data import SPPOutput
 from pyhighlights.components.models.spp.base import (
     SPP,
@@ -11,11 +11,18 @@ from pyhighlights.components.models.spp.base import (
     SPPPredictor,
     SPPSelector,
 )
-from pyhighlights.utility.losses import KLDiv, Loss
+from pyhighlights.utility.losses import Loss, build_losses, compute_losses
 
 
 class MCD(SPP):
-    """Rationalizer trained against selected-input and full-input predictions."""
+    """Rationalizer trained against selected-input and full-input predictions.
+
+    Losses are grouped per training phase: ``rationale_losses`` apply to both
+    phases, ``predictor_losses`` only to the predictor phase and
+    ``generator_losses`` only to the generator phase. Evaluation reports every
+    group. Each namespace exposes ``full_class_logits`` next to the
+    selected-input fields.
+    """
 
     def __init__(
         self,
@@ -23,36 +30,31 @@ class MCD(SPP):
         selectors: RegistrationKey[SPPSelector],
         predictor: RegistrationKey[SPPPredictor],
         predictor_backbone: RegistrationKey[SPPBackbone] | None,
-        classification_loss: RegistrationKey[Loss],
         rationale_losses: List[RegistrationKey[Loss]],
-        discrepancy_coefficient: float = 1.0,
+        predictor_losses: List[RegistrationKey[Loss]],
+        generator_losses: List[RegistrationKey[Loss]],
         **kwargs,
     ):
         if predictor_backbone is None:
             raise ValueError("MCD requires a separate predictor backbone")
-        if discrepancy_coefficient < 0:
-            raise ValueError("discrepancy_coefficient must be non-negative")
         super().__init__(
             selector_backbones=selector_backbones,
             selectors=selectors,
             predictor=predictor,
             predictor_backbone=predictor_backbone,
-            losses=[classification_loss, *rationale_losses],
+            losses=[],
             **kwargs,
         )
         if len(self.selectors) != 1:
             raise ValueError("MCD requires exactly one selector")
-        self.discrepancy = KLDiv()
-        self.discrepancy_coefficient = discrepancy_coefficient
+
+        self.rationale_losses = th.nn.ModuleList(build_losses(rationale_losses))
+        self.predictor_losses = th.nn.ModuleList(build_losses(predictor_losses))
+        self.generator_losses = th.nn.ModuleList(build_losses(generator_losses))
+        self.losses = th.nn.ModuleList(
+            [*self.rationale_losses, *self.predictor_losses, *self.generator_losses]
+        )
         self.automatic_optimization = False
-
-    @property
-    def classification_loss(self) -> Loss:
-        return self.losses[0]
-
-    @property
-    def rationale_losses(self):
-        return self.losses[1:]
 
     def predict_full(self, data: InputData) -> th.Tensor:
         return self.predict(data=data, highlight_mask=data.mask)
@@ -69,53 +71,31 @@ class MCD(SPP):
             highlight_mask=highlight_mask.unsqueeze(1),
         )
 
-    def _rationale_loss(
-        self, input_data: InputData, output_data: SPPOutput
-    ) -> Tuple[th.Tensor, Dict[str, th.Tensor]]:
-        head_output = next(output_data.unbind(dim=1))
-        total = output_data.class_logits.new_zeros(())
-        values = {}
-        for loss in self.rationale_losses:
-            if not loss.enabled:
-                continue
-            value = loss(input_data=input_data, output_data=head_output)
-            total = total + value * loss.coefficient
-            values[loss.name] = value
-        return total, values
-
-    def _classification_loss(
-        self, input_data: InputData, class_logits: th.Tensor
-    ) -> th.Tensor:
-        return self.classification_loss(
-            input_data=input_data,
-            output_data=OutputData(class_logits=class_logits),
-        )
-
-    def classifier_phase_loss(
-        self, input_data: InputData
-    ) -> Tuple[th.Tensor, Dict[str, th.Tensor], SPPOutput]:
+    def phase_forward(
+        self, input_data: InputData, detach_selection: bool
+    ) -> Tuple[SPPOutput, Dict[str, th.Tensor]]:
         highlight_logits, highlight_mask = self.select(
             data=input_data,
             selector=self.selectors[0],
             backbone=self.selector_backbones[0],
         )
-        selected_logits = self.predict(input_data, highlight_mask.detach())
-        output = self._output(selected_logits, highlight_logits, highlight_mask)
-        rationale_total, values = self._rationale_loss(input_data, output)
-
-        selected = self._classification_loss(input_data, selected_logits)
-        full = self._classification_loss(input_data, self.predict_full(input_data))
-        coefficient = self.classification_loss.coefficient
-        total = rationale_total + coefficient * (selected + full)
-        return (
-            total,
-            {
-                **values,
-                "selected_classification": selected,
-                "full_classification": full,
-            },
-            output,
+        selection = highlight_mask.detach() if detach_selection else highlight_mask
+        output = self._output(
+            self.predict(input_data, selection), highlight_logits, highlight_mask
         )
+        values = self.head_namespace(
+            input_data, output, full_class_logits=self.predict_full(input_data)
+        )
+        return output, values
+
+    def classifier_phase_loss(
+        self, input_data: InputData
+    ) -> Tuple[th.Tensor, Dict[str, th.Tensor], SPPOutput]:
+        output, values = self.phase_forward(input_data, detach_selection=True)
+        total, losses = compute_losses(
+            [*self.rationale_losses, *self.predictor_losses], values
+        )
+        return total, losses, output
 
     def generator_phase_loss(
         self, input_data: InputData
@@ -128,18 +108,11 @@ class MCD(SPP):
         for parameter in predictor_parameters:
             parameter.requires_grad_(False)
         try:
-            highlight_logits, highlight_mask = self.select(
-                data=input_data,
-                selector=self.selectors[0],
-                backbone=self.selector_backbones[0],
+            output, values = self.phase_forward(input_data, detach_selection=False)
+            total, losses = compute_losses(
+                [*self.rationale_losses, *self.generator_losses], values
             )
-            selected_logits = self.predict(input_data, highlight_mask)
-            full_logits = self.predict_full(input_data)
-            output = self._output(selected_logits, highlight_logits, highlight_mask)
-            rationale_total, values = self._rationale_loss(input_data, output)
-            discrepancy = self.discrepancy(selected_logits, full_logits)
-            total = rationale_total + discrepancy * self.discrepancy_coefficient
-            return total, {**values, "discrepancy": discrepancy}, output
+            return total, losses, output
         finally:
             for parameter, enabled in zip(predictor_parameters, requires_grad):
                 parameter.requires_grad_(enabled)
@@ -149,20 +122,10 @@ class MCD(SPP):
     ) -> Tuple[th.Tensor, Dict[str, th.Tensor]]:
         if output_data.class_logits.shape[1] != 1:
             raise ValueError("MCD output must contain exactly one head")
-        selected_logits = output_data.class_logits[:, 0]
-        selected = self._classification_loss(input_data, selected_logits)
-        rationale_total, values = self._rationale_loss(input_data, output_data)
-        discrepancy = self.discrepancy(selected_logits, self.predict_full(input_data))
-        total = (
-            selected * self.classification_loss.coefficient
-            + rationale_total
-            + discrepancy * self.discrepancy_coefficient
+        values = self.head_namespace(
+            input_data, output_data, full_class_logits=self.predict_full(input_data)
         )
-        return total, {
-            **values,
-            "selected_classification": selected,
-            "discrepancy": discrepancy,
-        }
+        return compute_losses(self.losses, values)
 
     def configure_optimizers(self):
         generator_parameters = [

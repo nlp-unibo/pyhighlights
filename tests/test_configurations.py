@@ -80,7 +80,8 @@ def test_registered_gru_mcd_alternates_generator_and_predictor_updates():
 
     for loss in model.rationale_losses:
         loss.enabled = False
-    classifier_total, _, _ = model.classifier_phase_loss(batch)
+    classifier_total, classifier_losses, _ = model.classifier_phase_loss(batch)
+    assert set(classifier_losses) == {"classification", "full_classification"}
     classifier_total.backward()
     assert all(
         parameter.grad is None for parameter in model.selector_backbone.parameters()
@@ -90,7 +91,8 @@ def test_registered_gru_mcd_alternates_generator_and_predictor_updates():
     model.zero_grad(set_to_none=True)
     for loss in model.rationale_losses:
         loss.enabled = True
-    generator_total, _, _ = model.generator_phase_loss(batch)
+    generator_total, generator_losses, _ = model.generator_phase_loss(batch)
+    assert set(generator_losses) == {"sparsity", "contiguity", "discrepancy"}
     generator_total.backward()
     assert any(
         parameter.grad is not None for parameter in model.selector_backbone.parameters()
