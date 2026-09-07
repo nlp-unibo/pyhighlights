@@ -1,336 +1,219 @@
-from typing import List
+import abc
+import math
+from dataclasses import dataclass
+from typing import Dict, List, Tuple
 
 import torch as th
-from torch.nn.functional import gumbel_softmax
+from cinnamon.registry import RegistrationKey, Registry
 
+from pyhighlights.components.models.base import InputData, OutputData
+from pyhighlights.components.models.data import SPPOutput
 from pyhighlights.components.models.spp.base import (
     SPP,
-    SPPInputData,
-    SPPEmbedder,
-    SPPEncoder,
+    SPPBackbone,
     SPPPredictor,
+    SPPSelector,
 )
-from pyhighlights.components.models.spp.implementations import (
-    GRUEmbedder,
-    GRUEncoder,
-    GRUPredictor,
-    GRUSelector,
-    TransformerEmbedder,
-    TransformerEncoder,
-    TransformerPredictor,
-    TransformerSelector,
-)
-from pyhighlights.models.layers import AttentionPooling
+from pyhighlights.utility.losses import JSDiv, Loss
+
+
+@dataclass
+class GRATGuiderOutput:
+    attention: th.Tensor
+    class_logits: th.Tensor
+
+
+class GRATGuider(th.nn.Module, abc.ABC):
+    @abc.abstractmethod
+    def forward(self, data: InputData) -> GRATGuiderOutput:
+        """Return normalized token attention [B, T] and logits [B, C]."""
+
+
+class AttentionGuider(GRATGuider):
+    """Backbone-independent attention classifier used to guide G-RAT."""
+
+    def __init__(
+        self,
+        backbone: RegistrationKey[SPPBackbone],
+        predictor: RegistrationKey[SPPPredictor],
+        noise_sigma: float = 1.0,
+    ):
+        super().__init__()
+        if not math.isfinite(noise_sigma) or noise_sigma < 0:
+            raise ValueError("noise_sigma must be finite and non-negative")
+        self.backbone = Registry.from_key(backbone, expected_type=SPPBackbone)
+        self.attention = th.nn.Linear(self.backbone.output_size, 1)
+        self.predictor = Registry.from_key(
+            predictor,
+            expected_type=SPPPredictor,
+            input_size=self.backbone.output_size,
+        )
+        self.noise_sigma = noise_sigma
+
+    def forward(self, data: InputData) -> GRATGuiderOutput:
+        valid = data.mask.bool()
+        states = self.backbone.encode(data.features, data.mask)
+        scores = self.attention(states).squeeze(-1)
+        if self.training and self.noise_sigma:
+            scores = scores + th.randn_like(scores).abs() * self.noise_sigma
+        scores = scores.masked_fill(~valid, -th.inf)
+        scores = th.where(valid.any(dim=1, keepdim=True), scores, th.zeros_like(scores))
+        attention = th.softmax(scores, dim=1) * valid.to(scores.dtype)
+        pooled = (states * attention.unsqueeze(-1)).sum(dim=1)
+        return GRATGuiderOutput(
+            attention=attention,
+            class_logits=self.predictor(pooled),
+        )
 
 
 class GRAT(SPP):
-    def __init__(self, temperature: float = 1.0, **kwargs):
-        super().__init__(**kwargs)
+    """Guider-regularized rationalizer with staged optimization."""
 
-        self.temperature = temperature
-
-    def select_activation(
+    def __init__(
         self,
-        highlight_logits: th.Tensor,
-    ) -> th.Tensor:
-        # highlight_logits: [bs, F, 2]
+        selector_backbones: RegistrationKey[SPPBackbone],
+        selectors: RegistrationKey[SPPSelector],
+        predictor: RegistrationKey[SPPPredictor],
+        predictor_backbone: RegistrationKey[SPPBackbone] | None,
+        guider: RegistrationKey[GRATGuider],
+        classification_loss: RegistrationKey[Loss],
+        rationale_losses: List[RegistrationKey[Loss]],
+        pretrain_epochs: int = 10,
+        guide_coefficient: float = 1.0,
+        jsd_coefficient: float = 1.0,
+        guide_decay: float = 1e-4,
+        **kwargs,
+    ):
+        if predictor_backbone is None:
+            raise ValueError("G-RAT requires a separate predictor backbone")
+        values = (guide_coefficient, jsd_coefficient, guide_decay)
+        if any(not math.isfinite(value) or value < 0 for value in values):
+            raise ValueError("G-RAT coefficients must be finite and non-negative")
+        if pretrain_epochs < 0:
+            raise ValueError("pretrain_epochs must be non-negative")
+        super().__init__(
+            selector_backbones=selector_backbones,
+            selectors=selectors,
+            predictor=predictor,
+            predictor_backbone=predictor_backbone,
+            losses=[classification_loss, *rationale_losses],
+            **kwargs,
+        )
+        if len(self.selectors) != 1:
+            raise ValueError("G-RAT requires exactly one selector")
+        self.guider = Registry.from_key(guider, expected_type=GRATGuider)
+        self.pretrain_epochs = pretrain_epochs
+        self.guide_coefficient = guide_coefficient
+        self.jsd_coefficient = jsd_coefficient
+        self.guide_decay = guide_decay
+        self.jsd = JSDiv()
+        self.register_buffer("_model_steps", th.zeros((), dtype=th.long))
+        self.automatic_optimization = False
 
-        # [bs, F]
-        return gumbel_softmax(logits=highlight_logits, tau=self.temperature, hard=True)[
-            :, :, 1
+    @property
+    def classification_loss(self) -> Loss:
+        return self.losses[0]
+
+    @property
+    def guide_factor(self) -> float:
+        completed_decay_steps = max(self._model_steps.item() - 1, 0)
+        return max(1.0 - completed_decay_steps * self.guide_decay, 0.0)
+
+    def guider_loss(
+        self, input_data: InputData, output_data: GRATGuiderOutput
+    ) -> th.Tensor:
+        return self.classification_loss(
+            input_data=input_data,
+            output_data=OutputData(class_logits=output_data.class_logits),
+        )
+
+    def guide_target(self, attention: th.Tensor, mask: th.Tensor) -> th.Tensor:
+        valid = mask.bool()
+        count = valid.sum(dim=1, keepdim=True).clamp_min(1)
+        mean = (attention * valid).sum(dim=1, keepdim=True) / count
+        scaling = mean + 1 / (1 + count)
+        return (attention / scaling.clamp_min(1e-8)).clamp_max(1) * valid
+
+    def model_loss(
+        self,
+        input_data: InputData,
+        output_data: SPPOutput,
+        guider_output: GRATGuiderOutput,
+    ) -> Tuple[th.Tensor, Dict[str, th.Tensor]]:
+        total, losses = super().compute_loss(input_data, output_data)
+        valid = input_data.mask.bool()
+        guide_target = self.guide_target(
+            guider_output.attention.detach(), input_data.mask
+        )
+        selection_logits = output_data.highlight_logits[:, 0, :, 1]
+        if valid.any():
+            guide = th.nn.functional.binary_cross_entropy_with_logits(
+                selection_logits[valid], guide_target[valid]
+            )
+        else:
+            guide = selection_logits.sum() * 0
+        jsd = self.jsd(
+            output_data.class_logits[:, 0], guider_output.class_logits.detach()
+        )
+        factor = self.guide_factor
+        total = (
+            total
+            + guide * self.guide_coefficient * factor
+            + jsd * self.jsd_coefficient * (1 - factor)
+        )
+        return total, {**losses, "guide": guide, "jsd": jsd}
+
+    def compute_loss(
+        self, input_data: InputData, output_data: SPPOutput
+    ) -> Tuple[th.Tensor, Dict[str, th.Tensor]]:
+        with th.no_grad():
+            guider_output = self.guider(input_data)
+        return self.model_loss(input_data, output_data, guider_output)
+
+    def configure_optimizers(self):
+        model_parameters = [
+            *self.selector_backbones.parameters(),
+            *self.selectors.parameters(),
+            *self.predictor_backbone.parameters(),
+            *self.predictor.parameters(),
+        ]
+        return [
+            Registry.from_key(self.optimizer, params=self.guider.parameters()),
+            Registry.from_key(self.optimizer, params=model_parameters),
         ]
 
+    def training_step(self, batch: InputData, batch_idx: int):
+        guider_optimizer, model_optimizer = self.optimizers()
+        guider_optimizer.zero_grad()
+        guider_output = self.guider(batch)
+        guider_total = self.guider_loss(batch, guider_output)
+        self.manual_backward(guider_total)
+        guider_optimizer.step()
+        guider_optimizer.zero_grad()
 
-class GRATGuiderConverter(th.nn.Module):
-    def __init__(
-        self, embedding_dim: int, encoder_output_dim: int, hidden_sizes: List[int]
-    ):
-        super().__init__()
+        output = self(batch)
+        was_training = self.guider.training
+        self.guider.eval()
+        with th.no_grad():
+            guider_output = self.guider(batch)
+        self.guider.train(was_training)
+        model_total, model_losses = self.model_loss(batch, output, guider_output)
 
-        self.guider = th.nn.Sequential()
+        if self.current_epoch >= self.pretrain_epochs:
+            model_optimizer.zero_grad()
+            self.manual_backward(model_total)
+            model_optimizer.step()
+            model_optimizer.zero_grad()
+            self._model_steps.add_(1)
 
-        hidden_sizes.insert(0, embedding_dim)
-        hidden_sizes.append(encoder_output_dim)
-        for input_size, hidden_size in zip(hidden_sizes[:-1], hidden_sizes[1:]):
-            self.guider.append(th.nn.Linear(input_size, hidden_size))
-
-    def forward(self, embeddings: th.Tensor) -> th.Tensor:
-        # [bs, F, d]
-
-        # [bs, F, d_2]
-        return self.guider(embeddings)
-
-
-class GRATGuiderAttention(th.nn.Module):
-    def __init__(self, encoder_output_dim: int, hidden_sizes: List[int]):
-        super().__init__()
-
-        self.attention = th.nn.Sequential()
-
-        hidden_sizes.insert(0, encoder_output_dim)
-        hidden_sizes.append(1)
-        for input_size, hidden_size in zip(hidden_sizes[:-1], hidden_sizes[1:]):
-            self.attention.append(th.nn.Linear(input_size, hidden_size))
-            self.attention.append(th.nn.GELU())
-
-    def forward(self, encodings: th.Tensor) -> th.Tensor:
-        # [bs, F, d]
-
-        # [bs, F, 1]
-        return self.attention(encodings)
-
-
-class GRATGuiderProjector(th.nn.Module):
-    def __init__(self, encoder_output_dim: int, hidden_sizes: List[int]):
-        super().__init__()
-
-        self.projector = th.nn.Sequential()
-
-        hidden_sizes.insert(0, encoder_output_dim)
-        hidden_sizes.append(encoder_output_dim)
-        for input_size, hidden_size in zip(hidden_sizes[:-1], hidden_sizes[1:]):
-            self.projector.append(th.nn.Linear(input_size, hidden_size))
-            self.projector.append(th.nn.GELU())
-
-    def forward(self, encodings: th.Tensor, attention_weights: th.Tensor) -> th.Tensor:
-        # encodings:            [bs, F, d]
-        # attention_weights:    [bs, F, 1]
-
-        # [bs, F, 1]
-        return self.projector(encodings * attention_weights)
-
-
-class GRATGuider(th.nn.Module):
-    def __init__(
-        self,
-        embedder: SPPEmbedder,
-        converter: GRATGuiderConverter,
-        encoder: SPPEncoder,
-        attention: GRATGuiderAttention,
-        projector: GRATGuiderProjector,
-        pooler: AttentionPooling,
-        predictor: SPPPredictor,
-        noise_sigma=1.0,
-        temperature=1.0,
-    ):
-        super().__init__()
-
-        self.embedder = embedder
-        self.converter = converter
-        self.encoder = encoder
-        self.attention = attention
-        self.projector = projector
-        self.pooler = pooler
-        self.predictor = predictor
-
-        self.temperature = temperature
-        self.noise_sigma = noise_sigma
-
-    def forward(self, data: SPPInputData):
-        # data.features:    [bs, F]
-        # data.mask:        [bs, F]
-
-        bool_mask = data.mask.to(th.bool)
-
-        # [bs, F, d]
-        embeddings = self.embedder.forward(features=data.features, mask=data.mask)
-
-        # [bs, F, d_2]
-        input_states = self.converter.forward(embeddings=embeddings)
-
-        # [bs, F, d_2]
-        encodings = self.encoder(embeddings=embeddings)
-        encodings = self.layer_norm(encodings + input_states)
-
-        # [bs, F, 1]
-        highlight_mask = self.attention.forward(encodings=encodings)
-        highlight_mask = highlight_mask.masked_fill_(
-            ~bool_mask[:, :, None], th.finfo(th.float).min
+        total = model_total.detach()
+        self.log_metrics(
+            split="train",
+            total_loss=total,
+            losses={"guider_classification": guider_total, **model_losses},
+            batch_size=batch.y_true.shape[0],
         )
-
-        if self.training:
-            # [bs, F, 1]
-            attention_noises = th.normal(
-                0,
-                self.noise_sigma,
-                highlight_mask.size(),
-                device=highlight_mask.device,
-                dtype=highlight_mask.dtype,
-            )
-            attention_noises = th.abs(attention_noises).masked_fill_(
-                ~bool_mask[:, :, None], th.finfo(th.float).min
-            )
-            highlight_mask += attention_noises
-
-        # [bs, F, 1]
-        highlight_mask = th.nn.functional.softmax(highlight_mask, dim=1)
-
-        # [bs, F, d_2]
-        projected = self.projector.forward(
-            encodings=encodings, attention_weights=highlight_mask
-        )
-
-        final_states = self.pooler.forward(hidden_states=projected, mask=data.mask)
-        predictor_logits = self.predictor.forward(encodings=final_states)
-
-        return highlight_mask, predictor_logits
-
-
-# ---------------------------------------------------------------------------
-# GRU-backed GRAT
-# ---------------------------------------------------------------------------
-
-
-class GRUGRAT(GRAT):
-    def __init__(
-        self,
-        vocab_size: int,
-        embedding_dim: int,
-        encoder_input_size: int,
-        encoder_hidden_size: int,
-        selector_hidden_sizes: List[int],
-        predictor_hidden_sizes: List[int],
-        num_classes: int,
-        embedding_matrix: th.Tensor | None = None,
-        freeze_embeddings: bool = False,
-        num_layers: int = 1,
-        bidirectional: bool = True,
-        dropout_rate=0.0,
-        temperature: float = 1.0,
-    ):
-        embedder = GRUEmbedder(
-            vocab_size=vocab_size,
-            embedding_dim=embedding_dim,
-            embedding_matrix=embedding_matrix,
-            freeze_embeddings=freeze_embeddings,
-        )
-
-        encoder = GRUEncoder(
-            input_size=encoder_input_size,
-            hidden_size=encoder_hidden_size,
-            num_layers=num_layers,
-            bidirectional=bidirectional,
-            dropout_rate=dropout_rate,
-        )
-
-        super().__init__(
-            selector_embedder=embedder,
-            predictor_embedder=embedder,
-            selector_encoder=encoder,
-            predictor_encoder=encoder,
-            selectors=GRUSelector(hidden_sizes=selector_hidden_sizes),
-            predictor=GRUPredictor(
-                hidden_sizes=predictor_hidden_sizes, num_classes=num_classes
-            ),
-            temperature=temperature,
-        )
-
-
-class GRUGRATGuider(GRATGuider):
-    def __init__(
-        self,
-        vocab_size: int,
-        embedding_dim: int,
-        encoder_input_size: int,
-        encoder_hidden_size: int,
-        converter_hidden_sizes: List[int],
-        attention_hidden_sizes: List[int],
-        projector_hidden_sizes: List[int],
-        predictor_hidden_sizes: List[int],
-        num_classes: int,
-        embedding_matrix: th.Tensor | None = None,
-        freeze_embeddings: bool = False,
-        num_layers: int = 1,
-        bidirectional: bool = True,
-        dropout_rate=0.0,
-        noise_sigma=1.0,
-        temperature=1.0,
-    ):
-        embedder = GRUEmbedder(
-            vocab_size=vocab_size,
-            embedding_dim=embedding_dim,
-            embedding_matrix=embedding_matrix,
-            freeze_embeddings=freeze_embeddings,
-        )
-        encoder_output_dim = (
-            encoder_hidden_size * 2 if bidirectional else encoder_hidden_size
-        )
-
-        converter = GRATGuiderConverter(
-            embedding_dim=embedding_dim,
-            encoder_output_dim=encoder_output_dim,
-            hidden_sizes=converter_hidden_sizes,
-        )
-
-        encoder = GRUEncoder(
-            input_size=encoder_input_size,
-            hidden_size=encoder_hidden_size,
-            num_layers=num_layers,
-            bidirectional=bidirectional,
-            dropout_rate=dropout_rate,
-        )
-
-        attention = GRATGuiderAttention(
-            encoder_output_dim=encoder_output_dim, hidden_sizes=attention_hidden_sizes
-        )
-
-        projector = GRATGuiderProjector(
-            encoder_output_dim=encoder_output_dim, hidden_sizes=projector_hidden_sizes
-        )
-
-        pooler = AttentionPooling(
-            in_dim=encoder_output_dim, hidden_size=encoder_output_dim
-        )
-
-        predictor = GRUPredictor(
-            hidden_sizes=predictor_hidden_sizes, num_classes=num_classes
-        )
-
-        super().__init__(
-            embedder=embedder,
-            converter=converter,
-            encoder=encoder,
-            attention=attention,
-            projector=projector,
-            pooler=pooler,
-            predictor=predictor,
-            noise_sigma=noise_sigma,
-            temperature=temperature,
-        )
-
-
-# ---------------------------------------------------------------------------
-# Transformer-backed GRAT
-# ---------------------------------------------------------------------------
-
-
-class TransformerGRAT(GRAT):
-    def __init__(
-        self,
-        pretrained_model_card: str,
-        num_features: int,
-        selector_hidden_sizes: List[int],
-        predictor_hidden_sizes: List[int],
-        num_classes: int,
-        freeze_transformer: bool = False,
-        temperature: float = 1.0,
-    ):
-        embedder = TransformerEmbedder(
-            pretrained_model_card=pretrained_model_card,
-            num_features=num_features,
-            freeze_transformer=freeze_transformer,
-        )
-
-        encoder = TransformerEncoder()
-
-        super().__init__(
-            selector_embedder=embedder,
-            predictor_embedder=embedder,
-            selector_encoder=encoder,
-            predictor_encoder=encoder,
-            selectors=TransformerSelector(hidden_sizes=selector_hidden_sizes),
-            predictor=TransformerPredictor(
-                hidden_sizes=predictor_hidden_sizes, num_classes=num_classes
-            ),
-            temperature=temperature,
-        )
+        self.update_metrics(split="train", input_data=batch, output_data=output)
+        if self.store_predictions:
+            self.predictions.append({**batch.as_numpy(), **output.as_numpy()})
+        return total

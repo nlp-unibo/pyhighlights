@@ -10,29 +10,31 @@ readme = "README.md"
 authors = [
     { name = "Federico Ruggeri", email = "federico.ruggeri6@unibo.it" }
 ]
-license = { text = "MIT" }
+license = "MIT"
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 # Adjust your minimum Python version requirement here if needed
 requires-python = ">=3.10"
 dependencies = [
-    "cinnamon>=1.1.0",
-    "lightning>=2.0.0"
+    "cinnamon-core>=2.0.0,<3",
+    "lightning>=2.0.0",
+    "torch>=2.0.0",
+    "torchmetrics>=1.0.0",
 ]
 
 [project.optional-dependencies]
+transformers = ["transformers>=4.0.0"]
 dev = [
     "pytest>=7.0.0",
     "ruff>=0.15.20",
     "mypy>=1.0.0"
 ]
 
-[tool.setuptools]
-packages = ["pyhighlights"]
+[tool.setuptools.packages.find]
+include = ["pyhighlights*"]
 
 [tool.setuptools.dynamic]
 version = { attr = "pyhighlights.__version__" }
