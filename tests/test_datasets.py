@@ -9,6 +9,7 @@ from pyhighlights.components.datasets import (
     R2ALoader,
     cache_directory,
     extract,
+    remove_leakage,
     to_examples,
 )
 from pyhighlights.configurations.datasets import R2A
@@ -40,6 +41,7 @@ def archive(directory: Path) -> str:
 
 
 def loader(tmp_path: Path, **kwargs) -> R2ALoader:
+    kwargs.setdefault("remove_leakage", False)
     return R2ALoader(
         task="hotel_Location",
         url=archive(tmp_path),
@@ -146,3 +148,41 @@ def test_to_examples_needs_the_standard_columns(tmp_path):
 
     with pytest.raises(AttributeError):
         to_examples(frame)
+
+
+def test_splits_are_leak_free_by_default(tmp_path):
+    source = loader(tmp_path, remove_leakage=True)
+    splits = source.load()
+
+    # Both annotated rows occur in the distributed training split; the
+    # training split also repeats one of its own rows.
+    assert source.removed == {"train": 2, "val": 0, "test": 0}
+    assert len(splits["test"]) == 2
+    assert len(splits["train"]) == 1
+    assert list(splits["train"]["text"]) == ["a room with no windows"]
+    assert list(splits["train"]["sample_id"]) == [0]
+
+    assert (source.check_leakage()["ratio"] == 0).all()
+    assert source.duplicates() == {"train": 0, "val": 0, "test": 0}
+
+
+def test_check_leakage_reports_the_offending_pairs(tmp_path):
+    with pytest.raises(ValueError, match="share rows above the 0.0 tolerance"):
+        loader(tmp_path).check_leakage()
+
+    # The distributed splits leak wholly, so only a full tolerance passes.
+    assert loader(tmp_path).check_leakage(tolerance=1.0) is not None
+
+
+def test_remove_leakage_protects_the_annotated_split(tmp_path):
+    frames = loader(tmp_path).load()
+    repaired = remove_leakage(frames)
+
+    assert list(repaired) == list(frames)
+    assert repaired["test"].equals(frames["test"])
+
+    # Priority is explicit: hand training the annotated rows instead and the
+    # test split is the one that gives them up.
+    reversed_priority = remove_leakage(frames, priority=("train", "val", "test"))
+    assert len(reversed_priority["train"]) == 3
+    assert len(reversed_priority["test"]) == 0

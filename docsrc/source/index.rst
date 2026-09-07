@@ -10,6 +10,7 @@ explainable AI research.
 
    quickstart
    data
+   datasets
    models
    configurations
    contributing

@@ -11,13 +11,18 @@ import tarfile
 import urllib.request
 import zipfile
 from pathlib import Path
-from typing import Dict, List, Mapping
+from typing import Dict, List, Mapping, Sequence
 
 import pandas as pd
 
 from pyhighlights.components.data import HighlightDataset, HighlightExample
 
 COLUMNS = ("sample_id", "text", "tokens", "label", "highlights")
+
+# Priority runs from the split that must stay intact to the one that can
+# afford to lose rows. The annotated split comes first: it is the only one
+# carrying highlights, so it is the one worth protecting.
+PRIORITY = ("test", "val", "train")
 
 R2A_URL = "https://people.csail.mit.edu/yujia/files/r2a/data.zip"
 R2A_TASKS = (
@@ -141,6 +146,52 @@ def _aligned_highlights(flags: str, width: int) -> List[int]:
     return highlights[:width] if surplus and not any(surplus) else highlights
 
 
+def duplicates(
+    splits: Mapping[str, pd.DataFrame],
+    key: str = "text",
+    normalize_keys: bool = True,
+) -> Dict[str, int]:
+    """Count repeated rows inside each split."""
+    return {
+        name: int(
+            (frame[key].map(normalize) if normalize_keys else frame[key])
+            .duplicated()
+            .sum()
+        )
+        for name, frame in splits.items()
+    }
+
+
+def remove_leakage(
+    splits: Mapping[str, pd.DataFrame],
+    priority: Sequence[str] = PRIORITY,
+    key: str = "text",
+    normalize_keys: bool = True,
+) -> Dict[str, pd.DataFrame]:
+    """Return splits sharing no row, walking them in ``priority`` order.
+
+    Each split keeps only rows no earlier split claimed and no earlier row of
+    its own repeated, so the result has neither cross-split leakage nor
+    internal duplicates. Splits missing from ``priority`` are handled last, in
+    their original order, and the returned mapping keeps the input order.
+
+    ``sample_id`` is renumbered, since it indexes rows within a split.
+    """
+    order = [name for name in priority if name in splits]
+    order += [name for name in splits if name not in order]
+
+    seen: set[str] = set()
+    kept = {}
+    for name in order:
+        frame = splits[name]
+        keys = frame[key].map(normalize) if normalize_keys else frame[key]
+        keep = ~keys.isin(seen) & ~keys.duplicated()
+        seen.update(keys[keep])
+        rows = frame[keep].reset_index(drop=True)
+        kept[name] = rows.assign(sample_id=range(len(rows)))
+    return {name: kept[name] for name in splits}
+
+
 def to_examples(frame: pd.DataFrame) -> List[HighlightExample]:
     return [
         HighlightExample(
@@ -161,8 +212,16 @@ class HighlightLoader(abc.ABC):
     ``highlights`` aligned to ``tokens``.
     """
 
-    def __init__(self, directory: str | Path | None = None):
+    def __init__(
+        self,
+        directory: str | Path | None = None,
+        remove_leakage: bool = True,
+        key: str = "text",
+    ):
         self.directory = Path(directory) if directory is not None else cache_directory()
+        self.remove_leakage = remove_leakage
+        self.key = key
+        self.removed: Dict[str, int] = {}
         self._splits: Dict[str, pd.DataFrame] | None = None
 
     @abc.abstractmethod
@@ -170,12 +229,53 @@ class HighlightLoader(abc.ABC):
         """Parse the downloaded corpus into one frame per split."""
 
     def load(self) -> Dict[str, pd.DataFrame]:
+        """Splits as data frames, leak-free unless told otherwise.
+
+        Published splits often overlap — see :class:`R2ALoader` — so by
+        default the loader hands back repaired ones and records what it
+        dropped in :attr:`removed`. Pass ``remove_leakage=False`` to
+        reproduce a corpus exactly as distributed.
+        """
         if self._splits is None:
-            self._splits = self.read()
+            splits = self.read()
+            if self.remove_leakage:
+                repaired = remove_leakage(splits, key=self.key)
+                self.removed = {
+                    name: len(splits[name]) - len(repaired[name]) for name in splits
+                }
+                splits = repaired
+            self._splits = splits
         return self._splits
 
-    def leakage(self, key: str = "text", normalize_keys: bool = True) -> pd.DataFrame:
-        return leakage(self.load(), key=key, normalize_keys=normalize_keys)
+    def leakage(
+        self, key: str | None = None, normalize_keys: bool = True
+    ) -> pd.DataFrame:
+        return leakage(self.load(), key=key or self.key, normalize_keys=normalize_keys)
+
+    def check_leakage(
+        self,
+        key: str | None = None,
+        tolerance: float = 0.0,
+        normalize_keys: bool = True,
+    ) -> pd.DataFrame:
+        """Return the leakage report, raising when a split pair exceeds
+        ``tolerance``.
+
+        Meant to be called in a test or before a run: a corpus that shares
+        rows between train and test reports highlight scores on examples the
+        model was trained on, and nothing downstream can detect that.
+        """
+        report = self.leakage(key=key, normalize_keys=normalize_keys)
+        offending = report[report["ratio"] > tolerance]
+        if not offending.empty:
+            raise ValueError(
+                f"{type(self).__name__} splits share rows above the "
+                f"{tolerance} tolerance:\n{offending.to_string(index=False)}"
+            )
+        return report
+
+    def duplicates(self, key: str | None = None) -> Dict[str, int]:
+        return duplicates(self.load(), key=key or self.key)
 
     def datasets(self) -> Dict[str, HighlightDataset]:
         return {
@@ -190,8 +290,13 @@ class R2ALoader(HighlightLoader):
     ``data/target/<task>.train`` is the only file in the release carrying
     per-token annotation, so it is the default ``test`` split despite its
     name — that is the file this line of work reports highlight scores on.
-    Its rows also appear in the training file, completely so for every Hotel
-    aspect, which :meth:`leakage` quantifies.
+
+    **The distributed splits overlap.** Every one of the 200 annotated rows of
+    each Hotel aspect also appears in that aspect's training file, and Beer
+    keeps about two thirds of its validation split inside training. The
+    default ``remove_leakage=True`` drops the offending training and
+    validation rows, keeping the annotated split whole; ``False`` reproduces
+    the release as distributed, leakage included.
     """
 
     def __init__(

@@ -22,6 +22,7 @@ class R2AConfig(Configuration):
     url: str = Param(R2A_URL)
     sha256: str | None = Param(None)
     directory: str | None = Param(None)
+    remove_leakage: bool = Param(True)
 
     @classmethod
     @register_method(
