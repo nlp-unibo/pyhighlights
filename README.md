@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pyhighlights
 from cinnamon.registry import Registry
-from pyhighlights.configurations.spp import (
+from pyhighlights.configurations.keys import (
     GRU_FR,
     GRU_GRAT,
     GRU_MCD,

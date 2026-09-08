@@ -55,19 +55,3 @@ class InputData(ModelData):
 @dataclass
 class OutputData(ModelData):
     class_logits: th.Tensor
-
-    @property
-    def y_pred(self) -> th.Tensor:
-        """Compatibility alias for pre-0.2 code."""
-        return self.class_logits
-
-
-@dataclass
-class SPPOutput(OutputData):
-    highlight_logits: th.Tensor
-    highlight_mask: th.Tensor
-
-    @property
-    def highlight_pred(self) -> th.Tensor:
-        """Compatibility alias for pre-0.2 code."""
-        return self.highlight_mask

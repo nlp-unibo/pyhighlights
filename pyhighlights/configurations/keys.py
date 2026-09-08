@@ -1,0 +1,52 @@
+"""Registration keys every pyhighlights configuration is addressed by."""
+
+from cinnamon.registry import RegistrationKey
+
+NAMESPACE = "pyhighlights"
+
+
+def key(name: str, *tags: str) -> RegistrationKey:
+    return RegistrationKey(name=name, tags=set(tags), namespace=NAMESPACE)
+
+
+R2A = key("dataset", "r2a")
+HATEXPLAIN = key("dataset", "hatexplain")
+ERASER = key("dataset", "eraser")
+TOY = key("dataset", "toy")
+GRU_BACKBONE = key("backbone", "gru")
+GENSPP_GRU_BACKBONE = key("backbone", "genspp", "gru")
+TRANSFORMER_BACKBONE = key("backbone", "transformer")
+GENSPP_TRANSFORMER_BACKBONE = key("backbone", "genspp", "transformer")
+MLP_SELECTOR = key("selector", "mlp")
+MLP_PREDICTOR = key("predictor", "mlp")
+GRU_GUIDER = key("guider", "attention", "gru")
+TRANSFORMER_GUIDER = key("guider", "attention", "transformer")
+CROSS_ENTROPY = key("criterion", "cross_entropy")
+MASKED_CROSS_ENTROPY = key("criterion", "masked_cross_entropy")
+MASKED_BCE = key("criterion", "masked_bce")
+KL_DIV = key("criterion", "kl_div")
+JS_DIV = key("criterion", "js_div")
+SPARSITY_PENALTY = key("criterion", "sparsity")
+CONTIGUITY_PENALTY = key("criterion", "contiguity")
+CLASSIFICATION_LOSS = key("loss", "classification")
+FULL_CLASSIFICATION_LOSS = key("loss", "classification", "full")
+HIGHLIGHT_LOSS = key("loss", "highlight")
+SPARSITY_LOSS = key("loss", "sparsity")
+CONTIGUITY_LOSS = key("loss", "contiguity")
+DISCREPANCY_LOSS = key("loss", "discrepancy")
+GUIDE_LOSS = key("loss", "guide")
+JSD_LOSS = key("loss", "jsd")
+ADAM = key("optimizer", "adam")
+GENSPP_ADAM = key("optimizer", "adam", "genspp")
+GRU_FR = key("model", "fr", "gru")
+GRU_GENSPP = key("model", "genspp", "gru")
+GRU_GENSPP_TRAINER = key("trainer", "genspp", "gru")
+GRU_MGR = key("model", "mgr", "gru")
+GRU_MCD = key("model", "mcd", "gru")
+GRU_GRAT = key("model", "grat", "gru")
+TRANSFORMER_FR = key("model", "fr", "transformer")
+TRANSFORMER_GENSPP = key("model", "genspp", "transformer")
+TRANSFORMER_GENSPP_TRAINER = key("trainer", "genspp", "transformer")
+TRANSFORMER_MGR = key("model", "mgr", "transformer")
+TRANSFORMER_MCD = key("model", "mcd", "transformer")
+TRANSFORMER_GRAT = key("model", "grat", "transformer")

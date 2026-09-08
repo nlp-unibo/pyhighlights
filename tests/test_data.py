@@ -16,7 +16,7 @@ from pyhighlights.components import (
     TokenizedExample,
     VocabularyTokenizer,
 )
-from pyhighlights.configurations.spp import GRU_FR
+from pyhighlights.configurations.keys import GRU_FR
 
 
 class SubwordTokenizer:

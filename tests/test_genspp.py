@@ -18,7 +18,7 @@ from pyhighlights.components.models.spp import (
     SPPPredictor,
     SPPSelector,
 )
-from pyhighlights.configurations.spp import GRU_GENSPP, GRU_GENSPP_TRAINER
+from pyhighlights.configurations.keys import GRU_GENSPP, GRU_GENSPP_TRAINER
 
 NAMESPACE = "tests_genspp"
 

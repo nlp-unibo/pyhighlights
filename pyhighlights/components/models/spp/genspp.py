@@ -15,7 +15,17 @@ from pyhighlights.components.models.spp.base import SPP, SPPBackbone, SPPSelecto
 
 
 class GenSPP(SPP):
-    """Single-generator SPP evaluated through external genetic search."""
+    """Single-generator SPP evaluated through external genetic search.
+
+    The generator is not trained by gradient descent: a genetic search over
+    generator parameters scores each candidate by training a fresh predictor
+    on it, which removes the cooperative equilibrium the other SPP models
+    have to fight. See :class:`GenSPPTrainer` for the search itself.
+
+    Ruggeri and Signorelli, 2025, *Interlocking-free Selective Rationalization
+    Through Genetic-based Learning*, ACL 2025, <https://aclanthology.org/2025.acl-long.59/>.
+    Reference implementation: <https://github.com/nlp-unibo/gen-spp>.
+    """
 
     def __init__(self, **kwargs):
         selector_backbones = kwargs.get("selector_backbones")

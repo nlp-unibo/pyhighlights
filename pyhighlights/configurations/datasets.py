@@ -1,26 +1,21 @@
+"""Corpus loader registrations."""
+
 from typing import Dict, List, Sequence
 
 from cinnamon.configuration import Configuration, Param
-from cinnamon.registry import RegistrationKey, register_method
+from cinnamon.registry import register_method
 
-from pyhighlights.components.datasets import (
+from pyhighlights.components.loaders import (
     R2A_TASKS,
     R2A_URL,
     ERASERLoader,
     HateXplainLoader,
 )
 
+#: Namespace cinnamon resolves this module's registrations under. Kept a literal
+#: in every registering module: ``NamespaceExtractor`` reads it statically and only
+#: sees bindings made in the same file.
 NAMESPACE = "pyhighlights"
-
-
-def key(name: str, *tags: str) -> RegistrationKey:
-    return RegistrationKey(name=name, tags=set(tags), namespace=NAMESPACE)
-
-
-R2A = key("dataset", "r2a")
-HATEXPLAIN = key("dataset", "hatexplain")
-ERASER = key("dataset", "eraser")
-TOY = key("dataset", "toy")
 
 
 class LoaderConfig(Configuration):
@@ -48,7 +43,7 @@ class R2AConfig(LoaderConfig):
         name="dataset",
         tags={"r2a"},
         namespace=NAMESPACE,
-        component="pyhighlights.components.datasets.R2ALoader",
+        component="pyhighlights.components.loaders.R2ALoader",
     )
     def default(cls):
         return super().default()
@@ -68,7 +63,7 @@ class HateXplainConfig(LoaderConfig):
         name="dataset",
         tags={"hatexplain"},
         namespace=NAMESPACE,
-        component="pyhighlights.components.datasets.HateXplainLoader",
+        component="pyhighlights.components.loaders.HateXplainLoader",
     )
     def default(cls):
         return super().default()
@@ -87,7 +82,7 @@ class ERASERConfig(LoaderConfig):
         name="dataset",
         tags={"eraser"},
         namespace=NAMESPACE,
-        component="pyhighlights.components.datasets.ERASERLoader",
+        component="pyhighlights.components.loaders.ERASERLoader",
     )
     def default(cls):
         return super().default()
@@ -107,20 +102,16 @@ class ToyConfig(LoaderConfig):
         name="dataset",
         tags={"toy"},
         namespace=NAMESPACE,
-        component="pyhighlights.components.datasets.ToyLoader",
+        component="pyhighlights.components.loaders.ToyLoader",
     )
     def default(cls):
         return super().default()
 
 
 __all__: List[str] = [
-    "ERASER",
     "ERASERConfig",
-    "HATEXPLAIN",
     "HateXplainConfig",
     "LoaderConfig",
-    "R2A",
     "R2AConfig",
-    "TOY",
     "ToyConfig",
 ]

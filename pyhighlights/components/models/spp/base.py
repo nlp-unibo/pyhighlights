@@ -7,8 +7,8 @@ from typing import Dict, List, Tuple, Union
 import torch as th
 from cinnamon.registry import RegistrationKey, Registry
 
-from pyhighlights.components.models.base import InputData, Model, OutputData, Split
-from pyhighlights.components.models.data import SPPOutput
+from pyhighlights.components.models.base import InputData, Model, Split
+from pyhighlights.components.models.spp.data import SPPOutput
 
 
 class SPPBackbone(th.nn.Module, abc.ABC):
@@ -46,8 +46,10 @@ class SPPPredictor(th.nn.Module, abc.ABC):
 
 
 class SPPAggregator(th.nn.Module, abc.ABC):
+    """Collapses the head axis of an ``SPPOutput`` into a single head."""
+
     @abc.abstractmethod
-    def forward(self, output_data: SPPOutput) -> OutputData: ...
+    def forward(self, output_data: SPPOutput) -> SPPOutput: ...
 
 
 class SPPFirstAggregator(SPPAggregator):
@@ -55,7 +57,7 @@ class SPPFirstAggregator(SPPAggregator):
         return next(output_data.unbind(dim=1))
 
 
-class SPP(Model):
+class SPP(Model[SPPOutput]):
     def __init__(
         self,
         selector_backbones: Union[
@@ -137,6 +139,11 @@ class SPP(Model):
         valid = data.mask.bool()
         highlight_mask = highlight_mask * valid.to(highlight_mask.dtype)
 
+        # A sample whose selector marks no valid token would leave the
+        # predictor with an empty input, so the highest-scoring valid token is
+        # selected instead. The fallback is straight-through, keeping the
+        # gradient path to the selector open. GenSPP overrides this: its search
+        # scores empty selections rather than repairing them.
         needs_fallback = valid.any(dim=1) & ~highlight_mask.bool().any(dim=1)
         if needs_fallback.any():
             scores = th.softmax(highlight_logits / self.temperature, dim=-1)[..., 1]

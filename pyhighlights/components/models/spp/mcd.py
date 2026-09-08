@@ -4,18 +4,27 @@ import torch as th
 from cinnamon.registry import RegistrationKey, Registry
 
 from pyhighlights.components.models.base import InputData
-from pyhighlights.components.models.data import SPPOutput
 from pyhighlights.components.models.spp.base import (
     SPP,
     SPPBackbone,
     SPPPredictor,
     SPPSelector,
 )
+from pyhighlights.components.models.spp.data import SPPOutput
 from pyhighlights.utility.losses import Loss, build_losses, compute_losses
 
 
 class MCD(SPP):
     """Rationalizer trained against selected-input and full-input predictions.
+
+    A predictor reading the full input guides the generator: a highlight that
+    d-separates the label from the rest of the input makes the selected-input
+    and full-input predictions agree.
+
+    Liu, Wang, Wang, Li, Deng, Zhang and Qiu, 2023, *D-Separation for Causal
+    Self-Explanation*, NeurIPS 2023.
+    Reference implementation:
+    <https://github.com/jugechengzi/Rationalization-MCD>.
 
     Losses are grouped per training phase: ``rationale_losses`` apply to both
     phases, ``predictor_losses`` only to the predictor phase and
@@ -59,18 +68,6 @@ class MCD(SPP):
     def predict_full(self, data: InputData) -> th.Tensor:
         return self.predict(data=data, highlight_mask=data.mask)
 
-    def _output(
-        self,
-        class_logits: th.Tensor,
-        highlight_logits: th.Tensor,
-        highlight_mask: th.Tensor,
-    ) -> SPPOutput:
-        return SPPOutput(
-            class_logits=class_logits.unsqueeze(1),
-            highlight_logits=highlight_logits.unsqueeze(1),
-            highlight_mask=highlight_mask.unsqueeze(1),
-        )
-
     def phase_forward(
         self, input_data: InputData, detach_selection: bool
     ) -> Tuple[SPPOutput, Dict[str, th.Tensor]]:
@@ -80,8 +77,10 @@ class MCD(SPP):
             backbone=self.selector_backbones[0],
         )
         selection = highlight_mask.detach() if detach_selection else highlight_mask
-        output = self._output(
-            self.predict(input_data, selection), highlight_logits, highlight_mask
+        output = SPPOutput(
+            class_logits=self.predict(input_data, selection).unsqueeze(1),
+            highlight_logits=highlight_logits.unsqueeze(1),
+            highlight_mask=highlight_mask.unsqueeze(1),
         )
         values = self.head_namespace(
             input_data, output, full_class_logits=self.predict_full(input_data)

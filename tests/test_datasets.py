@@ -5,14 +5,9 @@ import pytest
 from cinnamon.registry import Registry
 
 import pyhighlights
-from pyhighlights.components.datasets import (
-    R2ALoader,
-    cache_directory,
-    extract,
-    remove_leakage,
-    to_examples,
-)
-from pyhighlights.configurations.datasets import R2A
+from pyhighlights.components.loaders import R2ALoader, remove_leakage, to_examples
+from pyhighlights.configurations.keys import R2A
+from pyhighlights.utility.io import cache_directory, extract
 
 LABELLED = "task\tlabel\ttext\n"
 ANNOTATED = "task\tlabel\ttext\trationale\tpred_att\n"

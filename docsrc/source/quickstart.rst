@@ -15,7 +15,7 @@ Build registered GRU model from one Cinnamon key:
 
    import pyhighlights
    from cinnamon.registry import Registry
-   from pyhighlights.configurations.spp import GRU_FR
+   from pyhighlights.configurations.keys import GRU_FR
 
    Registry.build(directory=Path(pyhighlights.__file__).parent)
    model = Registry.from_key(GRU_FR)
