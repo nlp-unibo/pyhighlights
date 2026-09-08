@@ -3,7 +3,7 @@
 ## Setup
 
 ```bash
-git clone git@github.com:federicoruggeri/pyhighlights.git
+git clone git@github.com:nlp-unibo/pyhighlights.git
 cd pyhighlights
 python -m venv .venv
 source .venv/bin/activate
