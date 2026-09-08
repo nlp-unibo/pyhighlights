@@ -10,6 +10,7 @@ from pyhighlights.components.models.spp.base import (
     SPPPredictor,
     SPPSelector,
 )
+from pyhighlights.components.models.spp.genspp import GenSPP
 from pyhighlights.components.models.spp.grat import GRATGuider
 from pyhighlights.utility.losses import Loss
 from pyhighlights.utility.metrics import BoundMetric
@@ -22,7 +23,9 @@ def key(name: str, *tags: str) -> RegistrationKey:
 
 
 GRU_BACKBONE = key("backbone", "gru")
+GENSPP_GRU_BACKBONE = key("backbone", "genspp", "gru")
 TRANSFORMER_BACKBONE = key("backbone", "transformer")
+GENSPP_TRANSFORMER_BACKBONE = key("backbone", "genspp", "transformer")
 MLP_SELECTOR = key("selector", "mlp")
 MLP_PREDICTOR = key("predictor", "mlp")
 GRU_GUIDER = key("guider", "attention", "gru")
@@ -43,11 +46,16 @@ DISCREPANCY_LOSS = key("loss", "discrepancy")
 GUIDE_LOSS = key("loss", "guide")
 JSD_LOSS = key("loss", "jsd")
 ADAM = key("optimizer", "adam")
+GENSPP_ADAM = key("optimizer", "adam", "genspp")
 GRU_FR = key("model", "fr", "gru")
+GRU_GENSPP = key("model", "genspp", "gru")
+GRU_GENSPP_TRAINER = key("trainer", "genspp", "gru")
 GRU_MGR = key("model", "mgr", "gru")
 GRU_MCD = key("model", "mcd", "gru")
 GRU_GRAT = key("model", "grat", "gru")
 TRANSFORMER_FR = key("model", "fr", "transformer")
+TRANSFORMER_GENSPP = key("model", "genspp", "transformer")
+TRANSFORMER_GENSPP_TRAINER = key("trainer", "genspp", "transformer")
 TRANSFORMER_MGR = key("model", "mgr", "transformer")
 TRANSFORMER_MCD = key("model", "mcd", "transformer")
 TRANSFORMER_GRAT = key("model", "grat", "transformer")
@@ -73,6 +81,22 @@ class GRUBackboneConfig(Configuration):
         return super().default()
 
 
+class GenSPPGRUBackboneConfig(GRUBackboneConfig):
+    hidden_size: int = Param(16, ge=1)
+    freeze_embeddings: bool = Param(True)
+    bidirectional: bool = Param(False)
+
+    @classmethod
+    @register_method(
+        name="backbone",
+        tags={"genspp", "gru"},
+        namespace=NAMESPACE,
+        component="pyhighlights.components.models.spp.implementations.GRUBackbone",
+    )
+    def default(cls):
+        return super().default()
+
+
 class TransformerBackboneConfig(Configuration):
     pretrained_model_card: str = Param("distilbert-base-uncased")
     num_features: int | None = Param(None, ge=1)
@@ -82,6 +106,20 @@ class TransformerBackboneConfig(Configuration):
     @register_method(
         name="backbone",
         tags={"transformer"},
+        namespace=NAMESPACE,
+        component="pyhighlights.components.models.spp.implementations.TransformerBackbone",
+    )
+    def default(cls):
+        return super().default()
+
+
+class GenSPPTransformerBackboneConfig(TransformerBackboneConfig):
+    freeze_transformer: bool = Param(True)
+
+    @classmethod
+    @register_method(
+        name="backbone",
+        tags={"genspp", "transformer"},
         namespace=NAMESPACE,
         component="pyhighlights.components.models.spp.implementations.TransformerBackbone",
     )
@@ -381,6 +419,20 @@ class AdamConfig(Configuration):
         return super().default()
 
 
+class GenSPPAdamConfig(AdamConfig):
+    lr: float = Param(1e-2, gt=0.0)
+
+    @classmethod
+    @register_method(
+        name="optimizer",
+        tags={"adam", "genspp"},
+        namespace=NAMESPACE,
+        component="torch.optim.Adam",
+    )
+    def default(cls):
+        return super().default()
+
+
 class GRUFRConfig(Configuration):
     name: str = Param("fr")
     selector_backbones: RegistrationKey[SPPBackbone] = Param(GRU_BACKBONE)
@@ -403,6 +455,24 @@ class GRUFRConfig(Configuration):
         tags={"fr", "gru"},
         namespace=NAMESPACE,
         component="pyhighlights.components.models.spp.fr.FR",
+    )
+    def default(cls):
+        return super().default()
+
+
+class GRUGenSPPConfig(GRUFRConfig):
+    name: str = Param("genspp")
+    selector_backbones: RegistrationKey[SPPBackbone] = Param(GENSPP_GRU_BACKBONE)
+    predictor_backbone: RegistrationKey[SPPBackbone] = Param(GENSPP_GRU_BACKBONE)
+    losses: List[RegistrationKey[Loss]] = Param([CLASSIFICATION_LOSS])
+    optimizer: RegistrationKey[th.optim.Optimizer] = Param(GENSPP_ADAM)
+
+    @classmethod
+    @register_method(
+        name="model",
+        tags={"genspp", "gru"},
+        namespace=NAMESPACE,
+        component="pyhighlights.components.models.spp.genspp.GenSPP",
     )
     def default(cls):
         return super().default()
@@ -519,6 +589,25 @@ class TransformerFRConfig(GRUFRConfig):
         return super().default()
 
 
+class TransformerGenSPPConfig(GRUGenSPPConfig):
+    selector_backbones: RegistrationKey[SPPBackbone] = Param(
+        GENSPP_TRANSFORMER_BACKBONE
+    )
+    predictor_backbone: RegistrationKey[SPPBackbone] = Param(
+        GENSPP_TRANSFORMER_BACKBONE
+    )
+
+    @classmethod
+    @register_method(
+        name="model",
+        tags={"genspp", "transformer"},
+        namespace=NAMESPACE,
+        component="pyhighlights.components.models.spp.genspp.GenSPP",
+    )
+    def default(cls):
+        return super().default()
+
+
 class TransformerGRATConfig(GRUGRATConfig):
     selector_backbones: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)
     predictor_backbone: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)
@@ -545,6 +634,43 @@ class TransformerMCDConfig(GRUMCDConfig):
         tags={"mcd", "transformer"},
         namespace=NAMESPACE,
         component="pyhighlights.components.models.spp.mcd.MCD",
+    )
+    def default(cls):
+        return super().default()
+
+
+class GRUGenSPPTrainerConfig(Configuration):
+    model: RegistrationKey[GenSPP] = Param(GRU_GENSPP)
+    n_generations: int = Param(100, ge=0)
+    population_size: int = Param(50, ge=2)
+    mutation_probability: float = Param(1.0, gt=0.0, le=1.0)
+    mutation_std: float = Param(0.05, gt=0.0)
+    predictor_epochs: int = Param(3, ge=1)
+    task_loss_limit: float = Param(0.1, ge=0.0)
+    stop_threshold: float = Param(0.01, gt=0.0)
+    seed: int | None = Param(None)
+    device: str = Param("cpu")
+
+    @classmethod
+    @register_method(
+        name="trainer",
+        tags={"genspp", "gru"},
+        namespace=NAMESPACE,
+        component="pyhighlights.components.models.spp.genspp.GenSPPTrainer",
+    )
+    def default(cls):
+        return super().default()
+
+
+class TransformerGenSPPTrainerConfig(GRUGenSPPTrainerConfig):
+    model: RegistrationKey[GenSPP] = Param(TRANSFORMER_GENSPP)
+
+    @classmethod
+    @register_method(
+        name="trainer",
+        tags={"genspp", "transformer"},
+        namespace=NAMESPACE,
+        component="pyhighlights.components.models.spp.genspp.GenSPPTrainer",
     )
     def default(cls):
         return super().default()

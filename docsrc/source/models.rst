@@ -17,6 +17,9 @@ Algorithms
 .. automodule:: pyhighlights.components.models.spp.fr
    :members:
 
+.. automodule:: pyhighlights.components.models.spp.genspp
+   :members:
+
 .. automodule:: pyhighlights.components.models.spp.mgr
    :members:
 
