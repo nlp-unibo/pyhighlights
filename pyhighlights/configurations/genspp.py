@@ -142,3 +142,26 @@ class TransformerGenSPPTrainerConfig(GRUGenSPPTrainerConfig):
     )
     def default(cls):
         return super().default()
+
+
+class ToyGenSPPTrainerConfig(GRUGenSPPTrainerConfig):
+    """A search small enough to finish: two candidates, one generation.
+
+    Nothing here is a sensible experiment. It exists so the wiring -- corpus,
+    search, scoring, serialization -- can be exercised in seconds.
+    """
+
+    n_generations: int = Param(1, ge=0)
+    population_size: int = Param(2, ge=2)
+    predictor_epochs: int = Param(1, ge=1)
+    task_loss_limit: float = Param(10.0, ge=0.0)
+
+    @classmethod
+    @register_method(
+        name="trainer",
+        tags={"genspp", "gru", "toy"},
+        namespace=NAMESPACE,
+        component="pyhighlights.components.models.spp.genspp.GenSPPTrainer",
+    )
+    def default(cls):
+        return super().default()

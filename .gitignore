@@ -223,3 +223,4 @@ lightning_logs/
 
 # Task output.
 results/
+uv.lock

@@ -38,12 +38,13 @@ from pyhighlights.components.data import (
 )
 from pyhighlights.components.loaders import HighlightLoader, to_examples
 from pyhighlights.components.models.base import Model
+from pyhighlights.components.models.spp.genspp import GenSPPTrainer
 from pyhighlights.components.preprocessors import Preprocessor
-from pyhighlights.utility.metrics import BoundMetric
+from pyhighlights.utility.metrics import BoundMetric, build_metrics
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["SPPTask", "Task", "summarize", "vocabulary"]
+__all__ = ["GenSPPTask", "SPPTask", "Task", "summarize", "vocabulary"]
 
 
 def vocabulary(frames: Iterable[pd.DataFrame], size: int) -> Dict[str, int]:
@@ -267,6 +268,16 @@ class SPPTask(Task):
                 state = th.load(checkpoint.best_model_path, map_location="cpu")
             model.load_state_dict(state["state_dict"])
 
+        return self.score(trainer, model, loaders, checkpoints)
+
+    def score(
+        self,
+        trainer: L.Trainer,
+        model: Model,
+        loaders: Mapping[str, DataLoader],
+        directory: Path,
+    ) -> Dict[str, float]:
+        """Score a trained model on whichever evaluation splits exist."""
         results: Dict[str, float] = {}
         if "val" in loaders:
             results.update(trainer.validate(model, dataloaders=loaders["val"])[0])
@@ -275,7 +286,7 @@ class SPPTask(Task):
                 model.enable_storing_predictions()
             results.update(trainer.test(model, dataloaders=loaders["test"])[0])
             if self.store_predictions:
-                pd.to_pickle(model.predictions, checkpoints / "predictions.pkl")
+                pd.to_pickle(model.predictions, directory / "predictions.pkl")
                 model.flush_predictions()
                 model.disable_storing_predictions()
         return results
@@ -295,3 +306,49 @@ class SPPTask(Task):
         logger.info("%s: %s", self.name, json.dumps(results["summary"], indent=2))
         self.serialize(results)
         return results
+
+
+class GenSPPTask(SPPTask):
+    """GenSPP: a genetic search over generators, scored like any other task.
+
+    The corpus, the preprocessing, the metrics and the seeds are an
+    :class:`SPPTask`'s. What differs is the training: no gradient reaches the
+    generator, so the model is not named directly but by the
+    :class:`~pyhighlights.components.models.spp.genspp.GenSPPTrainer` that
+    searches for it -- one search per seed, seeded with it, since a genetic
+    search over a population of two dozen is the noisiest part of the run.
+
+    Each seed leaves behind the weights the search settled on and
+    ``search.json``, the best fitness of every generation: a search that
+    stopped improving in its tenth generation and one that was still climbing
+    when the budget ran out report the same number otherwise.
+    """
+
+    def __init__(self, search: RegistrationKey[GenSPPTrainer], **kwargs):
+        self.search = search
+        # The model key lives on the search: naming it twice is a way for the
+        # two to disagree about which model was actually evolved.
+        trainer = Registry.from_key(search, expected_type=GenSPPTrainer)
+        super().__init__(model=trainer.model, **kwargs)
+
+    def fit(self, seed: int, loaders: Mapping[str, DataLoader]) -> Dict[str, float]:
+        if "val" not in loaders:
+            raise ValueError("GenSPP scores its candidates on a validation split")
+
+        seed_everything(seed=seed, workers=True)
+        search = Registry.from_key(self.search, expected_type=GenSPPTrainer, seed=seed)
+        model = search.fit(loaders["train"], loaders["val"])
+
+        # The search builds its candidates from the model key alone, so the
+        # winner arrives without metrics; they are only ever read after it.
+        model.val_metrics = build_metrics(self.val_metrics)
+        model.test_metrics = build_metrics(self.test_metrics)
+
+        directory = self.directory / f"seed={seed}"
+        directory.mkdir(parents=True, exist_ok=True)
+        th.save({"state_dict": model.state_dict()}, directory / "best.ckpt")
+        (directory / "search.json").write_text(
+            json.dumps({"training_progress": search.training_progress}, indent=2)
+        )
+        trainer = L.Trainer(**{"default_root_dir": directory, **self.trainer_args})
+        return self.score(trainer, model, loaders, directory)

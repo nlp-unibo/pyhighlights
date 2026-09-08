@@ -207,8 +207,11 @@ def test_registered_gru_genspp_and_trainer():
     )
     optimizer = Registry.from_key(model.optimizer, params=model.predictor_parameters())
     assert optimizer.param_groups[0]["lr"] == pytest.approx(1e-2)
-    with pytest.raises(RuntimeError, match="GenSPPTrainer"):
-        model.configure_optimizers()
+    # Lightning trains one candidate at a time, and only its predictor.
+    configured = model.configure_optimizers()
+    assert [id(parameter) for parameter in configured.param_groups[0]["params"]] == [
+        id(parameter) for parameter in model.predictor_parameters()
+    ]
 
 
 def test_genspp_is_independent_and_permits_empty_highlights():
