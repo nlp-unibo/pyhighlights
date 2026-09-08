@@ -9,10 +9,16 @@ def key(name: str, *tags: str) -> RegistrationKey:
     return RegistrationKey(name=name, tags=set(tags), namespace=NAMESPACE)
 
 
-R2A = key("dataset", "r2a")
+BEER = key("dataset", "beer")
+HOTEL = key("dataset", "hotel")
+MOVIES = key("dataset", "movies")
 HATEXPLAIN = key("dataset", "hatexplain")
-ERASER = key("dataset", "eraser")
 TOY = key("dataset", "toy")
+LEAKAGE_DETECTOR = key("detector", "leakage")
+LEAKAGE_REMOVER = key("preprocessor", "leakage")
+HATEXPLAIN_AGGREGATOR = key("preprocessor", "aggregator", "hatexplain")
+PIPELINE = key("preprocessor", "pipeline")
+HATEXPLAIN_PIPELINE = key("preprocessor", "pipeline", "hatexplain")
 GRU_BACKBONE = key("backbone", "gru")
 GENSPP_GRU_BACKBONE = key("backbone", "genspp", "gru")
 TRANSFORMER_BACKBONE = key("backbone", "transformer")

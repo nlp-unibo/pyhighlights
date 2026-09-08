@@ -2,78 +2,29 @@ from __future__ import annotations
 
 import abc
 import csv
-import itertools
 import json
 import random
-import re
-from collections import Counter
 from pathlib import Path
 from typing import Dict, List, Mapping, Sequence
 
 import pandas as pd
 
-from pyhighlights.components.data import HighlightDataset, HighlightExample
+from pyhighlights.components.data import (
+    COLUMNS,
+    HighlightDataset,
+    HighlightExample,
+)
 from pyhighlights.utility.io import cache_directory, download, extract
 
-COLUMNS = ("sample_id", "text", "tokens", "label", "highlights")
-
-# Priority runs from the split that must stay intact to the one that can
-# afford to lose rows. The annotated split comes first: it is the only one
-# carrying highlights, so it is the one worth protecting.
-PRIORITY = ("test", "val", "train")
-
 R2A_URL = "https://people.csail.mit.edu/yujia/files/r2a/data.zip"
-R2A_TASKS = (
-    "beer0",
-    "beer1",
-    "beer2",
-    "hotel_Location",
-    "hotel_Service",
-    "hotel_Cleanliness",
-)
+BEER_TASKS = ("beer0", "beer1", "beer2")
+HOTEL_TASKS = ("hotel_Location", "hotel_Service", "hotel_Cleanliness")
+R2A_TASKS = BEER_TASKS + HOTEL_TASKS
 R2A_SPLITS = {
     "train": "oracle/{task}.train",
     "val": "oracle/{task}.dev",
     "test": "target/{task}.train",
 }
-
-
-def normalize(value: str) -> str:
-    return re.sub(r"\s+", " ", str(value)).strip().lower()
-
-
-def leakage(
-    splits: Mapping[str, pd.DataFrame],
-    key: str = "text",
-    normalize_keys: bool = True,
-) -> pd.DataFrame:
-    """Report, for each ordered split pair, how much of the right split the
-    left one already contains.
-
-    ``ratio`` is the share of *right* rows found in *left*, so the test row of
-    a train/test pair answers "how much of my evaluation set did I train on".
-    Keys are whitespace- and case-normalized unless told otherwise, since raw
-    equality understates real overlap.
-    """
-    keys = {
-        name: frame[key].map(normalize) if normalize_keys else frame[key]
-        for name, frame in splits.items()
-    }
-    rows = []
-    for left, right in itertools.permutations(keys, 2):
-        seen = set(keys[left])
-        overlap = int(keys[right].isin(seen).sum())
-        size = len(keys[right])
-        rows.append(
-            {
-                "left": left,
-                "right": right,
-                "overlap": overlap,
-                "size": size,
-                "ratio": overlap / size if size else 0.0,
-            }
-        )
-    return pd.DataFrame(rows, columns=["left", "right", "overlap", "size", "ratio"])
 
 
 def _aligned_highlights(flags: str, width: int) -> List[int]:
@@ -91,53 +42,13 @@ def _aligned_highlights(flags: str, width: int) -> List[int]:
     return highlights[:width] if surplus and not any(surplus) else highlights
 
 
-def duplicates(
-    splits: Mapping[str, pd.DataFrame],
-    key: str = "text",
-    normalize_keys: bool = True,
-) -> Dict[str, int]:
-    """Count repeated rows inside each split."""
-    return {
-        name: int(
-            (frame[key].map(normalize) if normalize_keys else frame[key])
-            .duplicated()
-            .sum()
-        )
-        for name, frame in splits.items()
-    }
-
-
-def remove_leakage(
-    splits: Mapping[str, pd.DataFrame],
-    priority: Sequence[str] = PRIORITY,
-    key: str = "text",
-    normalize_keys: bool = True,
-) -> Dict[str, pd.DataFrame]:
-    """Return splits sharing no row, walking them in ``priority`` order.
-
-    Each split keeps only rows no earlier split claimed and no earlier row of
-    its own repeated, so the result has neither cross-split leakage nor
-    internal duplicates. Splits missing from ``priority`` are handled last, in
-    their original order, and the returned mapping keeps the input order.
-
-    ``sample_id`` is renumbered, since it indexes rows within a split.
-    """
-    order = [name for name in priority if name in splits]
-    order += [name for name in splits if name not in order]
-
-    seen: set[str] = set()
-    kept = {}
-    for name in order:
-        frame = splits[name]
-        keys = frame[key].map(normalize) if normalize_keys else frame[key]
-        keep = ~keys.isin(seen) & ~keys.duplicated()
-        seen.update(keys[keep])
-        rows = frame[keep].reset_index(drop=True)
-        kept[name] = rows.assign(sample_id=range(len(rows)))
-    return {name: kept[name] for name in splits}
-
-
 def to_examples(frame: pd.DataFrame) -> List[HighlightExample]:
+    if frame["label"].isna().any():
+        raise ValueError(
+            "rows carry no label: this corpus is annotated by several people "
+            "and the judgements have not been reduced yet. Run an "
+            "AnnotationAggregator over the splits first."
+        )
     return [
         HighlightExample(
             sample_id=int(row.sample_id),
@@ -152,21 +63,20 @@ def to_examples(frame: pd.DataFrame) -> List[HighlightExample]:
 class HighlightLoader(abc.ABC):
     """Corpus source: downloads once, hands back one data frame per split.
 
-    Frames carry ``sample_id``, ``text``, ``tokens``, ``label`` and
-    ``highlights`` (``None`` where the split has no annotation), with
-    ``highlights`` aligned to ``tokens``.
+    Frames carry :data:`~pyhighlights.components.data.COLUMNS`, with
+    ``highlights`` aligned to ``tokens`` and ``None`` where a split has no
+    annotation. The corpus comes back **as distributed** -- overlapping
+    splits, per-annotator judgements and all. Repairing or reducing it is
+    :mod:`~pyhighlights.components.preprocessors`, and what a study does there
+    is its own decision; the loader that fetched the files has no business
+    making it, and splits the user built themselves deserve the same choices.
     """
 
     def __init__(
         self,
         directory: str | Path | None = None,
-        remove_leakage: bool = True,
-        key: str = "text",
     ):
         self.directory = Path(directory) if directory is not None else cache_directory()
-        self.remove_leakage = remove_leakage
-        self.key = key
-        self.removed: Dict[str, int] = {}
         self._splits: Dict[str, pd.DataFrame] | None = None
 
     @abc.abstractmethod
@@ -174,53 +84,10 @@ class HighlightLoader(abc.ABC):
         """Parse the downloaded corpus into one frame per split."""
 
     def load(self) -> Dict[str, pd.DataFrame]:
-        """Splits as data frames, leak-free unless told otherwise.
-
-        Published splits often overlap — see :class:`R2ALoader` — so by
-        default the loader hands back repaired ones and records what it
-        dropped in :attr:`removed`. Pass ``remove_leakage=False`` to
-        reproduce a corpus exactly as distributed.
-        """
+        """The splits as distributed, parsed once and kept."""
         if self._splits is None:
-            splits = self.read()
-            if self.remove_leakage:
-                repaired = remove_leakage(splits, key=self.key)
-                self.removed = {
-                    name: len(splits[name]) - len(repaired[name]) for name in splits
-                }
-                splits = repaired
-            self._splits = splits
+            self._splits = self.read()
         return self._splits
-
-    def leakage(
-        self, key: str | None = None, normalize_keys: bool = True
-    ) -> pd.DataFrame:
-        return leakage(self.load(), key=key or self.key, normalize_keys=normalize_keys)
-
-    def check_leakage(
-        self,
-        key: str | None = None,
-        tolerance: float = 0.0,
-        normalize_keys: bool = True,
-    ) -> pd.DataFrame:
-        """Return the leakage report, raising when a split pair exceeds
-        ``tolerance``.
-
-        Meant to be called in a test or before a run: a corpus that shares
-        rows between train and test reports highlight scores on examples the
-        model was trained on, and nothing downstream can detect that.
-        """
-        report = self.leakage(key=key, normalize_keys=normalize_keys)
-        offending = report[report["ratio"] > tolerance]
-        if not offending.empty:
-            raise ValueError(
-                f"{type(self).__name__} splits share rows above the "
-                f"{tolerance} tolerance:\n{offending.to_string(index=False)}"
-            )
-        return report
-
-    def duplicates(self, key: str | None = None) -> Dict[str, int]:
-        return duplicates(self.load(), key=key or self.key)
 
     def datasets(self) -> Dict[str, HighlightDataset]:
         return {
@@ -244,6 +111,8 @@ class R2ALoader(HighlightLoader):
     the release as distributed, leakage included.
     """
 
+    TASKS = R2A_TASKS
+
     def __init__(
         self,
         task: str = "hotel_Location",
@@ -254,8 +123,8 @@ class R2ALoader(HighlightLoader):
         **kwargs,
     ):
         super().__init__(**kwargs)
-        if task not in R2A_TASKS:
-            raise ValueError(f"task must be one of {R2A_TASKS}")
+        if task not in self.TASKS:
+            raise ValueError(f"task must be one of {self.TASKS}")
         self.task = task
         self.splits = dict(splits) if splits else dict(R2A_SPLITS)
         self.url = url
@@ -324,6 +193,29 @@ class R2ALoader(HighlightLoader):
         )
 
 
+class BeerLoader(R2ALoader):
+    """The three Beer aspects of the R2A archive: appearance, aroma, palate.
+
+    A corpus of its own rather than a ``task`` string, so the aspect is the
+    only thing left to choose and the artefact each aspect is fetched from has
+    somewhere to live.
+    """
+
+    TASKS = BEER_TASKS
+
+    def __init__(self, task: str = "beer0", **kwargs):
+        super().__init__(task=task, **kwargs)
+
+
+class HotelLoader(R2ALoader):
+    """The three Hotel aspects of the R2A archive: location, service, cleanliness."""
+
+    TASKS = HOTEL_TASKS
+
+    def __init__(self, task: str = "hotel_Location", **kwargs):
+        super().__init__(task=task, **kwargs)
+
+
 class ToyLoader(HighlightLoader):
     """Synthetic corpus: one trigger phrase per class inside filler tokens.
 
@@ -388,18 +280,16 @@ class HateXplainLoader(HighlightLoader):
 
     From Mathew et al., 2021, *HateXplain: A Benchmark Dataset for Explainable
     Hate Speech Detection*. Three annotators label every post and mark the
-    tokens supporting a non-``normal`` label, so both the label and the
-    highlights are aggregated:
+    tokens supporting a non-``normal`` label.
 
-    - ``label``: majority vote. Posts where all three annotators disagree —
-      919 of 20148 — have no majority; ``ties="drop"`` removes them, as the
-      paper does, and ``ties="keep"`` resolves them by annotator order.
-    - ``highlights``: ``"majority"`` keeps a token marked by more than half of
-      the rationale vectors, ``"union"`` by any, ``"intersection"`` by all.
-
-    ``normal`` posts carry no rationale by design, and neither do 580
-    non-normal ones; both come back as all-zero highlights, meaning "no token
-    was marked" rather than "not annotated".
+    **Every judgement is kept.** ``label`` and ``highlights`` come back unset,
+    and the raw material sits in ``annotator_labels`` and
+    ``annotator_highlights``; how three annotators become one label and one
+    highlight vector is a choice
+    :class:`~pyhighlights.components.preprocessors.AnnotationAggregator`
+    makes, and 919 of the 20148 posts have no majority at all. Until it has
+    run, the splits are not yet examples and
+    :meth:`~HighlightLoader.datasets` says so.
     """
 
     URL = "https://raw.githubusercontent.com/hate-alert/HateXplain/master/Data/dataset.json"
@@ -410,21 +300,11 @@ class HateXplainLoader(HighlightLoader):
         self,
         url: str = URL,
         divisions_url: str = DIVISIONS_URL,
-        labels: Sequence[str] = LABELS,
-        rationale: str = "majority",
-        ties: str = "drop",
         **kwargs,
     ):
         super().__init__(**kwargs)
-        if rationale not in ("majority", "union", "intersection"):
-            raise ValueError("rationale must be majority, union or intersection")
-        if ties not in ("drop", "keep"):
-            raise ValueError("ties must be drop or keep")
         self.url = url
         self.divisions_url = divisions_url
-        self.labels = {name: index for index, name in enumerate(labels)}
-        self.rationale = rationale
-        self.ties = ties
 
     def download(self) -> Dict[str, Path]:
         root = self.directory / "hatexplain"
@@ -432,26 +312,6 @@ class HateXplainLoader(HighlightLoader):
             "posts": download(self.url, root / "dataset.json"),
             "divisions": download(self.divisions_url, root / "post_id_divisions.json"),
         }
-
-    def aggregate(self, vectors: List[List[int]], width: int) -> List[int]:
-        valid = [vector for vector in vectors if len(vector) == width]
-        if not valid:
-            return [0] * width
-        counts = [sum(flags) for flags in zip(*valid)]
-        if self.rationale == "union":
-            return [int(count > 0) for count in counts]
-        if self.rationale == "intersection":
-            return [int(count == len(valid)) for count in counts]
-        return [int(count * 2 > len(valid)) for count in counts]
-
-    def label(self, annotators: List[dict]) -> int | None:
-        votes = Counter(annotator["label"] for annotator in annotators)
-        (name, count), *rest = votes.most_common()
-        if count == 1 and self.ties == "drop":
-            return None
-        if name not in self.labels:
-            raise ValueError(f"unexpected HateXplain label {name}")
-        return self.labels[name]
 
     def read(self) -> Dict[str, pd.DataFrame]:
         paths = self.download()
@@ -463,20 +323,26 @@ class HateXplainLoader(HighlightLoader):
             rows = []
             for post_id in post_ids:
                 post = posts[post_id]
-                label = self.label(post["annotators"])
-                if label is None:
-                    continue
                 tokens = list(post["post_tokens"])
                 rows.append(
                     {
                         "sample_id": len(rows),
                         "text": " ".join(tokens),
                         "tokens": tokens,
-                        "label": label,
-                        "highlights": self.aggregate(post["rationales"], len(tokens)),
+                        "label": None,
+                        "highlights": None,
+                        "annotator_labels": [
+                            annotator["label"] for annotator in post["annotators"]
+                        ],
+                        "annotator_highlights": [
+                            list(vector) for vector in post["rationales"]
+                        ],
                     }
                 )
-            splits[name] = pd.DataFrame(rows, columns=list(COLUMNS))
+            splits[name] = pd.DataFrame(
+                rows,
+                columns=[*COLUMNS, "annotator_labels", "annotator_highlights"],
+            )
         order = ("train", "val", "test")
         return {name: splits[name] for name in order if name in splits}
 
@@ -596,3 +462,14 @@ class ERASERLoader(HighlightLoader):
             name: self.read_file(root / path, documents, labels)
             for name, path in self.splits.items()
         }
+
+
+class MoviesLoader(ERASERLoader):
+    """The ERASER ``movies`` task: sentiment with evidence spans.
+
+    The only single-document ERASER task, and the one this line of work
+    reports on.
+    """
+
+    def __init__(self, task: str = "movies", **kwargs):
+        super().__init__(task=task, **kwargs)
