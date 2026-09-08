@@ -16,7 +16,7 @@ from pyhighlights.components.models.spp import (
     GenSPP,
     TransformerBackbone,
 )
-from pyhighlights.configurations.spp import (
+from pyhighlights.configurations.keys import (
     TRANSFORMER_FR,
     TRANSFORMER_GENSPP,
     TRANSFORMER_GRAT,

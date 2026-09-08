@@ -4,7 +4,16 @@ from pyhighlights.components.models.spp.base import SPP, SPPBackbone
 
 
 class FR(SPP):
-    """Folded rationalization with one selector and one shared backbone."""
+    """Folded rationalization with one selector and one shared backbone.
+
+    Selector and predictor fold onto the same encoder, so the predictor's
+    gradient reaches the selector through shared weights and the two modules
+    cannot drift apart the way an independent pair does.
+
+    Liu, Wang, Wang, Li, Yue and Zhang, 2022, *FR: Folded Rationalization with
+    a Unified Encoder*, NeurIPS 2022.
+    Reference implementation: <https://github.com/jugechengzi/FR>.
+    """
 
     def __init__(
         self,

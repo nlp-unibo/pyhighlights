@@ -6,12 +6,12 @@ import pytest
 from cinnamon.registry import Registry
 
 import pyhighlights
-from pyhighlights.components.datasets import (
+from pyhighlights.components.loaders import (
     ERASERLoader,
     HateXplainLoader,
     ToyLoader,
 )
-from pyhighlights.configurations.datasets import ERASER, HATEXPLAIN, TOY
+from pyhighlights.configurations.keys import ERASER, HATEXPLAIN, TOY
 
 
 def annotator(label: str, index: int) -> dict:

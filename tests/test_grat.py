@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 import pyhighlights
 from pyhighlights.components.models import InputData
 from pyhighlights.components.models.spp import GRAT
-from pyhighlights.configurations.spp import GRU_GRAT
+from pyhighlights.configurations.keys import GRU_GRAT
 
 
 def batch() -> InputData:

@@ -1,28 +1,25 @@
 from __future__ import annotations
 
 import abc
-from typing import Dict, List, Literal, Tuple
+from typing import Dict, Generic, List, Literal, Tuple, TypeVar
 
 import lightning as L
 import torch as th
 from cinnamon.registry import RegistrationKey, Registry
 
-from pyhighlights.components.models.data import (
-    InputData,
-    ModelData,
-    OutputData,
-    SPPOutput,
-)
+from pyhighlights.components.models.data import InputData, ModelData, OutputData
 from pyhighlights.utility.losses import Loss, build_losses, compute_losses
 from pyhighlights.utility.metrics import BoundMetric, build_metrics
 
 Split = Literal["train", "val", "test"]
 
-# Keep data containers importable from this module for compatibility.
-__all__ = ["InputData", "Model", "ModelData", "OutputData", "SPPOutput", "Split"]
+#: Output type a model produces; subclasses pin it, as ``SPP`` pins ``SPPOutput``.
+OutputT = TypeVar("OutputT", bound=OutputData)
+
+__all__ = ["InputData", "Model", "ModelData", "OutputT", "OutputData", "Split"]
 
 
-class Model(L.LightningModule, abc.ABC):
+class Model(L.LightningModule, abc.ABC, Generic[OutputT]):
     def __init__(
         self,
         name: str,
@@ -69,9 +66,7 @@ class Model(L.LightningModule, abc.ABC):
         """Fields losses and metrics can bind to, latest definition winning."""
         return {**input_data.as_dict(), **output_data.as_dict(), **extra}
 
-    def update_metrics(
-        self, split: Split, input_data: InputData, output_data: OutputData
-    ):
+    def update_metrics(self, split: Split, input_data: InputData, output_data: OutputT):
         values = self.namespace(input_data, output_data)
         for metric in getattr(self, f"{split}_metrics"):
             metric.update(values)
@@ -118,13 +113,13 @@ class Model(L.LightningModule, abc.ABC):
                 batch_size=batch_size,
             )
 
-    def training_forward(self, batch: InputData) -> OutputData:
+    def training_forward(self, batch: InputData) -> OutputT:
         return self.forward(data=batch)
 
-    def validation_forward(self, batch: InputData) -> OutputData:
+    def validation_forward(self, batch: InputData) -> OutputT:
         return self.training_forward(batch=batch)
 
-    def test_forward(self, batch: InputData) -> OutputData:
+    def test_forward(self, batch: InputData) -> OutputT:
         return self.training_forward(batch=batch)
 
     def _step(self, batch: InputData, batch_idx: int, split: Split) -> th.Tensor:
@@ -158,6 +153,6 @@ class Model(L.LightningModule, abc.ABC):
     def compute_loss(
         self,
         input_data: InputData,
-        output_data: OutputData,
+        output_data: OutputT,
     ) -> Tuple[th.Tensor, Dict[str, th.Tensor]]:
         return compute_losses(self.losses, self.namespace(input_data, output_data))

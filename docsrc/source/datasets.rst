@@ -6,7 +6,7 @@ split, and reports how much of one split another already contains.
 
 .. code-block:: python
 
-   from pyhighlights.components.datasets import R2ALoader
+   from pyhighlights.components.loaders import R2ALoader
 
    loader = R2ALoader(task="hotel_Location")
    splits = loader.load()        # {"train", "val", "test"} -> DataFrame
@@ -79,8 +79,8 @@ MGR, MCD, G-RAT) draws both corpora from.
 :Tasks: ``beer0``, ``beer1``, ``beer2`` (appearance, aroma, palate);
         ``hotel_Location``, ``hotel_Service``, ``hotel_Cleanliness``
 :Labels: binary
-:Loader: :class:`pyhighlights.components.datasets.R2ALoader`
-:Key: :data:`pyhighlights.configurations.datasets.R2A`, with the aspect as a
+:Loader: :class:`pyhighlights.components.loaders.R2ALoader`
+:Key: :data:`pyhighlights.configurations.keys.R2A`, with the aspect as a
       ``task`` variant
 
 **Annotation lives in a file named** ``train``. Inside the release,
@@ -234,8 +234,8 @@ for Explainable Hate Speech Detection*.
 :Rows: 20148 posts, 3 annotators each; splits come from the published
        ``post_id_divisions.json``
 :Labels: ``hatespeech``, ``normal``, ``offensive``
-:Loader: :class:`pyhighlights.components.datasets.HateXplainLoader`
-:Key: :data:`pyhighlights.configurations.datasets.HATEXPLAIN`
+:Loader: :class:`pyhighlights.components.loaders.HateXplainLoader`
+:Key: :data:`pyhighlights.configurations.keys.HATEXPLAIN`
 
 Both the label and the highlights are aggregated across annotators:
 
@@ -271,8 +271,8 @@ split whose rows carry a ``classification`` and ``evidences`` — groups of
 :Download: ``https://www.eraserbenchmark.com/zipped/<task>.tar.gz``
 :Tasks: ``movies`` (1600 / 200 / 199 rows, 3.9 MB)
 :Labels: binary (``NEG`` / ``POS``)
-:Loader: :class:`pyhighlights.components.datasets.ERASERLoader`
-:Key: :data:`pyhighlights.configurations.datasets.ERASER`
+:Loader: :class:`pyhighlights.components.loaders.ERASERLoader`
+:Key: :data:`pyhighlights.configurations.keys.ERASER`
 
 **Only single-document tasks are supported.** A select-then-predict model
 takes one token sequence and no query, so ``boolq``, ``esnli``,
@@ -297,8 +297,8 @@ one trigger phrase per class inserted at a random position, and the highlights
 are exactly that trigger.
 
 :Download: none
-:Loader: :class:`pyhighlights.components.datasets.ToyLoader`
-:Key: :data:`pyhighlights.configurations.datasets.TOY`
+:Loader: :class:`pyhighlights.components.loaders.ToyLoader`
+:Key: :data:`pyhighlights.configurations.keys.TOY`
 
 .. code-block:: python
 
@@ -312,6 +312,6 @@ configuration or a training loop before pointing it at a real corpus.
 API
 ---
 
-.. automodule:: pyhighlights.components.datasets
+.. automodule:: pyhighlights.components.loaders
    :members:
    :show-inheritance:

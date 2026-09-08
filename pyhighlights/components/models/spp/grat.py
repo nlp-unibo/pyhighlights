@@ -7,13 +7,13 @@ import torch as th
 from cinnamon.registry import RegistrationKey, Registry
 
 from pyhighlights.components.models.base import InputData, OutputData
-from pyhighlights.components.models.data import SPPOutput
 from pyhighlights.components.models.spp.base import (
     SPP,
     SPPBackbone,
     SPPPredictor,
     SPPSelector,
 )
+from pyhighlights.components.models.spp.data import SPPOutput
 from pyhighlights.utility.losses import Loss, build_losses, compute_losses
 
 
@@ -69,10 +69,19 @@ class AttentionGuider(GRATGuider):
 class GRAT(SPP):
     """Guider-regularized rationalizer with staged optimization.
 
+    A soft attention classifier over the full input is pretrained, then keeps
+    training alongside the rationalizer: its attention supervises the
+    selection and its predictions are matched in distribution, so the
+    generator is guided instead of regularized ad hoc.
+
     ``losses`` scores the rationalizer over a namespace holding the guider
     fields (``selection_logits``, ``guide_target``, ``guider_class_logits``)
     next to the model ones; ``guider_losses`` scores the guider alone. The
     guide and JSD terms are annealed against each other by name.
+
+    Hu and Yu, 2024, *Learning Robust Rationales for Model Explainability: A
+    Guidance-Based Approach*, AAAI 2024, 18243-18251.
+    Reference implementation: <https://github.com/shuaibo919/g-rat>.
     """
 
     def __init__(

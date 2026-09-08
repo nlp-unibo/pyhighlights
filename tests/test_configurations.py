@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 import pyhighlights
 from pyhighlights.components.models import InputData
 from pyhighlights.components.models.spp import FR, MCD, MGR
-from pyhighlights.configurations.spp import GRU_FR, GRU_MCD, GRU_MGR
+from pyhighlights.configurations.keys import GRU_FR, GRU_MCD, GRU_MGR
 
 
 def test_registered_gru_fr_forward_backward_and_optimizer():

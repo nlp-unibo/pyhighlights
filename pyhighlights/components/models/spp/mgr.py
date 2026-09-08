@@ -4,15 +4,25 @@ import torch as th
 from cinnamon.registry import RegistrationKey, Registry
 
 from pyhighlights.components.models.base import InputData, Split
-from pyhighlights.components.models.data import SPPOutput
 from pyhighlights.components.models.spp.base import SPP, SPPBackbone
+from pyhighlights.components.models.spp.data import SPPOutput
 
 
 class MGR(SPP):
     """Multiple independent generators with one shared predictor.
 
+    Each generator proposes its own highlight and the shared predictor sees
+    all of them, which keeps a single degenerate generator from dictating the
+    equilibrium. Inference reports one head, since the generators converge on
+    the same selection.
+
     Generator ``i`` uses learning rate ``i * eta``; the predictor uses
     ``eta / n`` for ``n`` generators, following the original training policy.
+
+    Liu, Wang, Wang, Li, Li, Zhang and Qiu, 2023, *MGR: Multi-Generator Based
+    Rationalization*, ACL 2023, 12771-12787.
+    Reference implementation:
+    <https://github.com/jugechengzi/Rationalization-MGR>.
     """
 
     def __init__(

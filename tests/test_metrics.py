@@ -6,13 +6,14 @@ import torchmetrics
 from cinnamon.configuration import Configuration, Param
 from cinnamon.registry import RegistrationKey, Registry
 
-from pyhighlights.metrics import (
+from pyhighlights.utility.metrics import (
     BinaryHighlightF1Score,
     BinaryHighlightIoU,
+    BoundMetric,
     SelectionRate,
     SelectionSize,
+    build_metrics,
 )
-from pyhighlights.utility.metrics import BoundMetric, build_metrics
 
 
 class MulticlassMetricConfig(Configuration):
@@ -33,7 +34,7 @@ def test_build_bound_metrics_from_registered_metrics():
         config=Configuration.default(),
         name="highlight_f1",
         namespace="tests",
-        component="pyhighlights.metrics.BinaryHighlightF1Score",
+        component="pyhighlights.utility.metrics.BinaryHighlightF1Score",
     )
     class_binding = Registry.register_configuration(
         config=MulticlassMetricConfig.default(),
