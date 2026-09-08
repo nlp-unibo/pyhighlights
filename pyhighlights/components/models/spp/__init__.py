@@ -6,6 +6,7 @@ from pyhighlights.components.models.spp.base import (
     SPPSelector,
 )
 from pyhighlights.components.models.spp.fr import FR
+from pyhighlights.components.models.spp.genspp import GenSPP, GenSPPTrainer
 from pyhighlights.components.models.spp.grat import (
     GRAT,
     AttentionGuider,
@@ -24,6 +25,8 @@ from pyhighlights.components.models.spp.mgr import MGR
 __all__ = [
     "AttentionGuider",
     "FR",
+    "GenSPP",
+    "GenSPPTrainer",
     "GRAT",
     "GRATGuider",
     "GRATGuiderOutput",
