@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import math
 import random
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from itertools import chain
 from typing import Iterable
 
+import lightning as L
 import torch as th
 from cinnamon.registry import RegistrationKey, Registry
 
@@ -107,11 +108,37 @@ class GenSPP(SPP):
             if parameter.requires_grad
         ]
 
-    def training_step(self, batch: InputData, batch_idx: int):
-        raise RuntimeError("GenSPP must be trained with GenSPPTrainer")
+    def on_train_epoch_start(self) -> None:
+        # Lightning puts the whole model in training mode. The generator is
+        # frozen while a predictor is fitted on it, and dropout inside it would
+        # score the same candidate differently from one epoch to the next.
+        super().on_train_epoch_start()
+        self.selector_backbones.eval()
+        self.selectors.eval()
 
     def configure_optimizers(self):
-        raise RuntimeError("GenSPP must be trained with GenSPPTrainer")
+        # Gradient descent only ever reaches the predictor: the generator is
+        # searched, not trained, so training this model on its own fits a
+        # predictor to whatever selection its untrained generator makes.
+        return Registry.from_key(self.optimizer, params=self.predictor_parameters())
+
+
+class _Batches:
+    """One stream of batches, not a collection of dataloaders.
+
+    Lightning reads a sequence of loaders as several to combine, so a plain
+    list of batches -- what a caller writes in a test, or when the batches are
+    already in memory -- has to say it is a single loader.
+    """
+
+    def __init__(self, batches: Sequence[InputData]):
+        self.batches = batches
+
+    def __iter__(self):
+        return iter(self.batches)
+
+    def __len__(self) -> int:
+        return len(self.batches)
 
 
 @dataclass
@@ -309,32 +336,50 @@ class GenSPPTrainer:
                     raise ValueError("GenSPP candidates have incompatible frozen state")
                 tensor.copy_(initial)
 
+    def _lightning(self) -> L.Trainer:
+        """A throwaway trainer for one candidate.
+
+        The search keeps nothing but the weights it ends up with, so logs,
+        checkpoints, progress bars and sanity checks are all off: a run of a
+        hundred generations builds one of these per candidate.
+        """
+        # One device, named: ``devices="auto"`` on a machine with several GPUs
+        # would spread one candidate over all of them, and the search evaluates
+        # thousands of candidates one after another.
+        cuda = self.device.type == "cuda"
+        index = self.device.index
+        return L.Trainer(
+            max_epochs=self.predictor_epochs,
+            accelerator="gpu" if cuda else self.device.type,
+            devices=[index if index is not None else th.cuda.current_device()]
+            if cuda
+            else "auto",
+            logger=False,
+            enable_checkpointing=False,
+            enable_progress_bar=False,
+            enable_model_summary=False,
+            num_sanity_val_steps=0,
+        )
+
     def _train_predictor(
         self, model: GenSPP, train_loader: Iterable[InputData]
     ) -> None:
         generator_parameters = model.generator_parameters()
-        predictor_parameters = model.predictor_parameters()
-        if not predictor_parameters:
+        if not model.predictor_parameters():
             raise ValueError("GenSPP predictor has no trainable parameters")
 
+        # Freezing the generator is what makes this a candidate evaluation
+        # rather than end-to-end training: the optimizer already leaves those
+        # parameters out, and this leaves the backward pass out too.
         for parameter in generator_parameters:
             parameter.requires_grad_(False)
-
-        model.to(self.device)
-        model.eval()
-        model.predictor_backbone.train()
-        model.predictor.train()
-        optimizer = Registry.from_key(model.optimizer, params=predictor_parameters)
-
         try:
-            for _ in range(self.predictor_epochs):
-                for batch in train_loader:
-                    batch = self._move_batch(batch)
-                    optimizer.zero_grad()
-                    output = model(batch)
-                    loss, _ = model.compute_loss(batch, output)
-                    loss.backward()
-                    optimizer.step()
+            batches = (
+                _Batches(train_loader)
+                if isinstance(train_loader, Sequence)
+                else train_loader
+            )
+            self._lightning().fit(model, train_dataloaders=batches)
         finally:
             for parameter in generator_parameters:
                 parameter.requires_grad_(True)

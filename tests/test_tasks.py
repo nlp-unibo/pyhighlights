@@ -6,11 +6,19 @@ import pytest
 from cinnamon.registry import Registry
 
 import pyhighlights
-from pyhighlights.components.tasks import SPPTask, summarize, vocabulary
+from pyhighlights.components.tasks import (
+    GenSPPTask,
+    SPPTask,
+    summarize,
+    vocabulary,
+)
 from pyhighlights.configurations.keys import (
     GRU_FR,
+    GRU_GENSPP,
     LEAKAGE_REMOVER,
     TOY,
+    TOY_GENSPP_TASK,
+    TOY_GENSPP_TRAINER,
     TOY_TASK,
 )
 from pyhighlights.configurations.tasks import BINARY_METRICS
@@ -127,3 +135,45 @@ def test_a_task_preprocesses_before_it_trains(tmp_path):
         map(len, plain.splits().values())
     )
     assert list(repaired.splits()) == list(plain.splits())
+
+
+def test_a_genspp_task_searches_scores_and_writes_down_its_generations(tmp_path):
+    build_registry()
+    task = Registry.from_key(
+        TOY_GENSPP_TASK,
+        save_path=str(tmp_path),
+        seeds=[0],
+        store_predictions=True,
+    )
+    assert isinstance(task, GenSPPTask)
+    # The model is the search's, not a second key that could disagree with it.
+    assert task.search == TOY_GENSPP_TRAINER
+    assert task.model == GRU_GENSPP
+
+    results = task.run()
+
+    for metric in ("accuracy", "f1", "highlight_f1", "selection_rate"):
+        assert f"test_{metric}" in results["summary"]
+        assert f"val_{metric}" in results["summary"]
+    # Nothing trains the winner, so no split named ``train`` is ever scored.
+    assert not any(name.startswith("train_") for name in results["summary"])
+
+    directory = tmp_path / "toy-genspp" / "seed=0"
+    assert (directory / "best.ckpt").exists()
+    predictions = pd.read_pickle(directory / "predictions.pkl")
+    assert {"highlight_mask", "class_logits", "y_true"} <= set(predictions[0])
+
+    # One entry per generation: the best fitness the search reached in it.
+    progress = json.loads((directory / "search.json").read_text())
+    assert len(progress["training_progress"]) == 1
+
+
+def test_a_genspp_task_needs_a_validation_split(tmp_path):
+    build_registry()
+    task = Registry.from_key(TOY_GENSPP_TASK, save_path=str(tmp_path))
+    splits = task.splits()
+    splits.pop("val")
+
+    # Fitness is what the search selects on, and it is measured on validation.
+    with pytest.raises(ValueError, match="validation split"):
+        task.fit(seed=0, loaders=task.loaders(splits))

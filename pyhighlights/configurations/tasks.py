@@ -13,6 +13,7 @@ from cinnamon.registry import RegistrationKey, register_method
 
 from pyhighlights.components.loaders import HighlightLoader
 from pyhighlights.components.models.base import Model
+from pyhighlights.components.models.spp.genspp import GenSPPTrainer
 from pyhighlights.components.preprocessors import Preprocessor
 from pyhighlights.configurations.keys import (
     ACCURACY_METRIC,
@@ -24,6 +25,7 @@ from pyhighlights.configurations.keys import (
     SELECTION_RATE_METRIC,
     SELECTION_SIZE_METRIC,
     TOY,
+    TOY_GENSPP_TRAINER,
 )
 from pyhighlights.utility.metrics import BoundMetric
 
@@ -77,9 +79,48 @@ class ToyTaskConfig(TaskConfig):
         return super().default()
 
 
+class GenSPPTaskConfig(TaskConfig):
+    """Fields a GenSPP task adds, and the one it drops.
+
+    A GenSPP task names a search rather than a model: the model key is the
+    search's own, since the two disagreeing about which model was evolved is a
+    result nobody could read. Nothing scores the training split -- no epoch of
+    the winning model is ever trained -- so only validation and test carry
+    metrics.
+    """
+
+    loader: RegistrationKey[HighlightLoader] = Param(TOY)
+    search: RegistrationKey[GenSPPTrainer] = Param(TOY_GENSPP_TRAINER)
+    preprocessor: RegistrationKey[Preprocessor] | None = Param(None)
+    val_metrics: List[RegistrationKey[BoundMetric]] = Param(BINARY_METRICS)
+    test_metrics: List[RegistrationKey[BoundMetric]] = Param(BINARY_METRICS)
+    vocabulary_size: int = Param(10_000, ge=2)
+
+
+class ToyGenSPPTaskConfig(GenSPPTaskConfig):
+    """The synthetic corpus against GenSPP, searched two candidates wide."""
+
+    name: str = Param("toy-genspp")
+    batch_size: int = Param(8, ge=1)
+    trainer_args: Dict[str, Any] = Param({"accelerator": "cpu"})
+
+    @classmethod
+    @register_method(
+        name="task",
+        tags={"genspp", "toy"},
+        namespace=NAMESPACE,
+        component="pyhighlights.components.tasks.GenSPPTask",
+        run_method="run",
+    )
+    def default(cls):
+        return super().default()
+
+
 __all__: List[str] = [
     "BINARY_METRICS",
     "HIGHLIGHT_METRICS",
+    "GenSPPTaskConfig",
     "TaskConfig",
+    "ToyGenSPPTaskConfig",
     "ToyTaskConfig",
 ]

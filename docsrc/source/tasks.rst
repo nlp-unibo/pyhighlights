@@ -120,6 +120,43 @@ report what the selector kept whether or not the corpus is annotated at all.
 ``BINARY_METRICS`` collects the set a two-class corpus wants; Beer, Hotel,
 Movies and Toy use it as-is.
 
+GenSPP
+------
+
+GenSPP's generator is not trained: it is searched. A population of generators
+is evolved, and a candidate is scored by fitting a predictor on the selections
+it makes -- with the generator frozen, so the predictor never teaches the
+selector what to select, which is the cooperative equilibrium the other models
+have to fight.
+
+.. code-block:: python
+
+   from pyhighlights.configurations.keys import TOY_GENSPP_TASK
+
+   Registry.from_key(TOY_GENSPP_TASK, seeds=[42]).run()
+
+:class:`~pyhighlights.components.tasks.GenSPPTask` is an ``SPPTask`` in every
+other respect -- same corpus, preprocessing, metrics, seeds and output files.
+Two things differ:
+
+* It names a **search**, not a model. The model key is the search's own; naming
+  it twice is a way for the two to disagree about which model was evolved.
+* A validation split is required. Fitness is task loss traded against selection
+  rate, and both are measured there.
+
+Each candidate's predictor is fitted by a throwaway Lightning trainer, so the
+inner training is the same code path every other model trains through --
+logging, checkpointing and sanity checks off, since a hundred generations build
+one trainer per candidate. Gradients reach the predictor only:
+``GenSPP.configure_optimizers`` hands over the predictor's parameters, and the
+generator is put back in evaluation mode at the start of every epoch so its
+dropout cannot score the same candidate two different ways.
+
+Alongside the usual per-seed files, a GenSPP run writes ``best.ckpt`` -- the
+weights the search settled on -- and ``search.json``, the best fitness of every
+generation. A search that stopped improving in its tenth generation and one
+still climbing when the budget ran out report the same metrics otherwise.
+
 Benchmarks
 ----------
 
