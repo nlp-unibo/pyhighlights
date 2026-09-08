@@ -7,6 +7,7 @@ import torch as th
 from cinnamon.registry import Registry
 
 import pyhighlights
+from pyhighlights.components.data import HuggingFaceTokenizer
 from pyhighlights.components.models import InputData
 from pyhighlights.components.models.spp import (
     FR,
@@ -16,7 +17,10 @@ from pyhighlights.components.models.spp import (
     GenSPP,
     TransformerBackbone,
 )
+from pyhighlights.components.tasks import SPPTask
 from pyhighlights.configurations.keys import (
+    GRU_FR,
+    TOY,
     TRANSFORMER_FR,
     TRANSFORMER_GENSPP,
     TRANSFORMER_GRAT,
@@ -42,6 +46,27 @@ class FakeTransformer(th.nn.Module):
             dim=1, keepdim=True
         ).clamp_min(1)
         return SimpleNamespace(last_hidden_state=self.projection(states + context))
+
+
+def test_a_task_tokenizes_with_the_model_card_it_names(monkeypatch):
+    """Naming a card swaps the fitted vocabulary for that model's tokenizer."""
+
+    class FakeAutoTokenizer:
+        @classmethod
+        def from_pretrained(cls, card, **kwargs):
+            assert card == "distilbert-base-uncased"
+            return SimpleNamespace(name_or_path=card, is_fast=True, pad_token_id=0)
+
+    transformers = ModuleType("transformers")
+    transformers.AutoTokenizer = FakeAutoTokenizer
+    monkeypatch.setitem(sys.modules, "transformers", transformers)
+
+    task = SPPTask(
+        loader=TOY,
+        model=GRU_FR,
+        pretrained_model_card="distilbert-base-uncased",
+    )
+    assert isinstance(task.tokenizer({}), HuggingFaceTokenizer)
 
 
 def test_transformer_backbone_reports_missing_optional_dependency(monkeypatch):

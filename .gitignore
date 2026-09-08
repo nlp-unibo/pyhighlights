@@ -217,3 +217,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Lightning writes here when a trainer is run outside a task directory.
+lightning_logs/
+
+# Task output.
+results/

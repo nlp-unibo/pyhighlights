@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import List
 
 import pytest
@@ -6,6 +7,17 @@ import torchmetrics
 from cinnamon.configuration import Configuration, Param
 from cinnamon.registry import RegistrationKey, Registry
 
+import pyhighlights
+from pyhighlights.configurations.keys import (
+    ACCURACY_METRIC,
+    F1_METRIC,
+    HIGHLIGHT_F1_METRIC,
+    HIGHLIGHT_IOU_METRIC,
+    MULTICLASS_ACCURACY_METRIC,
+    MULTICLASS_F1_METRIC,
+    SELECTION_RATE_METRIC,
+    SELECTION_SIZE_METRIC,
+)
 from pyhighlights.utility.metrics import (
     BinaryHighlightF1Score,
     BinaryHighlightIoU,
@@ -105,3 +117,69 @@ def test_selection_metrics_average_over_samples():
 
     assert rate.compute() == pytest.approx((1.0 + 1 / 3) / 2)
     assert size.compute() == pytest.approx(1.5)
+
+
+def test_registered_metrics_score_the_fields_they_name():
+    """The registered set is what a task hands a model, so it must bind."""
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+
+    values = {
+        # Two classes, one logit each: the classification metrics are
+        # registered as multiclass even for a binary corpus.
+        "class_logits": th.tensor([[2.0, 0.0], [0.0, 2.0]]),
+        "y_true": th.tensor([0, 1]),
+        "highlight_mask": th.tensor([[1.0, 0.0], [1.0, 1.0]]),
+        "highlight_true": th.tensor([[1, 0], [1, -1]]),
+        "mask": th.tensor([[1.0, 1.0], [1.0, 1.0]]),
+    }
+    scores = {}
+    for key in (
+        ACCURACY_METRIC,
+        F1_METRIC,
+        HIGHLIGHT_F1_METRIC,
+        HIGHLIGHT_IOU_METRIC,
+        SELECTION_RATE_METRIC,
+        SELECTION_SIZE_METRIC,
+    ):
+        metric = Registry.from_key(key, expected_type=BoundMetric)
+        metric.update(values)
+        scores[metric.name] = metric.compute().item()
+
+    assert scores["accuracy"] == pytest.approx(1.0)
+    assert scores["f1"] == pytest.approx(1.0)
+    # Two annotated positions are marked and both are selected; the third is
+    # unannotated and scores nothing.
+    assert scores["highlight_f1"] == pytest.approx(1.0)
+    assert scores["highlight_iou"] == pytest.approx(1.0)
+    assert scores["selection_rate"] == pytest.approx(0.75)
+    assert scores["selection_size"] == pytest.approx(1.5)
+
+
+def test_multiclass_metrics_are_registered_for_hatexplain():
+    """HateXplain has three classes; the binary registrations cannot score it."""
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+
+    values = {
+        "class_logits": th.tensor([[2.0, 0.0, 0.0], [0.0, 0.0, 2.0]]),
+        "y_true": th.tensor([0, 1]),
+    }
+    accuracy = Registry.from_key(MULTICLASS_ACCURACY_METRIC, expected_type=BoundMetric)
+    accuracy.update(values)
+
+    assert accuracy.compute().item() == pytest.approx(0.5)
+
+    f1 = Registry.from_key(MULTICLASS_F1_METRIC, expected_type=BoundMetric)
+    f1.update(values)
+    assert 0.0 <= f1.compute().item() <= 1.0
+
+
+def test_each_build_gets_its_own_metric_state():
+    """Two models must not share a metric: seeds would accumulate each other."""
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+
+    first = Registry.from_key(ACCURACY_METRIC, expected_type=BoundMetric)
+    second = Registry.from_key(ACCURACY_METRIC, expected_type=BoundMetric)
+    first.update({"class_logits": th.tensor([[2.0, 0.0]]), "y_true": th.tensor([0])})
+
+    assert first.metric is not second.metric
+    assert second.metric.compute().item() == pytest.approx(0.0)
