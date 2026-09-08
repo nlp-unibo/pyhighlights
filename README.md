@@ -1,12 +1,12 @@
 # pyhighlights
 
-[![Tests](https://github.com/federicoruggeri/pyhighlights/actions/workflows/ci.yml/badge.svg)](https://github.com/federicoruggeri/pyhighlights/actions/workflows/ci.yml)
-[![Documentation](https://github.com/federicoruggeri/pyhighlights/actions/workflows/docs.yml/badge.svg)](https://federicoruggeri.github.io/pyhighlights/)
+[![Tests](https://github.com/nlp-unibo/pyhighlights/actions/workflows/ci.yml/badge.svg)](https://github.com/nlp-unibo/pyhighlights/actions/workflows/ci.yml)
+[![Documentation](https://github.com/nlp-unibo/pyhighlights/actions/workflows/docs.yml/badge.svg)](https://nlp-unibo.github.io/pyhighlights/)
 [![PyPI](https://img.shields.io/pypi/v/pyhighlights)](https://pypi.org/project/pyhighlights/)
 
 Research library for highlight-based explainable AI models.
 
-[Documentation](https://federicoruggeri.github.io/pyhighlights/) · [Contributing](CONTRIBUTING.md)
+[Documentation](https://nlp-unibo.github.io/pyhighlights/) · [Contributing](CONTRIBUTING.md)
 
 ## Installation
 

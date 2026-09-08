@@ -33,10 +33,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/federicoruggeri/pyhighlights"
-Documentation = "https://federicoruggeri.github.io/pyhighlights/"
-Source = "https://github.com/federicoruggeri/pyhighlights"
-Issues = "https://github.com/federicoruggeri/pyhighlights/issues"
+Homepage = "https://github.com/nlp-unibo/pyhighlights"
+Documentation = "https://nlp-unibo.github.io/pyhighlights/"
+Source = "https://github.com/nlp-unibo/pyhighlights"
+Issues = "https://github.com/nlp-unibo/pyhighlights/issues"
 
 [project.optional-dependencies]
 transformers = ["transformers>=4.0.0"]
