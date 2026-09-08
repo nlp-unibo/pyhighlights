@@ -23,17 +23,13 @@ from pyhighlights.configurations.keys import (
     JSD_LOSS,
     MLP_PREDICTOR,
     MLP_SELECTOR,
+    NAMESPACE,
     SPARSITY_LOSS,
     TRANSFORMER_BACKBONE,
     TRANSFORMER_GUIDER,
 )
 from pyhighlights.utility.losses import Loss
 from pyhighlights.utility.metrics import BoundMetric
-
-#: Namespace cinnamon resolves this module's registrations under. Kept a literal
-#: in every registering module: ``NamespaceExtractor`` reads it statically and only
-#: sees bindings made in the same file.
-NAMESPACE = "pyhighlights"
 
 
 class AttentionGuiderConfig(Configuration):

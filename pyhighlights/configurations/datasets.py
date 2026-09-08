@@ -11,11 +11,7 @@ from pyhighlights.components.loaders import (
     ERASERLoader,
     HateXplainLoader,
 )
-
-#: Namespace cinnamon resolves this module's registrations under. Kept a literal
-#: in every registering module: ``NamespaceExtractor`` reads it statically and only
-#: sees bindings made in the same file.
-NAMESPACE = "pyhighlights"
+from pyhighlights.configurations.keys import NAMESPACE
 
 
 class LoaderConfig(Configuration):

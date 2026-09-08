@@ -8,6 +8,10 @@ from cinnamon.registry import RegistrationKey, register_method
 
 from pyhighlights.components.models.spp.base import SPPBackbone
 from pyhighlights.components.models.spp.genspp import GenSPP
+from pyhighlights.configurations.backbones import (
+    GRUBackboneConfig,
+    TransformerBackboneConfig,
+)
 from pyhighlights.configurations.base import SPPModelConfig
 from pyhighlights.configurations.keys import (
     CLASSIFICATION_LOSS,
@@ -15,14 +19,55 @@ from pyhighlights.configurations.keys import (
     GENSPP_GRU_BACKBONE,
     GENSPP_TRANSFORMER_BACKBONE,
     GRU_GENSPP,
+    NAMESPACE,
     TRANSFORMER_GENSPP,
 )
+from pyhighlights.configurations.optimizers import AdamConfig
 from pyhighlights.utility.losses import Loss
 
-#: Namespace cinnamon resolves this module's registrations under. Kept a literal
-#: in every registering module: ``NamespaceExtractor`` reads it statically and only
-#: sees bindings made in the same file.
-NAMESPACE = "pyhighlights"
+
+class GenSPPGRUBackboneConfig(GRUBackboneConfig):
+    hidden_size: int = Param(16, ge=1)
+    freeze_embeddings: bool = Param(True)
+    bidirectional: bool = Param(False)
+
+    @classmethod
+    @register_method(
+        name="backbone",
+        tags={"genspp", "gru"},
+        namespace=NAMESPACE,
+        component="pyhighlights.components.models.spp.implementations.GRUBackbone",
+    )
+    def default(cls):
+        return super().default()
+
+
+class GenSPPTransformerBackboneConfig(TransformerBackboneConfig):
+    freeze_transformer: bool = Param(True)
+
+    @classmethod
+    @register_method(
+        name="backbone",
+        tags={"genspp", "transformer"},
+        namespace=NAMESPACE,
+        component="pyhighlights.components.models.spp.implementations.TransformerBackbone",
+    )
+    def default(cls):
+        return super().default()
+
+
+class GenSPPAdamConfig(AdamConfig):
+    lr: float = Param(1e-2, gt=0.0)
+
+    @classmethod
+    @register_method(
+        name="optimizer",
+        tags={"adam", "genspp"},
+        namespace=NAMESPACE,
+        component="torch.optim.Adam",
+    )
+    def default(cls):
+        return super().default()
 
 
 class GRUGenSPPConfig(SPPModelConfig):

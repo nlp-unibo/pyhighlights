@@ -13,13 +13,9 @@ from pyhighlights.configurations.keys import (
     KL_DIV,
     MASKED_BCE,
     MASKED_CROSS_ENTROPY,
+    NAMESPACE,
     SPARSITY_PENALTY,
 )
-
-#: Namespace cinnamon resolves this module's registrations under. Kept a literal
-#: in every registering module: ``NamespaceExtractor`` reads it statically and only
-#: sees bindings made in the same file.
-NAMESPACE = "pyhighlights"
 
 
 class CrossEntropyConfig(Configuration):

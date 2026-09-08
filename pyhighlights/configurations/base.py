@@ -1,10 +1,9 @@
 """Field sets shared by model configurations.
 
-Nothing here registers. A configuration module that imports a *registering*
-module executes that module's ``register_method`` calls inside its own
-namespace, and cinnamon then looks the registered class methods up in the
-importing file, which fails as soon as the two are executed in the wrong
-order. Shared fields therefore live in a module with no registrations at all.
+Nothing here registers: every model would otherwise inherit a registration it
+never asked for. The fields each model overrides -- the backbones, the losses,
+the optimizer -- are named once here and pinned per model in ``fr``, ``mgr``,
+``mcd``, ``grat`` and ``genspp``.
 """
 
 from typing import List
