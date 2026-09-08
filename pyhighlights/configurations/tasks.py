@@ -1,0 +1,85 @@
+"""Task registrations: a corpus, a model, and what to score them with.
+
+The metric set follows the corpus. Beer, Hotel, Movies and Toy are binary, so
+they take the binary accuracy and F1; HateXplain has three classes and takes
+the multiclass ones. Highlight and selection metrics are the same everywhere,
+since a token is either selected or it is not.
+"""
+
+from typing import Any, Dict, List, Sequence
+
+from cinnamon.configuration import Configuration, Param
+from cinnamon.registry import RegistrationKey, register_method
+
+from pyhighlights.components.loaders import HighlightLoader
+from pyhighlights.components.models.base import Model
+from pyhighlights.components.preprocessors import Preprocessor
+from pyhighlights.configurations.keys import (
+    ACCURACY_METRIC,
+    F1_METRIC,
+    GRU_FR,
+    HIGHLIGHT_F1_METRIC,
+    HIGHLIGHT_IOU_METRIC,
+    NAMESPACE,
+    SELECTION_RATE_METRIC,
+    SELECTION_SIZE_METRIC,
+    TOY,
+)
+from pyhighlights.utility.metrics import BoundMetric
+
+#: What every select-then-predict run reports, whatever the corpus: how much
+#: of the document was kept, and how well what was kept matches the annotation.
+HIGHLIGHT_METRICS = [
+    HIGHLIGHT_F1_METRIC,
+    HIGHLIGHT_IOU_METRIC,
+    SELECTION_RATE_METRIC,
+    SELECTION_SIZE_METRIC,
+]
+
+#: Binary corpora: Beer, Hotel, Movies, Toy.
+BINARY_METRICS = [ACCURACY_METRIC, F1_METRIC, *HIGHLIGHT_METRICS]
+
+
+class TaskConfig(Configuration):
+    """Fields every task shares."""
+
+    name: str = Param("task")
+    save_path: str | None = Param(None)
+    seeds: Sequence[int] = Param([42])
+    batch_size: int = Param(32, ge=1)
+    max_length: int | None = Param(None)
+    trainer_args: Dict[str, Any] = Param({"accelerator": "cpu", "max_epochs": 5})
+
+
+class ToyTaskConfig(TaskConfig):
+    """The synthetic corpus against FR: a smoke test that trains in seconds."""
+
+    name: str = Param("toy")
+    loader: RegistrationKey[HighlightLoader] = Param(TOY)
+    model: RegistrationKey[Model] = Param(GRU_FR)
+    preprocessor: RegistrationKey[Preprocessor] | None = Param(None)
+    train_metrics: List[RegistrationKey[BoundMetric]] = Param(BINARY_METRICS)
+    val_metrics: List[RegistrationKey[BoundMetric]] = Param(BINARY_METRICS)
+    test_metrics: List[RegistrationKey[BoundMetric]] = Param(BINARY_METRICS)
+    vocabulary_size: int = Param(10_000, ge=2)
+    batch_size: int = Param(8, ge=1)
+    trainer_args: Dict[str, Any] = Param({"accelerator": "cpu", "max_epochs": 2})
+
+    @classmethod
+    @register_method(
+        name="task",
+        tags={"toy"},
+        namespace=NAMESPACE,
+        component="pyhighlights.components.tasks.SPPTask",
+        run_method="run",
+    )
+    def default(cls):
+        return super().default()
+
+
+__all__: List[str] = [
+    "BINARY_METRICS",
+    "HIGHLIGHT_METRICS",
+    "TaskConfig",
+    "ToyTaskConfig",
+]

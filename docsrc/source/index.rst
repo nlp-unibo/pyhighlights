@@ -12,5 +12,6 @@ explainable AI research.
    data
    datasets
    models
+   tasks
    configurations
    contributing
