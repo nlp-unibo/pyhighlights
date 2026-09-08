@@ -9,6 +9,12 @@ from torch.utils.data import Dataset
 
 from pyhighlights.components.models import InputData
 
+#: Columns every corpus frame carries, in order. A loader parses into them and
+#: a preprocessor returns them, so a split is the same shape wherever it came
+#: from. ``highlights`` is ``None`` where a split has no annotation, and
+#: ``label`` is ``None`` only until a preprocessor has resolved one.
+COLUMNS = ("sample_id", "text", "tokens", "label", "highlights")
+
 
 @dataclass(frozen=True)
 class HighlightExample:

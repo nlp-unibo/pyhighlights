@@ -1,5 +1,4 @@
 import json
-import tarfile
 from pathlib import Path
 
 import pytest
@@ -7,138 +6,88 @@ from cinnamon.registry import Registry
 
 import pyhighlights
 from pyhighlights.components.loaders import (
+    BeerLoader,
     ERASERLoader,
     HateXplainLoader,
+    HotelLoader,
+    MoviesLoader,
+    R2ALoader,
     ToyLoader,
+    to_examples,
 )
-from pyhighlights.configurations.keys import ERASER, HATEXPLAIN, TOY
+from pyhighlights.configurations.keys import BEER, HATEXPLAIN, HOTEL, MOVIES, TOY
+from tests.corpora import eraser, hatexplain, r2a
 
 
-def annotator(label: str, index: int) -> dict:
-    return {"label": label, "annotator_id": index, "target": ["None"]}
+def hotel(tmp_path: Path, **kwargs) -> HotelLoader:
+    return HotelLoader(url=r2a(tmp_path), directory=tmp_path / "cache", **kwargs)
 
 
-def hatexplain(directory: Path) -> dict:
-    """Posts covering a majority label, a tie, a normal post and a duplicate."""
-    directory.mkdir(parents=True, exist_ok=True)
-    posts = {
-        "p1": {
-            "post_id": "p1",
-            "annotators": [
-                annotator("hatespeech", 1),
-                annotator("hatespeech", 2),
-                annotator("offensive", 3),
-            ],
-            "rationales": [[1, 1, 0], [1, 0, 0]],
-            "post_tokens": ["burn", "them", "all"],
-        },
-        "p2": {
-            "post_id": "p2",
-            "annotators": [
-                annotator("hatespeech", 1),
-                annotator("offensive", 2),
-                annotator("normal", 3),
-            ],
-            "rationales": [[0, 1]],
-            "post_tokens": ["who", "cares"],
-        },
-        "p3": {
-            "post_id": "p3",
-            "annotators": [annotator("normal", i) for i in (1, 2, 3)],
-            "rationales": [],
-            "post_tokens": ["nice", "day"],
-        },
-        # Same text as p1: id-based splits do not stop text leaking.
-        "p4": {
-            "post_id": "p4",
-            "annotators": [
-                annotator("hatespeech", 1),
-                annotator("hatespeech", 2),
-                annotator("normal", 3),
-            ],
-            "rationales": [[1, 1, 0], [1, 1, 0], [0, 1, 0]],
-            "post_tokens": ["burn", "them", "all"],
-        },
-    }
-    divisions = {"train": ["p1", "p2"], "val": ["p3"], "test": ["p4"]}
-    (directory / "posts.json").write_text(json.dumps(posts))
-    (directory / "divisions.json").write_text(json.dumps(divisions))
-    return {
-        "url": (directory / "posts.json").as_uri(),
-        "divisions_url": (directory / "divisions.json").as_uri(),
-        "directory": directory / "cache",
-    }
+def test_r2a_downloads_once_and_parses_the_standard_columns(tmp_path):
+    source = hotel(tmp_path)
+    splits = source.load()
+
+    assert set(splits) == {"train", "val", "test"}
+    assert list(splits["train"].columns) == [
+        "sample_id",
+        "text",
+        "tokens",
+        "label",
+        "highlights",
+    ]
+    # The splits come back as distributed: the annotated rows are still in
+    # training, and nothing has been dropped.
+    assert len(splits["train"]) == 3
+    assert splits["train"]["highlights"].isna().all()
+
+    test = splits["test"]
+    assert test["tokens"].iloc[1] == ["close", "to", "the", "station"]
+    assert test["highlights"].iloc[1] == [0, 0, 0, 1]
+    assert list(test["sample_id"]) == [0, 1]
+
+    # The archive is fetched once; a second load reuses the extracted copy.
+    (source.directory / source.archive_name).unlink()
+    assert source.read()["test"].equals(test)
 
 
-def eraser(directory: Path) -> dict:
-    """A miniature single-document ERASER task."""
-    directory.mkdir(parents=True, exist_ok=True)
-    documents = {"d1.txt": "a truly awful film\nnot worth it", "d2.txt": "a fine film"}
-    rows = {
-        "train.jsonl": [
-            {
-                "annotation_id": "d1.txt",
-                "classification": "NEG",
-                "docids": None,
-                "evidences": [
-                    [
-                        {
-                            "docid": "d1.txt",
-                            "start_token": 1,
-                            "end_token": 3,
-                            "text": "truly awful",
-                        }
-                    ],
-                    [
-                        {
-                            "docid": "d1.txt",
-                            "start_token": 5,
-                            "end_token": 7,
-                            "text": "worth it",
-                        }
-                    ],
-                ],
-            }
-        ],
-        "val.jsonl": [
-            {
-                "annotation_id": "d2.txt",
-                "classification": "POS",
-                "docids": ["d2.txt"],
-                "evidences": [],
-            }
-        ],
-        "test.jsonl": [
-            {
-                "annotation_id": "d2.txt",
-                "classification": "POS",
-                "docids": None,
-                "evidences": [
-                    [
-                        {
-                            "docid": "d2.txt",
-                            "start_token": 1,
-                            "end_token": 2,
-                            "text": "fine",
-                        }
-                    ]
-                ],
-            }
-        ],
-    }
-    staging = directory / "movies"
-    (staging / "docs").mkdir(parents=True)
-    for name, text in documents.items():
-        (staging / "docs" / name).write_text(text)
-    for name, lines in rows.items():
-        (staging / name).write_text(
-            "\n".join(json.dumps(line) for line in lines) + "\n"
-        )
+def test_beer_and_hotel_accept_only_their_own_aspects(tmp_path):
+    assert BeerLoader(url=r2a(tmp_path), directory=tmp_path / "b").task == "beer0"
+    assert hotel(tmp_path).task == "hotel_Location"
 
-    archive = directory / "movies.tar.gz"
-    with tarfile.open(archive, "w:gz") as target:
-        target.add(staging, arcname="movies")
-    return {"url": archive.as_uri(), "directory": directory / "cache"}
+    with pytest.raises(ValueError, match="task must be one of"):
+        BeerLoader(task="hotel_Location")
+    with pytest.raises(ValueError, match="task must be one of"):
+        HotelLoader(task="beer0")
+    # The shared parser still takes either.
+    assert R2ALoader(task="beer1").task == "beer1"
+
+
+def test_frames_convert_to_highlight_examples(tmp_path):
+    datasets = hotel(tmp_path).datasets()
+    example = datasets["test"][1]
+
+    assert len(datasets["train"]) == 3
+    assert example.highlights == (0, 0, 0, 1)
+    assert datasets["train"][0].highlights is None
+
+
+def test_misaligned_rationales_are_rejected(tmp_path):
+    path = tmp_path / "broken.train"
+    path.write_text(
+        "task\tlabel\ttext\trationale\tpred_att\n"
+        "hotel_Location\t1\ttwo tokens\t0 1 1\t0.1\n"
+    )
+
+    with pytest.raises(ValueError, match="misaligned"):
+        R2ALoader.read_file(path)
+
+
+def test_continuous_labels_are_rejected(tmp_path):
+    path = tmp_path / "source.train"
+    path.write_text("task\tlabel\ttext\nbeer0\t0.3\tno taste at all\n")
+
+    with pytest.raises(ValueError, match="continuous labels"):
+        R2ALoader.read_file(path)
 
 
 def test_toy_corpus_marks_its_trigger_and_repeats_for_a_seed():
@@ -147,7 +96,6 @@ def test_toy_corpus_marks_its_trigger_and_repeats_for_a_seed():
 
     assert list(splits) == ["train", "test"]
     assert len(splits["train"]) == 8
-    assert (loader.check_leakage()["ratio"] == 0).all()
 
     row = splits["train"].iloc[0]
     marked = [token for token, flag in zip(row.tokens, row.highlights) if flag]
@@ -164,54 +112,31 @@ def test_toy_corpus_marks_its_trigger_and_repeats_for_a_seed():
         ToyLoader(triggers=["only one"])
 
 
-def test_hatexplain_aggregates_labels_and_rationales(tmp_path):
-    loader = HateXplainLoader(**hatexplain(tmp_path), remove_leakage=False)
-    splits = loader.load()
+def test_hatexplain_keeps_every_annotator_judgement(tmp_path):
+    splits = HateXplainLoader(**hatexplain(tmp_path)).load()
 
-    # p2 has no majority label and is dropped; p3 is normal, so nothing is
-    # marked; p1 keeps the token both rationale vectors agree on.
-    assert [len(frame) for frame in splits.values()] == [1, 1, 1]
-    assert list(splits["train"]["text"]) == ["burn them all"]
-    assert splits["train"]["highlights"].iloc[0] == [1, 0, 0]
-    assert splits["val"]["highlights"].iloc[0] == [0, 0]
-    assert splits["val"]["label"].iloc[0] == 1
-
-    union = HateXplainLoader(
-        **hatexplain(tmp_path), rationale="union", remove_leakage=False
-    ).load()
-    assert union["train"]["highlights"].iloc[0] == [1, 1, 0]
-    intersection = HateXplainLoader(
-        **hatexplain(tmp_path), rationale="intersection", remove_leakage=False
-    ).load()
-    assert intersection["train"]["highlights"].iloc[0] == [1, 0, 0]
-
-    kept = HateXplainLoader(
-        **hatexplain(tmp_path), ties="keep", remove_leakage=False
-    ).load()
-    assert len(kept["train"]) == 2
-
-    with pytest.raises(ValueError, match="rationale must be"):
-        HateXplainLoader(rationale="whatever")
-    with pytest.raises(ValueError, match="ties must be"):
-        HateXplainLoader(ties="whatever")
+    # Nothing is aggregated and nothing is dropped: the tie post survives, and
+    # the label and highlights wait for a preprocessor.
+    assert [len(frame) for frame in splits.values()] == [2, 1, 1]
+    assert splits["train"]["label"].isna().all()
+    assert splits["train"]["highlights"].isna().all()
+    assert splits["train"]["annotator_labels"].iloc[0] == [
+        "hatespeech",
+        "hatespeech",
+        "offensive",
+    ]
+    assert splits["train"]["annotator_highlights"].iloc[0] == [[1, 1, 0], [1, 0, 0]]
 
 
-def test_hatexplain_splits_leak_by_text_and_are_repaired(tmp_path):
-    settings = hatexplain(tmp_path)
+def test_unaggregated_splits_refuse_to_become_examples(tmp_path):
+    loader = HateXplainLoader(**hatexplain(tmp_path))
 
-    raw = HateXplainLoader(**settings, remove_leakage=False)
-    report = raw.leakage().set_index(["left", "right"])
-    assert report.loc[("train", "test"), "ratio"] == 1.0
-
-    repaired = HateXplainLoader(**settings)
-    assert (repaired.check_leakage()["ratio"] == 0).all()
-    assert repaired.removed == {"train": 1, "val": 0, "test": 0}
-    assert len(repaired.load()["train"]) == 0
+    with pytest.raises(ValueError, match="AnnotationAggregator"):
+        loader.datasets()
 
 
 def test_eraser_turns_evidence_spans_into_highlights(tmp_path):
-    settings = eraser(tmp_path)
-    splits = ERASERLoader(**settings, remove_leakage=False).load()
+    splits = MoviesLoader(**eraser(tmp_path)).load()
 
     train = splits["train"].iloc[0]
     assert train.tokens == ["a", "truly", "awful", "film", "not", "worth", "it"]
@@ -222,12 +147,6 @@ def test_eraser_turns_evidence_spans_into_highlights(tmp_path):
     assert splits["val"]["highlights"].iloc[0] == [0, 0, 0]
     assert splits["test"]["highlights"].iloc[0] == [0, 1, 0]
     assert splits["test"]["label"].iloc[0] == 1
-
-    # val and test share a document, and the annotated split keeps it.
-    repaired = ERASERLoader(**settings)
-    assert (repaired.check_leakage()["ratio"] == 0).all()
-    assert repaired.removed == {"train": 0, "val": 1, "test": 0}
-    assert len(repaired.load()["test"]) == 1
 
 
 def test_eraser_refuses_query_based_tasks_and_unknown_ones():
@@ -240,7 +159,7 @@ def test_eraser_refuses_query_based_tasks_and_unknown_ones():
 def test_eraser_rejects_spans_outside_the_document(tmp_path):
     settings = eraser(tmp_path)
     root = tmp_path / "cache" / "eraser" / "movies" / "movies"
-    loader = ERASERLoader(**settings)
+    loader = MoviesLoader(**settings)
     loader.download()
     (root / "train.jsonl").write_text(
         json.dumps(
@@ -255,7 +174,7 @@ def test_eraser_rejects_spans_outside_the_document(tmp_path):
     )
 
     with pytest.raises(ValueError, match="evidence span outside"):
-        ERASERLoader(**settings).load()
+        MoviesLoader(**settings).load()
 
 
 def test_registered_loaders_build(tmp_path):
@@ -266,5 +185,19 @@ def test_registered_loaders_build(tmp_path):
         Registry.from_key(HATEXPLAIN, **hatexplain(tmp_path / "hx")), HateXplainLoader
     )
     assert isinstance(
-        Registry.from_key(ERASER, **eraser(tmp_path / "er")), ERASERLoader
+        Registry.from_key(MOVIES, **eraser(tmp_path / "er")), MoviesLoader
     )
+
+    archive = r2a(tmp_path)
+    beer = Registry.from_key(BEER, url=archive, directory=str(tmp_path / "b"))
+    hotel_loader = Registry.from_key(HOTEL, url=archive, directory=str(tmp_path / "h"))
+    assert isinstance(beer, BeerLoader) and beer.task == "beer0"
+    assert isinstance(hotel_loader, HotelLoader)
+    assert hotel_loader.task == "hotel_Location"
+
+
+def test_to_examples_needs_the_standard_columns(tmp_path):
+    frame = hotel(tmp_path).load()["train"].drop(columns=["label"])
+
+    with pytest.raises(KeyError):
+        to_examples(frame)

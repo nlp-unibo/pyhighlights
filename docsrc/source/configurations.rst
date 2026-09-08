@@ -47,8 +47,15 @@ and the higher learning rate its genetic search needs.
 .. automodule:: pyhighlights.configurations.grat
    :members:
 
-``pyhighlights.configurations.datasets`` registers the corpus loaders. ``R2A``
-builds a Beer or Hotel loader; the aspect is a ``task`` variant.
+``pyhighlights.configurations.datasets`` registers the corpus loaders, one per
+corpus; the aspect of a Beer or Hotel loader is a ``task`` variant.
 
 .. automodule:: pyhighlights.configurations.datasets
+   :members:
+
+``pyhighlights.configurations.preprocessors`` registers what runs after a
+loader: the leakage detector, the preprocessing steps, and the pipelines that
+compose them.
+
+.. automodule:: pyhighlights.configurations.preprocessors
    :members:

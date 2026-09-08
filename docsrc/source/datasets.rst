@@ -1,17 +1,22 @@
 Datasets
 ========
 
-A loader downloads a corpus once, hands back one :class:`pandas.DataFrame` per
-split, and reports how much of one split another already contains.
+A loader downloads a corpus once and hands back one :class:`pandas.DataFrame`
+per split, **as distributed**. What is done to it next — repairing splits that
+overlap, reducing several annotators to one judgement — is a preprocessing
+step, because it is a decision about the study rather than about the corpus.
 
 .. code-block:: python
 
-   from pyhighlights.components.loaders import R2ALoader
+   from pyhighlights.components.leakage import LeakageDetector
+   from pyhighlights.components.loaders import HotelLoader
+   from pyhighlights.components.preprocessors import LeakageRemover
 
-   loader = R2ALoader(task="hotel_Location")
-   splits = loader.load()        # {"train", "val", "test"} -> DataFrame
-   loader.check_leakage()        # raises if any split pair overlaps
-   loader.datasets()             # -> HighlightDataset, ready for the collator
+   loader = HotelLoader(task="hotel_Location")
+   splits = loader.load()                    # {"train", "val", "test"} -> DataFrame
+
+   LeakageDetector().check(splits)           # raises: these splits overlap
+   splits = LeakageRemover().process(splits)  # repaired, annotated split whole
 
 Every loader produces the same five columns.
 
@@ -38,34 +43,51 @@ Every loader produces the same five columns.
      - ``list[int]`` or ``None``
      - Per-token 0/1, ``None`` when the split carries no annotation
 
+Preprocessing
+-------------
+
+:class:`~pyhighlights.components.preprocessors.Preprocessor` takes the splits a
+loader produced and returns splits of the same shape, so any of them chains
+with any other. Two ship with pyhighlights, and
+:class:`~pyhighlights.components.preprocessors.Pipeline` runs a list of them in
+order — its steps are registration keys, so a study states its pipeline in a
+configuration instead of in code.
+
+:class:`~pyhighlights.components.preprocessors.LeakageRemover`
+   Walks the splits in priority order — ``test``, then ``val``, then ``train``
+   — and keeps in each only rows no earlier split claimed and no earlier row
+   of its own repeated. The annotated split comes first because it is the only
+   one carrying highlights, so training and validation are what give rows up.
+   ``priority`` is a parameter: reproducing a training set rather than an
+   evaluation one is a different, equally legitimate choice. :attr:`removed`
+   records the count per split.
+
+:class:`~pyhighlights.components.preprocessors.AnnotationAggregator`
+   Reduces per-annotator labels and rationales to one of each. See HateXplain
+   below.
+
 Leakage
 -------
 
 Published splits are not always disjoint, and a corpus that shares rows
 between training and test reports highlight scores on examples the model was
-trained on. Nothing downstream can detect that, so loaders address it directly:
+trained on. Nothing downstream can detect that, so
+:class:`~pyhighlights.components.leakage.LeakageDetector` looks for it
+explicitly. It holds no data: every method takes the splits to analyse, so the
+same detector serves a loader's output and a preprocessed copy of it.
 
-``loader.leakage()``
+``detector.report(splits)``
    A frame with one row per ordered split pair: ``overlap`` rows of *right*
    found in *left*, and ``ratio``, that count over the size of *right*. Keys
    are whitespace- and case-normalised, since raw equality understates real
    overlap.
 
-``loader.check_leakage(tolerance=0.0)``
+``detector.check(splits, tolerance=0.0)``
    The same report, but raising when a pair exceeds the tolerance. Call it in a
    test or before a run.
 
-``loader.duplicates()``
+``detector.duplicates(splits)``
    Repeated rows inside each split.
-
-``remove_leakage=True`` (the default)
-   Splits are repaired at load time. Rows are walked in priority order —
-   ``test``, then ``val``, then ``train`` — and each split keeps only rows no
-   earlier split claimed and no earlier row of its own repeated. The annotated
-   split comes first because it is the only one carrying highlights, so
-   training and validation are what give rows up. :attr:`removed` records the
-   count per split. Pass ``remove_leakage=False`` to reproduce a corpus exactly
-   as distributed, leakage included.
 
 Beer and Hotel (R2A)
 --------------------
@@ -79,9 +101,12 @@ MGR, MCD, G-RAT) draws both corpora from.
 :Tasks: ``beer0``, ``beer1``, ``beer2`` (appearance, aroma, palate);
         ``hotel_Location``, ``hotel_Service``, ``hotel_Cleanliness``
 :Labels: binary
-:Loader: :class:`pyhighlights.components.loaders.R2ALoader`
-:Key: :data:`pyhighlights.configurations.keys.R2A`, with the aspect as a
-      ``task`` variant
+:Loaders: :class:`pyhighlights.components.loaders.BeerLoader` and
+          :class:`pyhighlights.components.loaders.HotelLoader`, both over the
+          shared :class:`~pyhighlights.components.loaders.R2ALoader` parsing
+:Keys: :data:`pyhighlights.configurations.keys.BEER` and
+       :data:`pyhighlights.configurations.keys.HOTEL`, with the aspect as a
+       ``task`` variant
 
 **Annotation lives in a file named** ``train``. Inside the release,
 ``data/oracle/<task>.{train,dev}`` carry labels and text only, and the files
@@ -100,7 +125,7 @@ of work reports highlight scores on. The default split map therefore reads:
 Leakage in the distributed splits
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Measured with ``remove_leakage=False``. ``test ⊂ train`` is the share of the
+Measured on the splits as distributed. ``test ⊂ train`` is the share of the
 annotated evaluation split found in training; ``val ⊂ train`` the share of
 validation found in training.
 
@@ -157,10 +182,10 @@ leaks less there but keeps roughly two thirds of its validation split inside
 training. The splits also repeat rows internally — 1418 of the 14472
 ``hotel_Location`` training rows are duplicates.
 
-With the default ``remove_leakage=True`` all of this is repaired: the annotated
-split stays whole and the offending training and validation rows are dropped.
-Validation is repaired before training, so it keeps its rows and training pays
-for the overlap:
+A :class:`~pyhighlights.components.preprocessors.LeakageRemover` repairs all
+of this: the annotated split stays whole and the offending training and
+validation rows are dropped. Validation is repaired before training, so it
+keeps its rows and training pays for the overlap:
 
 .. list-table::
    :header-rows: 1
@@ -209,10 +234,9 @@ for the overlap:
      - 0
 
 Training loses 13-17% of its rows, the annotated split loses none, and
-``check_leakage()`` passes for every task.
-Numbers published on the distributed splits are reproducible with
-``remove_leakage=False``, and are not comparable with numbers from the repaired
-ones.
+``LeakageDetector().check()`` passes for every task. Numbers published on the
+distributed splits are reproducible by skipping the repair, and are not
+comparable with numbers from the repaired ones.
 
 One upstream artifact
 ^^^^^^^^^^^^^^^^^^^^^
@@ -237,7 +261,15 @@ for Explainable Hate Speech Detection*.
 :Loader: :class:`pyhighlights.components.loaders.HateXplainLoader`
 :Key: :data:`pyhighlights.configurations.keys.HATEXPLAIN`
 
-Both the label and the highlights are aggregated across annotators:
+**The loader keeps every judgement.** ``label`` and ``highlights`` come back
+unset and the raw material sits in ``annotator_labels`` and
+``annotator_highlights``, two columns this corpus carries and the others do
+not. Until an
+:class:`~pyhighlights.components.preprocessors.AnnotationAggregator` has run,
+the splits are not yet examples and ``datasets()`` says so rather than
+guessing. There is no default aggregation, because reducing three annotators
+to one judgement is exactly the choice two studies over this corpus make
+differently:
 
 ``label``
    Majority vote. 919 of the 20148 posts have all three annotators
@@ -245,9 +277,14 @@ Both the label and the highlights are aggregated across annotators:
    paper does, and ``ties="keep"`` resolves them by annotator order.
 
 ``highlights``
-   ``rationale="majority"`` (the default) keeps a token marked by more than
-   half of the rationale vectors, ``"union"`` by any of them,
-   ``"intersection"`` by all.
+   ``rationale="majority"`` keeps a token marked by more than half of the
+   rationale vectors, ``"union"`` by any of them, ``"intersection"`` by all.
+
+:data:`~pyhighlights.configurations.keys.HATEXPLAIN_PIPELINE` chains the
+aggregator with a
+:class:`~pyhighlights.components.preprocessors.LeakageRemover`, in that order:
+repairing leakage first would measure overlap over rows the tie handling then
+removes.
 
 ``normal`` posts carry no rationale by design, and 580 non-normal ones carry
 none either. Both come back as all-zero highlights — "no token was marked",
@@ -257,7 +294,7 @@ positive tokens rather than skipping them.
 The published splits share no post id, but they do share text: 6 test posts
 and 3 validation posts also appear in training, and 28 training posts are
 duplicates of each other. Small, but nonzero — and invisible to an id-based
-check. The default repair removes 37 rows in total.
+check. Repairing after aggregation removes 37 rows in total.
 
 ERASER
 ------
@@ -271,8 +308,9 @@ split whose rows carry a ``classification`` and ``evidences`` — groups of
 :Download: ``https://www.eraserbenchmark.com/zipped/<task>.tar.gz``
 :Tasks: ``movies`` (1600 / 200 / 199 rows, 3.9 MB)
 :Labels: binary (``NEG`` / ``POS``)
-:Loader: :class:`pyhighlights.components.loaders.ERASERLoader`
-:Key: :data:`pyhighlights.configurations.keys.ERASER`
+:Loader: :class:`pyhighlights.components.loaders.MoviesLoader`, over the
+         shared :class:`~pyhighlights.components.loaders.ERASERLoader` parsing
+:Key: :data:`pyhighlights.configurations.keys.MOVIES`
 
 **Only single-document tasks are supported.** A select-then-predict model
 takes one token sequence and no query, so ``boolq``, ``esnli``,
@@ -287,7 +325,8 @@ rationales aggregate several annotators; a sparsity target tuned on training
 data is not tuned for it.
 
 ``movies`` has no cross-split leakage: one training row duplicates another,
-and that is all the default repair removes.
+and that is all a :class:`~pyhighlights.components.preprocessors.LeakageRemover`
+removes.
 
 Toy
 ---
@@ -313,5 +352,13 @@ API
 ---
 
 .. automodule:: pyhighlights.components.loaders
+   :members:
+   :show-inheritance:
+
+.. automodule:: pyhighlights.components.leakage
+   :members:
+   :show-inheritance:
+
+.. automodule:: pyhighlights.components.preprocessors
    :members:
    :show-inheritance:
