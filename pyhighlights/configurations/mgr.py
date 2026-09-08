@@ -19,16 +19,12 @@ from pyhighlights.configurations.keys import (
     GRU_BACKBONE,
     MLP_PREDICTOR,
     MLP_SELECTOR,
+    NAMESPACE,
     SPARSITY_LOSS,
     TRANSFORMER_BACKBONE,
 )
 from pyhighlights.utility.losses import Loss
 from pyhighlights.utility.metrics import BoundMetric
-
-#: Namespace cinnamon resolves this module's registrations under. Kept a literal
-#: in every registering module: ``NamespaceExtractor`` reads it statically and only
-#: sees bindings made in the same file.
-NAMESPACE = "pyhighlights"
 
 
 class GRUMGRConfig(Configuration):
