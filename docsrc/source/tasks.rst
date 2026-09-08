@@ -120,12 +120,73 @@ report what the selector kept whether or not the corpus is annotated at all.
 ``BINARY_METRICS`` collects the set a two-class corpus wants; Beer, Hotel,
 Movies and Toy use it as-is.
 
+Benchmarks
+----------
+
+A paper's table is a grid, not one experiment: every model over every corpus.
+:class:`~pyhighlights.components.benchmarks.Benchmark` is that grid — a list of
+task keys, run in order, each writing inside the benchmark's own directory.
+
+.. code-block:: python
+
+   from pyhighlights.configurations.keys import TOY_BENCHMARK
+
+   report = Registry.from_key(TOY_BENCHMARK).run()
+   report["failed"]   # tasks that raised, by name
+
+A task that raises does not take the rest of the grid with it: the failure is
+recorded against that task and the run carries on, since an afternoon of
+training should not be lost to one bad configuration. ``strict=True`` turns
+that off where a run must be all-or-nothing.
+
+Analyzers
+---------
+
+An analyzer reads a results directory back and answers one question about it,
+returning a :class:`pandas.DataFrame` rather than printing — so the same
+analyzer serves a notebook, a test and a LaTeX table.
+
+:class:`~pyhighlights.components.analyzers.MetricsAnalyzer`
+   One row per task, one column per metric, ``mean +/- std`` across seeds. It
+   walks every ``results.json`` beneath the directory, so it reads one task or
+   a whole benchmark without being told which. A metric a task never measured
+   reads as ``-``: a grid rarely reports the same set everywhere, and an
+   unannotated corpus has no highlight F1 to give. ``pairs=True`` keeps the
+   ``(mean, std)`` tuples, which
+   :func:`~pyhighlights.components.analyzers.latex_table` renders as
+   ``$12.34_{\pm 0.56}$``, escaping the underscores every metric name
+   carries.
+
+:class:`~pyhighlights.components.analyzers.HighlightPositionAnalyzer`
+   Where in the document the selector looked, binned as a share of the
+   document so lengths are comparable, and how much it kept. A selector that
+   has learned nothing still selects something; position is what tells the two
+   apart, since a model keying on the opening tokens of every document scores
+   like one that found the rationale. A model with several selectors stores one
+   mask per head; the analysis reads the head its aggregator keeps, which is
+   the one every reported metric scored.
+
+Neither is interactive and neither plots. An analyzer that asks which folder
+you meant cannot run unattended, and a figure is a presentation choice that
+belongs to whoever is writing the paper.
+
 API
 ---
 
 .. automodule:: pyhighlights.components.tasks
    :members:
    :show-inheritance:
+
+.. automodule:: pyhighlights.components.benchmarks
+   :members:
+   :show-inheritance:
+
+.. automodule:: pyhighlights.components.analyzers
+   :members:
+   :show-inheritance:
+
+.. automodule:: pyhighlights.configurations.benchmarks
+   :members:
 
 .. automodule:: pyhighlights.configurations.tasks
    :members:
