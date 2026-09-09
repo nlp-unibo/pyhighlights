@@ -19,6 +19,15 @@ than remembering which loader went with which checkpoint.
 Registered with ``run_method="run"``, so ``cmn-run`` drives the same task from
 the command line.
 
+Every setting a task takes is a parameter of
+:class:`~pyhighlights.configurations.tasks.TaskConfig` — the monitored metric,
+the patience, the vector file, whether predictions and faithfulness are
+reported. A key therefore records the whole experiment, and two runs whose keys
+agree cannot differ. The kwargs above override a key at build time; they are
+not the only way to set a value. What a configuration may *not* carry is what
+a run builds: the embedding matrix is fitted against the training split at run
+time and reaches the model as a tensor, never as a parameter.
+
 What a run does
 ---------------
 
