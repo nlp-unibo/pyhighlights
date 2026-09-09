@@ -14,9 +14,11 @@ discrete choice, and the spread across seeds is part of the result.
 from __future__ import annotations
 
 import abc
+import itertools
 import json
 import logging
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Sequence
 
@@ -41,6 +43,7 @@ from pyhighlights.components.loaders import HighlightLoader, to_examples
 from pyhighlights.components.models.base import Model
 from pyhighlights.components.models.spp.genspp import GenSPPTrainer
 from pyhighlights.components.preprocessors import Preprocessor
+from pyhighlights.utility import manifest
 from pyhighlights.utility.embeddings import load_vectors
 from pyhighlights.utility.losses import Loss
 from pyhighlights.utility.metrics import BoundMetric, build_metrics
@@ -98,10 +101,28 @@ class Task(abc.ABC):
     ):
         self.name = name
         self.save_path = Path(save_path) if save_path is not None else Path("results")
+        self._started: str | None = None
 
     @property
     def directory(self) -> Path:
-        return self.save_path / self.name
+        """Where this run writes, stamped with the moment it started.
+
+        One directory per run, never reused: two runs of the same task are two
+        results to compare, and the second quietly replacing the first is a
+        measurement lost to a re-run somebody forgot they had already done. The
+        stamp is taken once and kept, so every seed, the metrics and the
+        manifest land together.
+        """
+        if self._started is None:
+            stamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+            # Two runs inside one second would otherwise share a directory,
+            # which is the one thing the stamp is here to prevent.
+            self._started = stamp
+            for suffix in itertools.count(2):
+                if not (self.save_path / self.name / self._started).exists():
+                    break
+                self._started = f"{stamp}-{suffix}"
+        return self.save_path / self.name / self._started
 
     @abc.abstractmethod
     def run(self) -> Dict[str, Any]:
@@ -109,21 +130,20 @@ class Task(abc.ABC):
 
     def serialize(self, results: Mapping[str, Any]) -> Path:
         """Write the results and the settings that produced them."""
-        self.directory.mkdir(parents=True, exist_ok=True)
-        (self.directory / "results.json").write_text(json.dumps(results, indent=2))
-        (self.directory / "config.json").write_text(
+        directory = self.directory
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "results.json").write_text(json.dumps(results, indent=2))
+        # Not the task's attributes: those hold keys, so a record of them says
+        # `name=model--tags=['fr','gru']` and not the hidden size, the sparsity
+        # threshold or the learning rate that key stands for.
+        (directory / "manifest.json").write_text(
             json.dumps(
-                {
-                    key: str(value)
-                    for key, value in vars(self).items()
-                    # Private attributes are what a run built, not what it
-                    # was asked for: an embedding matrix among them.
-                    if not key.startswith("_")
-                },
+                {"started": self._started, **manifest.describe(self)},
                 indent=2,
+                default=str,
             )
         )
-        return self.directory
+        return directory
 
 
 class SPPTask(Task):
@@ -390,6 +410,9 @@ class SPPTask(Task):
         return results
 
     def run(self) -> Dict[str, Any]:
+        # A second run of the same instance is a second result, not an
+        # amendment to the first: drop the stamp so it takes its own.
+        self._started = None
         loaders = self.loaders(self.splits())
         runs = [self.fit(seed, loaders) for seed in self.seeds]
 

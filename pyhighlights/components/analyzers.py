@@ -95,6 +95,12 @@ class MetricsAnalyzer(Analyzer):
     A metric a task did not measure is ``-`` rather than missing, since a grid
     of models rarely reports exactly the same set: an unannotated corpus has no
     highlight F1 to give.
+
+    A task keeps every run it has ever done, one timestamped directory each, so
+    ``latest`` decides which of them the table is about: the most recent run of
+    each task by default, every run when asked. Reporting all of them by
+    default would grow the table each time a configuration is re-run, and the
+    numbers a paper quotes are the last ones measured.
     """
 
     def __init__(
@@ -103,16 +109,29 @@ class MetricsAnalyzer(Analyzer):
         metrics: Sequence[str] = (),
         split: str = "test",
         pairs: bool = False,
+        latest: bool = True,
     ):
         super().__init__(directory)
         self.metrics = list(metrics)
         self.split = split
         self.pairs = pairs
+        self.latest = latest
 
     def reports(self) -> List[Dict[str, Any]]:
+        """Every run found, newest last, one per task when ``latest``.
+
+        Grouped by the name the run reported rather than by its directory: the
+        stamp is a path component, and a task that has been renamed or moved is
+        still the task its results say it is.
+        """
+        found = {}
+        for path in sorted(self.directory.rglob("results.json")):
+            report = {"run": path.parent.name, **json.loads(path.read_text())}
+            found.setdefault(report.get("name", "?"), []).append(report)
         return [
-            json.loads(path.read_text())
-            for path in sorted(self.directory.rglob("results.json"))
+            report
+            for reports in found.values()
+            for report in (reports[-1:] if self.latest else reports)
         ]
 
     def analyze(self) -> pd.DataFrame:
@@ -128,6 +147,7 @@ class MetricsAnalyzer(Analyzer):
             names = self.metrics or sorted(found)
             row: Dict[str, Any] = {
                 "task": report.get("name", "?"),
+                "run": report["run"],
                 "seeds": len(report.get("seeds", [])),
             }
             for name in names:

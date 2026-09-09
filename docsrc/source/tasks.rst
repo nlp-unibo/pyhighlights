@@ -60,13 +60,57 @@ What lands on disk
 
 .. code-block:: text
 
-   results/<name>/
+   results/<name>/<started>/
    ├── results.json      # every seed's metrics, and their summary
-   ├── config.json       # the settings that produced them
+   ├── manifest.json     # the whole configuration tree, and the versions
    ├── seed=42/
    │   ├── epoch=3-step=128.ckpt
    │   └── predictions.pkl
    └── seed=1337/…
+
+``<started>`` is the moment the run began, ``2026-09-09T16-13-00``. A run never
+overwrites an earlier one: two runs of the same task are two results to
+compare, and the second quietly replacing the first is a measurement lost to a
+re-run somebody forgot they had already done. Two runs inside one second get
+``…-2`` appended rather than sharing a directory.
+
+``manifest.json`` is what makes the directory worth keeping. A task's own
+attributes are not enough — a task holds *keys*, so recording them writes
+``name=model--tags=['fr','gru']`` and leaves the hidden size, the sparsity
+threshold and the learning rate behind that key nowhere in the record.
+:func:`~pyhighlights.utility.manifest.describe` replaces every key with the
+configuration it names, recursively, so the file states the numbers the run
+used:
+
+.. code-block:: json
+
+   {
+     "started": "2026-09-09T16-13-00",
+     "component": "pyhighlights.components.tasks.SPPTask",
+     "versions": {"python": "3.13.15", "pyhighlights": "0.1.0",
+                  "cinnamon-core": "2.0.2", "torch": "2.14.0",
+                  "lightning": "2.6.5"},
+     "settings": {
+       "patience": 5,
+       "model": {
+         "key": "name=model--tags=['fr', 'gru']--namespace=pyhighlights",
+         "selector_backbones": {"hidden_size": 128, "bidirectional": true},
+         "losses": [{"name": "sparsity", "loss": {"threshold": 0.15}}],
+         "optimizer": {"lr": 0.001}
+       }
+     }
+   }
+
+The versions are there because a metric that moved between two runs of the same
+configuration is a version difference or nothing at all. Private attributes are
+absent: they are what the run *built* — the embedding matrix fitted against the
+training split among them — and no more a setting than the trained weights are.
+
+One field is deliberately missing: the task's own registration key. A component
+is built as ``component_class(**{**config.values, **build_args})`` and is never
+told which key produced it, so a task cannot record what it does not know. The
+tree is every argument the task received, which is enough to rebuild the run; it
+just cannot be replayed as a single ``Registry.from_key`` call.
 
 Corpus and model
 ----------------
@@ -332,7 +376,11 @@ analyzer serves a notebook, a test and a LaTeX table.
    ``(mean, std)`` tuples, which
    :func:`~pyhighlights.components.analyzers.latex_table` renders as
    ``$12.34_{\pm 0.56}$``, escaping the underscores every metric name
-   carries.
+   carries. Since a task keeps every run it has ever done, ``latest`` decides
+   which the table is about: the newest run of each task by default, every run
+   when asked. Runs are grouped by the name a result reports rather than by its
+   directory, so a task that was renamed or moved is still the task its results
+   say it is.
 
 :class:`~pyhighlights.components.analyzers.HighlightPositionAnalyzer`
    Where in the document the selector looked, binned as a share of the
@@ -361,6 +409,9 @@ API
 .. automodule:: pyhighlights.components.benchmarks
    :members:
    :show-inheritance:
+
+.. automodule:: pyhighlights.utility.manifest
+   :members:
 
 .. automodule:: pyhighlights.components.analyzers
    :members:
