@@ -5,8 +5,11 @@ import torch as th
 from cinnamon.configuration import Configuration
 from cinnamon.registry import Registry
 
+import pyhighlights
+from pyhighlights.configurations.keys import CROSS_ENTROPY
 from pyhighlights.utility.losses import (
     ContiguityPenalty,
+    CrossEntropy,
     JSDiv,
     Loss,
     MaskedCrossEntropy,
@@ -163,3 +166,60 @@ def test_supervision_appends_the_highlight_loss_and_guides_the_first_head_only()
             SparsityPenalty()(head.highlight_mask, batch.mask) for head in heads
         )
     assert terms["sparsity"] == pytest.approx(sparsity.item())
+
+
+def test_unweighted_cross_entropy_is_the_one_torch_ships():
+    """Nothing about the default changes by wrapping it."""
+    logits = th.tensor([[2.0, -1.0], [0.5, 0.5]])
+    targets = th.tensor([0, 1])
+
+    assert CrossEntropy()(logits, targets) == pytest.approx(
+        float(th.nn.CrossEntropyLoss()(logits, targets))
+    )
+
+
+def test_class_weights_make_the_rare_class_dominate_the_batch():
+    """The point of weighting: a corpus that is 1% positive.
+
+    Weighted ``mean`` reduction divides by the sum of the weights in the
+    batch, not by its size, so a weight changes how much a class counts
+    *relative to the others* and a single-class batch is unaffected by it.
+    """
+    logits = th.tensor([[2.0, -1.0], [2.0, -1.0]])
+    plain = CrossEntropy()
+    weighted = CrossEntropy(weight=[1.0, 20.0])
+
+    on_common = float(plain(logits[:1], th.tensor([0])))
+    on_rare = float(plain(logits[:1], th.tensor([1])))
+    batch = th.tensor([0, 1])
+
+    assert plain(logits, batch) == pytest.approx((on_common + on_rare) / 2)
+    assert weighted(logits, batch) == pytest.approx(
+        (on_common + 20 * on_rare) / 21, rel=1e-5
+    )
+    # Which is to say the rare class now carries almost all of the loss.
+    assert weighted(logits, batch) > plain(logits, batch)
+
+
+def test_the_weights_follow_the_model_and_stay_out_of_its_checkpoint():
+    """A weight tensor left behind is a crash at the first batch."""
+    criterion = CrossEntropy(weight=[1.0, 20.0])
+    module = th.nn.Sequential(criterion)
+
+    assert criterion.weight.dtype == th.get_default_dtype()
+    # A buffer moves with the module; a plain attribute would not.
+    assert dict(module.named_buffers())["0.weight"] is criterion.weight
+    # Configured rather than trained, so a checkpoint does not carry it and a
+    # run configured without weights can load one saved with them.
+    assert module.state_dict() == {}
+
+
+def test_the_registered_criterion_takes_its_weights_from_the_configuration():
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+
+    criterion = Registry.from_key(CROSS_ENTROPY)
+    assert isinstance(criterion, CrossEntropy)
+    assert criterion.weight is None
+
+    weighted = Registry.from_key(CROSS_ENTROPY, weight=[1.0, 20.0])
+    assert weighted.weight.tolist() == [1.0, 20.0]

@@ -19,6 +19,33 @@ inheriting a registration.
 ``pyhighlights.configurations.backbones``, ``losses`` and ``optimizers``
 register the pieces the models are assembled from.
 
+The classification criterion takes per-class ``weight`` values, which a
+class-imbalanced corpus needs: 106 positives in 20,417 sentences is a corpus
+answered correctly by a model that never predicts one. The weights are
+declared rather than computed from the training split -- a fixed split has
+fixed class frequencies, so the numbers are known before the run, and
+declaring them puts them in the run's manifest where a weighting computed
+inside the run would leave nothing.
+
+.. code-block:: python
+
+   class LTDCrossEntropyConfig(CrossEntropyConfig):
+       weight: List[float] | None = Param([0.52, 12.4])
+
+       @classmethod
+       @register_method(
+           name="criterion",
+           tags={"cross_entropy", "ltd"},
+           namespace="my-study",
+           component="pyhighlights.utility.losses.CrossEntropy",
+       )
+       def default(cls):
+           return super().default()
+
+Weighted ``mean`` reduction divides by the sum of the weights in the batch
+rather than by its size, so a weight sets how much a class counts relative to
+the others and a batch of one class is unaffected by it.
+
 .. automodule:: pyhighlights.configurations.backbones
    :members:
 

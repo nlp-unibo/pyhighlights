@@ -73,6 +73,47 @@ def compute_losses(
     return total, computed
 
 
+class CrossEntropy(th.nn.Module):
+    """Cross entropy over class logits, with per-class weights.
+
+    ``th.nn.CrossEntropyLoss`` takes its weights as a tensor, and no
+    configuration should carry a tensor. A list of per-class weights is not a
+    tensor's worth of data -- one number per class -- so that is what gets
+    declared, and the tensor is built here.
+
+    The weights are a buffer rather than an attribute, so they follow the model
+    onto whatever device it moves to. A weight tensor left on the CPU is a
+    crash at the first batch of a GPU run.
+
+    Weights are declared rather than computed. A corpus whose split is fixed
+    has fixed class frequencies, so the numbers a run needs are known before it
+    starts -- and writing them down puts them in the manifest, where a
+    balanced weighting computed inside the run would leave nothing.
+    """
+
+    def __init__(self, weight: Sequence[float] | None = None, ignore_index: int = -100):
+        super().__init__()
+        # Not persistent: the weights come from the configuration, not from
+        # training, so a checkpoint that carried them would refuse to load
+        # into a run configured without them.
+        self.register_buffer(
+            "weight",
+            None
+            if weight is None
+            else th.tensor(list(weight), dtype=th.get_default_dtype()),
+            persistent=False,
+        )
+        self.ignore_index = ignore_index
+
+    def forward(self, logits: th.Tensor, targets: th.Tensor) -> th.Tensor:
+        return th.nn.functional.cross_entropy(
+            logits,
+            targets.long(),
+            weight=self.weight,
+            ignore_index=self.ignore_index,
+        )
+
+
 class MaskedCrossEntropy(th.nn.Module):
     """Token-level cross entropy over valid, labelled positions."""
 

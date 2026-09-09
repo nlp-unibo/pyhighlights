@@ -19,12 +19,20 @@ from pyhighlights.configurations.keys import (
 
 
 class CrossEntropyConfig(Configuration):
+    """Cross entropy, weighted per class where a corpus needs it."""
+
+    #: One weight per class, or nothing for an unweighted loss. A corpus with
+    #: 106 positives in 20,417 sentences is answered correctly by a model that
+    #: never predicts one, so the numbers a class-imbalanced corpus needs are
+    #: part of its configuration rather than a detail of its training.
+    weight: List[float] | None = Param(None)
+
     @classmethod
     @register_method(
         name="criterion",
         tags={"cross_entropy"},
         namespace=NAMESPACE,
-        component="torch.nn.CrossEntropyLoss",
+        component="pyhighlights.utility.losses.CrossEntropy",
     )
     def default(cls):
         return super().default()
