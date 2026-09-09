@@ -66,6 +66,21 @@ class Model(L.LightningModule, abc.ABC, Generic[OutputT]):
         """Fields losses and metrics can bind to, latest definition winning."""
         return {**input_data.as_dict(), **output_data.as_dict(), **extra}
 
+    def faithfulness(
+        self, input_data: InputData, output_data: OutputT
+    ) -> Dict[str, th.Tensor]:
+        """Per-sample faithfulness terms, when the architecture defines them.
+
+        Optional, like :meth:`load_embeddings` on a backbone: the terms need
+        the predictor run against masks of their own, which is a property of
+        how a family of models is put together rather than of every model.
+        A model that cannot produce them says so, so that a task asked for
+        faithfulness fails rather than reporting a column it never measured.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not measure faithfulness"
+        )
+
     def update_metrics(self, split: Split, input_data: InputData, output_data: OutputT):
         values = self.namespace(input_data, output_data)
         for metric in getattr(self, f"{split}_metrics"):

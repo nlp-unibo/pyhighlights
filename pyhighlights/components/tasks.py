@@ -29,6 +29,7 @@ from lightning.pytorch import seed_everything
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from torch.utils.data import DataLoader
 
+from pyhighlights.components import faithfulness
 from pyhighlights.components.data import (
     HighlightCollator,
     HighlightDataset,
@@ -134,7 +135,11 @@ class SPPTask(Task):
     run, and the loader says so rather than guessing.
 
     Each seed trains from scratch, restores the checkpoint that scored best on
-    validation, and is evaluated on validation and test. What lands on disk is
+    validation, and is evaluated on validation and test. ``faithfulness`` adds
+    the terms of :mod:`pyhighlights.components.faithfulness` over the test
+    split, and is off by default: they are two more columns rather than a
+    correction, and a registered reproduction should report what its paper
+    reports. What lands on disk is
     ``results.json`` -- every seed's metrics, plus their mean and standard
     deviation -- ``config.json``, and, when asked, the test predictions.
     """
@@ -157,6 +162,7 @@ class SPPTask(Task):
         monitor: str = "val_loss",
         patience: int = 5,
         store_predictions: bool = False,
+        faithfulness: bool = False,
         highlight_supervision: bool = False,
         highlight_loss: RegistrationKey[Loss] | None = None,
         highlight_coefficient: float = 1.0,
@@ -189,6 +195,7 @@ class SPPTask(Task):
         self.monitor = monitor
         self.patience = patience
         self.store_predictions = store_predictions
+        self.faithfulness = faithfulness
         self._embedding_matrix: th.Tensor | None = None
         self.highlight_supervision = highlight_supervision
         self.highlight_loss = highlight_loss
@@ -367,6 +374,19 @@ class SPPTask(Task):
                 pd.to_pickle(model.predictions, directory / "predictions.pkl")
                 model.flush_predictions()
                 model.disable_storing_predictions()
+            # After the metrics rather than beside them: the terms need the
+            # predictor run against masks of their own, so they are a stage
+            # over the split rather than another binding inside a test step.
+            # Test only -- a validation faithfulness number selects nothing.
+            if self.faithfulness:
+                results.update(
+                    {
+                        f"test_{name}": value
+                        for name, value in faithfulness.evaluate(
+                            model, loaders["test"]
+                        ).items()
+                    }
+                )
         return results
 
     def run(self) -> Dict[str, Any]:

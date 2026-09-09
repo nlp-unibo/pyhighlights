@@ -65,9 +65,6 @@ class MCD(SPP):
         )
         self.automatic_optimization = False
 
-    def predict_full(self, data: InputData) -> th.Tensor:
-        return self.predict(data=data, highlight_mask=data.mask)
-
     def phase_forward(
         self, input_data: InputData, detach_selection: bool
     ) -> Tuple[SPPOutput, Dict[str, th.Tensor]]:

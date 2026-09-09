@@ -213,6 +213,51 @@ class SPP(Model[SPPOutput]):
         pooled = self.predictor_backbone.pool(states, prediction_mask)
         return self.predictor(pooled)
 
+    def predict_full(self, data: InputData) -> th.Tensor:
+        """Class logits from the whole input, with nothing selected away.
+
+        Not what a select-then-predict model does in use: its predictor reads
+        the highlight and only the highlight. MCD trains this pass on purpose,
+        and the faithfulness terms need it as their reference point.
+        """
+        return self.predict(data=data, highlight_mask=data.mask)
+
+    def faithfulness(
+        self, input_data: InputData, output_data: SPPOutput
+    ) -> Dict[str, th.Tensor]:
+        """Per-sample sufficiency and comprehensiveness.
+
+        Scored on the head the aggregator keeps, which is the head every
+        reported metric scores, and against the class that head predicts --
+        see :mod:`pyhighlights.components.faithfulness` for why ``y_hat``
+        comes from the highlight rather than from the full input.
+
+        Two extra predictor passes: the full input, and the input with the
+        highlight removed. The highlight pass is the model's own output and is
+        read off ``output_data`` rather than recomputed. A highlight covering
+        every valid token leaves the complement empty, which the backbones
+        pool to zeros -- an honest measurement of a model that kept
+        everything, not a case to repair.
+        """
+        head = self.aggregator(output_data)
+        valid = input_data.mask.to(head.highlight_mask.dtype)
+        highlight = head.highlight_mask * valid
+
+        def probability(logits: th.Tensor, of: th.Tensor) -> th.Tensor:
+            return th.softmax(logits, dim=-1).gather(1, of.unsqueeze(1)).squeeze(1)
+
+        predicted = head.class_logits.argmax(dim=-1)
+        on_highlight = probability(head.class_logits, predicted)
+        on_full = probability(self.predict_full(input_data), predicted)
+        on_complement = probability(
+            self.predict(data=input_data, highlight_mask=valid * (1 - highlight)),
+            predicted,
+        )
+        return {
+            "sufficiency": on_full - on_highlight,
+            "comprehensiveness": on_full - on_complement,
+        }
+
     def forward(self, data: InputData) -> SPPOutput:
         highlight_logits = []
         highlight_masks = []
