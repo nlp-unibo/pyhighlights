@@ -17,7 +17,7 @@ import abc
 import json
 from collections import Counter
 from pathlib import Path
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, Iterator, List, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -33,11 +33,15 @@ PREDICTIONS = "predictions-seed=*.pkl"
 __all__ = [
     "Analyzer",
     "HighlightPositionAnalyzer",
+    "LabelStudioExporter",
     "MetricsAnalyzer",
     "PREDICTIONS",
     "PredictionAnalyzer",
     "escape",
+    "label_studio",
     "latex_table",
+    "offsets",
+    "run_of",
     "reported_head",
     "seed_of",
 ]
@@ -47,6 +51,16 @@ def seed_of(path: Path) -> str:
     """The seed in ``predictions-seed=42.pkl``, or ``"?"`` if it says none."""
     _, _, seed = path.stem.partition("seed=")
     return seed or "?"
+
+
+def run_of(path: Path, directory: Path) -> str:
+    """Which run a predictions file belongs to, as a path under ``directory``.
+
+    The stamp alone does not name a run: a benchmark writes
+    ``<name>/<started>`` per task, and two tasks that started in the same
+    second would report the same run while being different runs.
+    """
+    return str(path.parent.relative_to(directory))
 
 
 def reported_head(masks: np.ndarray) -> np.ndarray:
@@ -197,7 +211,14 @@ class HighlightPositionAnalyzer(Analyzer):
     found the rationale, until you look at where it selected.
 
     Positions are reported as a share of the document, so documents of
-    different lengths are comparable.
+    different lengths are comparable. ``absolute`` reports word positions
+    instead, which is the other question: a model keying on the first three
+    words of every document does that regardless of how long the document is,
+    and a share hides it in the first bin of a short document and the first
+    tenth of a long one. Columns then cover the first ``bins`` words, and a
+    selection past them is counted in the total without a column of its own,
+    so the reported shares sum to less than one by however much the tail
+    holds.
     """
 
     def __init__(
@@ -205,12 +226,14 @@ class HighlightPositionAnalyzer(Analyzer):
         directory: str | Path | None = None,
         pattern: str = PREDICTIONS,
         bins: int = 10,
+        absolute: bool = False,
     ):
         super().__init__(directory)
         if bins < 1:
             raise ValueError("bins must be positive")
         self.pattern = pattern
         self.bins = bins
+        self.absolute = absolute
 
     def analyze(self) -> pd.DataFrame:
         rows = []
@@ -226,21 +249,23 @@ class HighlightPositionAnalyzer(Analyzer):
                         continue
                     marked = np.flatnonzero(highlights[:length])
                     positions.update(
-                        int(index / length * self.bins) for index in marked
+                        int(index) if self.absolute else int(index / length * self.bins)
+                        for index in marked
                     )
                     selected += len(marked)
                     kept += 1
                     tokens += length
 
             row: Dict[str, Any] = {
-                "run": path.parent.name,
+                "run": run_of(path, self.directory),
                 "seed": seed_of(path),
                 "samples": kept,
                 "selection_rate": selected / tokens if tokens else 0.0,
             }
             total = sum(positions.values())
+            column = "position" if self.absolute else "bin"
             for index in range(self.bins):
-                row[f"bin_{index}"] = positions[index] / total if total else 0.0
+                row[f"{column}_{index}"] = positions[index] / total if total else 0.0
             rows.append(row)
 
         return pd.DataFrame(rows)
@@ -297,13 +322,20 @@ class PredictionAnalyzer(Analyzer):
         frame = splits[self.split]
         return {int(row.sample_id): row for row in frame.itertuples(index=False)}
 
-    def analyze(self) -> pd.DataFrame:
-        rows = []
+    def frames(self) -> Iterator[Tuple[Path, pd.DataFrame]]:
+        """One frame per predictions file, with the file that produced it.
+
+        Per file rather than one frame for everything, so a caller that writes
+        something back can write it beside the predictions it came from. Every
+        seed of a run has its own file and its own predictions of the same
+        samples, which is a separate thing to read rather than N copies of one.
+        """
         # One corpus per run rather than per seed: every seed of a run was
         # trained on the same split, and loading it again per file is the whole
         # cost of the analysis repeated.
         corpora: Dict[Path, Dict[int, Any]] = {}
         for path in sorted(self.directory.rglob(self.pattern)):
+            rows: List[Dict[str, Any]] = []
             run = path.parent
             if run not in corpora:
                 corpora[run] = self.corpus(run)
@@ -335,7 +367,7 @@ class PredictionAnalyzer(Analyzer):
                     selected = sorted({int(word) for word in words if word >= 0})
                     rows.append(
                         {
-                            "run": path.parent.name,
+                            "run": run_of(path, self.directory),
                             "seed": seed_of(path),
                             "sample_id": int(sample_id),
                             "label": int(example.label),
@@ -352,5 +384,158 @@ class PredictionAnalyzer(Analyzer):
                             ],
                         }
                     )
+            yield path, pd.DataFrame(rows)
 
-        return pd.DataFrame(rows)
+    def analyze(self) -> pd.DataFrame:
+        frames = [frame for _, frame in self.frames() if not frame.empty]
+        return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+
+def offsets(tokens: Sequence[str]) -> List[Tuple[int, int]]:
+    """Character span of each token in ``" ".join(tokens)``.
+
+    Label Studio addresses a span by character offset into the text it shows,
+    and a corpus arrives as words. One space between them is the same
+    assumption the text itself is built on, so the two agree by construction.
+    """
+    spans = []
+    start = 0
+    for token in tokens:
+        spans.append((start, start + len(token)))
+        start += len(token) + 1
+    return spans
+
+
+def label_studio(
+    frame: pd.DataFrame,
+    model_version: str = "pyhighlights",
+    labels: Sequence[str] = ("highlight",),
+    score: float = 1.0,
+) -> List[Dict[str, Any]]:
+    """Predicted highlights as Label Studio pre-annotations.
+
+    Reads the columns :class:`PredictionAnalyzer` reports -- ``tokens``,
+    ``selected``, ``label``, ``predicted`` -- so it converts any frame carrying
+    them, whatever produced it.
+
+    Each selected word becomes one span. The whole document goes in ``data``
+    alongside the gold and predicted label, so a reader sees what the model was
+    given and what it made of it, not only what it highlighted.
+    """
+    tasks = []
+    for row in frame.itertuples(index=False):
+        tokens = list(row.tokens)
+        spans = offsets(tokens)
+        tasks.append(
+            {
+                "data": {
+                    "text": " ".join(tokens),
+                    "tokens": tokens,
+                    "sample_id": int(row.sample_id),
+                    "label": int(row.label),
+                    "predicted": int(row.predicted),
+                },
+                "predictions": [
+                    {
+                        "model_version": model_version,
+                        "score": score,
+                        "result": [
+                            {
+                                "id": f"{row.sample_id}_{word}",
+                                "type": "labels",
+                                "from_name": "label",
+                                "to_name": "text",
+                                "value": {
+                                    "start": spans[word][0],
+                                    "end": spans[word][1],
+                                    "score": score,
+                                    "text": tokens[word],
+                                    "labels": list(labels),
+                                },
+                            }
+                            for word in row.selected
+                        ],
+                    }
+                ],
+            }
+        )
+    return tasks
+
+
+class LabelStudioExporter(PredictionAnalyzer):
+    """Writes each run's predicted highlights where an annotator can read them.
+
+    An expert judging whether a highlight is the right one needs it in front of
+    the text, not as a list of word indices. This writes one Label Studio file
+    per run, pre-annotated with what the model selected, so the reading is a
+    review rather than a fresh annotation.
+
+    ``only`` narrows the export to samples of one gold label, which is what a
+    corpus annotated for a rare class needs: the negatives are 97% of it and
+    the interesting highlights are all on the positives.
+
+    One file per seed, beside the predictions it came from. A run's seeds are
+    separate predictions of the same samples, so merging them would show the
+    same sentence once per seed with different words marked, which is not a
+    thing to read.
+    """
+
+    def __init__(
+        self,
+        directory: str | Path | None = None,
+        pattern: str = PREDICTIONS,
+        split: str = "test",
+        model_version: str = "pyhighlights",
+        labels: Sequence[str] = ("highlight",),
+        only: int | None = None,
+        stem: str = "label-studio",
+    ):
+        super().__init__(directory=directory, pattern=pattern, split=split)
+        self.model_version = model_version
+        self.labels = list(labels)
+        self.only = only
+        self.stem = stem
+
+    def selected(self, frame: pd.DataFrame) -> pd.DataFrame:
+        """The rows this export is about."""
+        if self.only is None or frame.empty:
+            return frame
+        return frame[frame["label"] == self.only].reset_index(drop=True)
+
+    def analyze(self) -> pd.DataFrame:
+        return self.selected(super().analyze())
+
+    def export(self) -> Dict[Path, pd.DataFrame]:
+        """Write one file per predictions file, and say what went in each."""
+        written = {}
+        for source, frame in self.frames():
+            frame = self.selected(frame)
+            # Nothing to export is no file rather than an empty one: an empty
+            # Label Studio project reads as a project with nothing to review.
+            if frame.empty:
+                continue
+            path = source.parent / f"{self.stem}-seed={seed_of(source)}.json"
+            path.write_text(
+                json.dumps(
+                    label_studio(
+                        frame,
+                        model_version=self.model_version,
+                        labels=self.labels,
+                    ),
+                    indent=2,
+                )
+            )
+            written[path] = frame
+        return written
+
+    def run(self) -> pd.DataFrame:
+        # The export already built every frame; analysing again would reload
+        # and re-join each corpus for a second time.
+        written = self.export()
+        for path, frame in written.items():
+            print(f"{len(frame)} samples -> {path}")
+        return (
+            pd.concat(written.values(), ignore_index=True)
+            if written
+            else pd.DataFrame()
+        )
