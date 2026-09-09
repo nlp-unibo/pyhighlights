@@ -7,12 +7,14 @@ from cinnamon.registry import Registry
 
 import pyhighlights
 from pyhighlights.components.tasks import (
+    ClassWeightsTask,
     GenSPPTask,
     SPPTask,
     summarize,
     vocabulary,
 )
 from pyhighlights.configurations.keys import (
+    CLASS_WEIGHTS,
     GRU_FR,
     GRU_GENSPP,
     LEAKAGE_REMOVER,
@@ -278,3 +280,38 @@ def test_a_task_embeds_its_tokens_one_way_or_the_other(tmp_path):
             embeddings=str(tmp_path / "vectors.txt"),
             pretrained_model_card="distilbert-base-uncased",
         )
+
+
+def test_a_class_weights_task_writes_down_what_it_read(tmp_path):
+    """The whole result is the weights, and the counts they came from."""
+    build_registry()
+    task = ClassWeightsTask(loader=TOY, weights=CLASS_WEIGHTS, save_path=str(tmp_path))
+    results = task.run()
+
+    # The toy corpus alternates its two classes, so the weights are both 1.
+    assert results["weights"] == [1.0, 1.0]
+    assert results["counts"] == {"0": 32, "1": 32}
+    assert results["rows"] == {"train": 64, "val": 16, "test": 16}
+
+    written = json.loads((task.directory / "results.json").read_text())
+    assert written == results
+
+    # The same manifest every other task writes: which corpus, and which key.
+    manifest = json.loads((task.directory / "manifest.json").read_text())
+    assert manifest["settings"]["loader"]["key"] == str(TOY)
+    assert manifest["settings"]["weights"]["split"] == "train"
+
+
+def test_a_class_weights_task_records_the_preprocessing_it_weighed_after(tmp_path):
+    """Frequencies are what preprocessing leaves, so the manifest names it."""
+    build_registry()
+    task = ClassWeightsTask(
+        loader=TOY,
+        weights=CLASS_WEIGHTS,
+        preprocessor=LEAKAGE_REMOVER,
+        save_path=str(tmp_path),
+    )
+    task.run()
+
+    manifest = json.loads((task.directory / "manifest.json").read_text())
+    assert manifest["settings"]["preprocessor"]["priority"] == ["test", "val", "train"]

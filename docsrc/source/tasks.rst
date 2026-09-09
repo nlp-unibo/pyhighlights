@@ -297,6 +297,49 @@ weights the search settled on -- and ``search.json``, the best fitness of every
 generation. A search that stopped improving in its tenth generation and one
 still climbing when the budget ran out report the same metrics otherwise.
 
+Class weights
+-------------
+
+Where a corpus is class-imbalanced, the loss needs one number per class, and
+where that number came from decides whether the run can be repeated.
+:class:`~pyhighlights.components.tasks.ClassWeightsTask` is a run whose whole
+result is those numbers:
+
+.. code-block:: python
+
+   from pyhighlights.configurations.keys import TOY_CLASS_WEIGHTS_TASK
+
+   Registry.from_key(TOY_CLASS_WEIGHTS_TASK, save_path="results").run()
+
+.. code-block:: json
+
+   {
+     "split": "train",
+     "weights": [1.0, 1.0],
+     "counts": {"0": 32, "1": 32},
+     "rows": {"train": 64, "val": 16, "test": 16},
+     "labels": {"train": {"0": 32, "1": 32}, "val": {"0": 8, "1": 8},
+                "test": {"0": 8, "1": 8}}
+   }
+
+It trains nothing and takes no seeds. What it writes is the usual
+``results.json`` and ``manifest.json``, so the weights arrive with the key of
+the corpus and of the preprocessing that produced them — which is what makes
+them worth copying into a
+:class:`~pyhighlights.configurations.losses.CrossEntropyConfig`, where every
+training run's manifest then records them.
+
+The reading itself is
+:class:`~pyhighlights.components.preprocessors.ClassWeights`, a preprocessor
+that changes no row. Being a step of the pipeline is the point: it runs over
+the split the study trains on, *after* whatever filtering and aggregation came
+before it, since that is what changes the frequencies.
+
+Declaring the numbers rather than computing them at training time is
+deliberate. A fixed split has fixed frequencies, and a declared weight is in
+the manifest of every run that used it, where one computed inside training
+exists only for the length of the process.
+
 Faithfulness
 ------------
 

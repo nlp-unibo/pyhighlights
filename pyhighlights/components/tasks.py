@@ -42,7 +42,7 @@ from pyhighlights.components.data import (
 from pyhighlights.components.loaders import HighlightLoader, to_examples
 from pyhighlights.components.models.base import Model
 from pyhighlights.components.models.spp.genspp import GenSPPTrainer
-from pyhighlights.components.preprocessors import Preprocessor
+from pyhighlights.components.preprocessors import ClassWeights, Preprocessor
 from pyhighlights.utility import manifest
 from pyhighlights.utility.embeddings import load_vectors
 from pyhighlights.utility.losses import Loss
@@ -50,7 +50,15 @@ from pyhighlights.utility.metrics import BoundMetric, build_metrics
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["GenSPPTask", "SPPTask", "Task", "summarize", "vocabulary"]
+__all__ = [
+    "ClassWeightsTask",
+    "GenSPPTask",
+    "SPPTask",
+    "Task",
+    "load_splits",
+    "summarize",
+    "vocabulary",
+]
 
 
 def vocabulary(frames: Iterable[pd.DataFrame], size: int) -> Dict[str, int]:
@@ -76,6 +84,19 @@ def vocabulary(frames: Iterable[pd.DataFrame], size: int) -> Dict[str, int]:
         token: index
         for index, (token, _) in enumerate(counts.most_common(size - 1), start=1)
     }
+
+
+def load_splits(
+    loader: RegistrationKey[HighlightLoader],
+    preprocessor: RegistrationKey[Preprocessor] | None = None,
+) -> Dict[str, pd.DataFrame]:
+    """The corpus a key names, preprocessed by the key that names how."""
+    splits = Registry.from_key(loader, expected_type=HighlightLoader).load()
+    if preprocessor is not None:
+        splits = Registry.from_key(preprocessor, expected_type=Preprocessor).process(
+            splits
+        )
+    return splits
 
 
 def summarize(runs: Sequence[Mapping[str, float]]) -> Dict[str, Dict[str, float]]:
@@ -233,12 +254,7 @@ class SPPTask(Task):
 
     def splits(self) -> Dict[str, pd.DataFrame]:
         """The corpus, loaded and preprocessed."""
-        splits = Registry.from_key(self.loader, expected_type=HighlightLoader).load()
-        if self.preprocessor is not None:
-            splits = Registry.from_key(
-                self.preprocessor, expected_type=Preprocessor
-            ).process(splits)
-        return splits
+        return load_splits(self.loader, self.preprocessor)
 
     def tokenizer(self, splits: Mapping[str, pd.DataFrame]) -> HighlightTokenizer:
         """A subword tokenizer when a model card is named, else a vocabulary.
@@ -492,3 +508,59 @@ class GenSPPTask(SPPTask):
         return self.score(
             trainer, model, loaders, self.directory / f"predictions-seed={seed}.pkl"
         )
+
+
+class ClassWeightsTask(Task):
+    """Loads a corpus, weighs its classes, and writes the numbers down.
+
+    A weighted loss needs one number per class, and where that number comes
+    from decides whether a run can be repeated. Computing it inside training
+    leaves it nowhere afterwards; typing it into a configuration by hand leaves
+    it nowhere it can be checked. This is the third way: a run of its own,
+    whose result is the weights and the counts they came from, in the same
+    ``results.json`` and ``manifest.json`` every other task writes.
+
+    So the numbers are readable by a person, persist after the process that
+    computed them exits, and carry the key of the corpus and the preprocessing
+    that produced them -- which is what makes them worth copying into a
+    configuration, where every training run's manifest then records them.
+
+    It trains nothing and takes no seeds.
+    """
+
+    def __init__(
+        self,
+        loader: RegistrationKey[HighlightLoader],
+        weights: RegistrationKey[ClassWeights],
+        preprocessor: RegistrationKey[Preprocessor] | None = None,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.loader = loader
+        self.weights = weights
+        self.preprocessor = preprocessor
+
+    def run(self) -> Dict[str, Any]:
+        splits = load_splits(self.loader, self.preprocessor)
+        weighting = Registry.from_key(self.weights, expected_type=ClassWeights)
+        weighting.process(splits)
+
+        results = {
+            "split": weighting.split,
+            "weights": weighting.weights,
+            "counts": {str(label): count for label, count in weighting.counts.items()},
+            # Every split, not just the weighted one: a training frequency is
+            # only worth reading beside the frequencies it will be evaluated
+            # against.
+            "rows": {name: len(frame) for name, frame in splits.items()},
+            "labels": {
+                name: {
+                    str(label): int(count)
+                    for label, count in frame["label"].value_counts().items()
+                }
+                for name, frame in splits.items()
+            },
+        }
+        logger.info("%s: class weights %s", self.name, weighting.weights)
+        self.serialize(results)
+        return results

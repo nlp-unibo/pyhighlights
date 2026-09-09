@@ -68,6 +68,25 @@ class HateXplainAggregatorConfig(Configuration):
         return super().default()
 
 
+class ClassWeightsConfig(Configuration):
+    """Reads one split's class frequencies; changes no row."""
+
+    split: str = Param("train")
+    #: Left unset, the number of classes is the largest label seen plus one.
+    #: Set it wherever a split might not hold every class.
+    classes: int | None = Param(None)
+
+    @classmethod
+    @register_method(
+        name="preprocessor",
+        tags={"class_weights"},
+        namespace=NAMESPACE,
+        component="pyhighlights.components.preprocessors.ClassWeights",
+    )
+    def default(cls):
+        return super().default()
+
+
 class PipelineConfig(Configuration):
     """Preprocessors run in order, each over what the last returned."""
 
@@ -104,6 +123,7 @@ class HateXplainPipelineConfig(PipelineConfig):
 
 
 __all__: List[str] = [
+    "ClassWeightsConfig",
     "HateXplainAggregatorConfig",
     "HateXplainPipelineConfig",
     "LeakageDetectorConfig",

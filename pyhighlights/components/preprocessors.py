@@ -31,12 +31,14 @@ TIES = ("drop", "keep")
 
 __all__ = [
     "AnnotationAggregator",
+    "ClassWeights",
     "LabelMapper",
     "LeakageRemover",
     "LengthFilter",
     "PRIORITY",
     "Pipeline",
     "Preprocessor",
+    "class_weights",
     "remove_leakage",
 ]
 
@@ -54,6 +56,35 @@ class Preprocessor(abc.ABC):
 
     def __call__(self, splits: Mapping[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
         return self.process(splits)
+
+
+def class_weights(labels: Sequence[Any], classes: int | None = None) -> List[float]:
+    """Inverse-frequency weights, ``n / (classes * count)`` per class.
+
+    What a weighted cross entropy needs when the classes are not the same size:
+    the rarer a class, the more a mistake on it costs, so a model cannot score
+    well by never predicting it.
+
+    ``classes`` is the number of classes the model has, and defaults to the
+    largest label seen plus one. Pass it wherever the split might not contain
+    every class -- an inferred count would silently give the model one output
+    fewer than the task has.
+    """
+    values = [int(label) for label in labels]
+    if not values:
+        raise ValueError("class weights need at least one label")
+    if min(values) < 0:
+        raise ValueError("labels must be non-negative class indices")
+
+    classes = max(values) + 1 if classes is None else classes
+    counts = Counter(values)
+    missing = [index for index in range(classes) if not counts[index]]
+    if missing:
+        # Not a weight of zero and not one of infinity: a class the split does
+        # not contain has no frequency to invert, and either answer would train
+        # something the corpus never showed the model.
+        raise ValueError(f"classes {missing} have no examples in this split")
+    return [len(values) / (classes * counts[index]) for index in range(classes)]
 
 
 def remove_leakage(
@@ -289,3 +320,33 @@ class LabelMapper(Preprocessor):
             frame[self.column] = frame[self.column].map(self.convert)
             processed[name] = frame
         return processed
+
+
+class ClassWeights(Preprocessor):
+    """Computes a split's class weights and hands every row back unchanged.
+
+    A weight is a number about a corpus, so it is read off the corpus rather
+    than typed into a configuration by hand and hoped to still be right. Doing
+    it here rather than inside a task makes the reading a named step: it is in
+    the pipeline, so it is in the manifest, and it runs over the split the
+    study actually trains on -- after whatever filtering and aggregation came
+    before it, which is what changes the frequencies.
+
+    Nothing is added to the frames. :attr:`weights` and :attr:`counts` hold
+    what it found, and :class:`~pyhighlights.components.tasks.ClassWeightsTask`
+    is what writes them down.
+    """
+
+    def __init__(self, split: str = "train", classes: int | None = None):
+        self.split = split
+        self.classes = classes
+        self.weights: List[float] = []
+        self.counts: Dict[int, int] = {}
+
+    def process(self, splits: Mapping[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
+        if self.split not in splits:
+            raise KeyError(f"no {self.split!r} split to weight; got {sorted(splits)}")
+        labels = [int(label) for label in splits[self.split]["label"]]
+        self.weights = class_weights(labels, self.classes)
+        self.counts = {index: labels.count(index) for index in range(len(self.weights))}
+        return dict(splits)

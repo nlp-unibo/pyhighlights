@@ -14,9 +14,10 @@ from cinnamon.registry import RegistrationKey, register_method
 from pyhighlights.components.loaders import HighlightLoader
 from pyhighlights.components.models.base import Model
 from pyhighlights.components.models.spp.genspp import GenSPPTrainer
-from pyhighlights.components.preprocessors import Preprocessor
+from pyhighlights.components.preprocessors import ClassWeights, Preprocessor
 from pyhighlights.configurations.keys import (
     ACCURACY_METRIC,
+    CLASS_WEIGHTS,
     F1_METRIC,
     GRU_FR,
     HIGHLIGHT_F1_METRIC,
@@ -117,6 +118,40 @@ class ToyTaskConfig(TaskConfig):
         return super().default()
 
 
+class ClassWeightsTaskConfig(Configuration):
+    """A run whose whole result is the class weights of a corpus.
+
+    Its own configuration rather than a field of ``TaskConfig``: it trains
+    nothing, so seeds, metrics, batches and trainer arguments would all be
+    fields nobody sets. A study registers one per corpus it weights, points it
+    at the same loader and preprocessor its training tasks use, and copies the
+    numbers the run writes into the loss the training tasks name.
+    """
+
+    name: str = Param("class-weights")
+    loader: RegistrationKey[HighlightLoader] = Param(TOY)
+    weights: RegistrationKey[ClassWeights] = Param(CLASS_WEIGHTS)
+    preprocessor: RegistrationKey[Preprocessor] | None = Param(None)
+    save_path: str | None = Param(None)
+
+
+class ToyClassWeightsTaskConfig(ClassWeightsTaskConfig):
+    """The synthetic corpus, weighed: the end-to-end check of the above."""
+
+    name: str = Param("toy-class-weights")
+
+    @classmethod
+    @register_method(
+        name="task",
+        tags={"class_weights", "toy"},
+        namespace=NAMESPACE,
+        component="pyhighlights.components.tasks.ClassWeightsTask",
+        run_method="run",
+    )
+    def default(cls):
+        return super().default()
+
+
 class GenSPPTaskConfig(TaskConfig):
     """Fields a GenSPP task adds, and the one it drops.
 
@@ -156,8 +191,10 @@ class ToyGenSPPTaskConfig(GenSPPTaskConfig):
 __all__: List[str] = [
     "BINARY_METRICS",
     "HIGHLIGHT_METRICS",
+    "ClassWeightsTaskConfig",
     "GenSPPTaskConfig",
     "TaskConfig",
+    "ToyClassWeightsTaskConfig",
     "ToyGenSPPTaskConfig",
     "ToyTaskConfig",
 ]
