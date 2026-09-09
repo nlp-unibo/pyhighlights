@@ -51,7 +51,9 @@ def test_both_corpora_register():
     valid, invalid = build_registry()
 
     paper = [key for key in valid if key.namespace == "genspp2025"]
-    assert not invalid
+    # Naming the keys: an invalid one is an experiment missing from the
+    # benchmark rather than an error, so the failure has to say which.
+    assert not invalid, sorted(str(key) for key in invalid)
     # Both halves, not whichever the filesystem yielded first: registering the
     # second script needs the re-entrant registration context of cinnamon 2.0.2.
     assert len([key for key in paper if "toy" in key.tags]) >= 16

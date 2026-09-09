@@ -20,6 +20,47 @@ from pyhighlights.configurations.mgr import GRUMGRConfig
 from pyhighlights.configurations.tasks import ToyTaskConfig
 
 
+def test_every_registration_in_the_library_resolves():
+    """No key is dropped as invalid, and each one builds.
+
+    A condition that reads a field wrongly, or a key referencing one that was
+    never registered, is a whole experiment silently missing from a grid rather
+    than an error. Five components are built with a run-time argument, since
+    their input size is measured from a backbone and their parameters from a
+    built model -- neither is knowable before the run, so neither is a
+    parameter.
+    """
+    valid, invalid = Registry.build(directory=Path(pyhighlights.__file__).parent)
+
+    assert not invalid, sorted(str(key) for key in invalid)
+    assert valid
+
+    runtime = {"input_size": 6, "params": [th.nn.Parameter(th.zeros(1))]}
+    needed_runtime = set()
+    for key in valid:
+        try:
+            Registry.from_key(key)
+            continue
+        except ImportError as error:
+            # The optional extra reporting itself, which is the whole of what a
+            # transformer backbone needs that this environment may not have.
+            assert "pyhighlights[transformers]" in str(error)
+            continue
+        except TypeError as error:
+            missing = error
+        for name, value in runtime.items():
+            try:
+                Registry.from_key(key, **{name: value})
+            except TypeError:
+                continue
+            needed_runtime.add(name)
+            break
+        else:
+            raise missing
+
+    assert needed_runtime == {"input_size", "params"}
+
+
 def test_registered_gru_fr_forward_backward_and_optimizer():
     Registry.build(directory=Path(pyhighlights.__file__).parent)
     model = Registry.from_key(GRU_FR)
