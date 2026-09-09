@@ -45,6 +45,27 @@ class GRUBackbone(SPPBackbone):
     def output_size(self) -> int:
         return self._output_size
 
+    def load_embeddings(self, matrix: th.Tensor) -> None:
+        """Replace the embedding table with ``matrix``, keeping it frozen or not.
+
+        The table is replaced rather than copied into, because a pretrained
+        vocabulary is as wide as the release covers: requiring the
+        configuration to have guessed that number in advance would make
+        ``vocab_size`` a value nobody can know before the corpus is read.
+        """
+        if matrix.shape[1] != self.embedding.embedding_dim:
+            raise ValueError(
+                f"embedding matrix is {matrix.shape[1]}-dimensional, but the "
+                f"backbone expects {self.embedding.embedding_dim}"
+            )
+        weight = self.embedding.weight
+        # The replacement lands where the old table was: a backbone already
+        # moved to a device would otherwise hold a CPU table.
+        self.embedding = th.nn.Embedding.from_pretrained(
+            matrix.to(device=weight.device, dtype=weight.dtype),
+            freeze=not weight.requires_grad,
+        )
+
     def encode(
         self,
         features: th.Tensor,

@@ -225,3 +225,48 @@ def test_genspp_refuses_highlight_supervision(tmp_path):
         Registry.from_key(
             TOY_GENSPP_TASK, save_path=str(tmp_path), highlight_supervision=True
         )
+
+
+def test_a_task_can_embed_its_tokens_with_a_vector_file(tmp_path):
+    build_registry()
+    # Two of the toy corpus's own tokens, so the vocabulary covers something.
+    vectors = tmp_path / "vectors.txt"
+    # The file's width has to be the backbone's embedding_dim; GRU_FR uses 128.
+    vectors.write_text(
+        "".join(
+            f"{token} {' '.join(['0.1'] * 128)}\n" for token in ("a", "great", "film")
+        )
+    )
+
+    task = SPPTask(
+        loader=TOY,
+        model=GRU_FR,
+        save_path=str(tmp_path),
+        batch_size=8,
+        embeddings=str(vectors),
+    )
+    tokenizer = task.tokenizer(task.splits())
+    assert set(tokenizer.vocabulary) <= {"a", "great", "film"}
+
+    model = task.build_model()
+    # The table is sized to the file, not to vocabulary_size, and the ids the
+    # tokenizer hands out index it.
+    assert (
+        model.selector_backbone.embedding.num_embeddings
+        == len(tokenizer.vocabulary) + 1
+    )
+    assert model.selector_backbone.embedding.embedding_dim == 128
+
+    written = json.loads((task.serialize({"runs": []}) / "config.json").read_text())
+    # A matrix is not a setting, so it stays out of what a run says it was.
+    assert "embedding_matrix" not in written
+
+
+def test_a_task_embeds_its_tokens_one_way_or_the_other(tmp_path):
+    with pytest.raises(ValueError, match="not both"):
+        SPPTask(
+            loader=TOY,
+            model=GRU_FR,
+            embeddings=str(tmp_path / "vectors.txt"),
+            pretrained_model_card="distilbert-base-uncased",
+        )

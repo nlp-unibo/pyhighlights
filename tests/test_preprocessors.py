@@ -8,7 +8,9 @@ from pyhighlights.components.leakage import LeakageDetector
 from pyhighlights.components.loaders import HateXplainLoader, HotelLoader
 from pyhighlights.components.preprocessors import (
     AnnotationAggregator,
+    LabelMapper,
     LeakageRemover,
+    LengthFilter,
     Pipeline,
     remove_leakage,
 )
@@ -132,3 +134,67 @@ def test_registered_preprocessors_build(tmp_path):
         AnnotationAggregator,
         LeakageRemover,
     ]
+
+
+def test_length_filter_drops_rows_rather_than_truncating_them():
+    import pandas as pd
+
+    splits = {
+        "train": pd.DataFrame(
+            {"tokens": [["a"], ["a", "b", "c"], ["a", "b"]], "label": [0, 1, 0]}
+        )
+    }
+    filtered = LengthFilter(max_length=2).process(splits)
+
+    # Truncating would keep the row and lose the tokens the annotation covers.
+    assert [len(tokens) for tokens in filtered["train"]["tokens"]] == [1, 2]
+    assert LengthFilter(max_length=2).process(splits)["train"].index.tolist() == [0, 1]
+
+    dropper = LengthFilter(max_length=2)
+    dropper.process(splits)
+    assert dropper.removed == {"train": 1}
+
+    with pytest.raises(ValueError, match="max_length must be positive"):
+        LengthFilter(max_length=0)
+
+
+def test_label_mapper_rewrites_resolved_labels_and_per_annotator_votes():
+    import pandas as pd
+
+    splits = {
+        "train": pd.DataFrame(
+            {
+                "label": ["hatespeech", "offensive", "normal"],
+                "annotator_labels": [
+                    ["hatespeech", "offensive", "normal"],
+                    ["normal", "normal", "offensive"],
+                    ["normal", "normal", "normal"],
+                ],
+            }
+        )
+    }
+    mapping = {"offensive": "normal"}
+
+    resolved = LabelMapper(mapping).process(splits)
+    assert resolved["train"]["label"].tolist() == ["hatespeech", "normal", "normal"]
+
+    # Collapsing before the vote is counted is the point: this post has no
+    # majority over three classes and a clear one over two.
+    votes = LabelMapper(mapping, column="annotator_labels").process(splits)
+    assert votes["train"]["annotator_labels"][0] == [
+        "hatespeech",
+        "normal",
+        "normal",
+    ]
+    aggregated = AnnotationAggregator(
+        labels=["hatespeech", "normal"], annotator_highlights="missing"
+    )
+    assert aggregated.label(votes["train"]["annotator_labels"][0]) == 1
+
+    # The input is left alone, and a class the mapping never names survives.
+    assert splits["train"]["label"].tolist()[1] == "offensive"
+
+    with pytest.raises(KeyError, match="no column missing"):
+        LabelMapper(mapping, column="missing").process(splits)
+    with pytest.raises(ValueError, match="at least one entry"):
+        LabelMapper({})

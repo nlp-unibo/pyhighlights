@@ -68,6 +68,39 @@ quietly, since nothing downstream can tell where an id came from. Its
 ``vocabulary_size`` has to match the backbone's ``vocab_size``: an id the
 embedding has no row for is a crash at the first batch.
 
+Pretrained token vectors
+------------------------
+
+A third way, and the one a reproduction usually needs: name ``embeddings`` and
+the vocabulary is fitted against a GloVe-style vector file instead — one line
+per token, the token then its vector.
+
+.. code-block:: python
+
+   task = SPPTask(
+       loader=HATEXPLAIN,
+       model=GRU_FR,
+       embeddings="glove.twitter.27B.25d.txt",
+   )
+
+The file's width has to be the backbone's ``embedding_dim``. Its **length** does
+not have to be anything: the matrix is handed to the model through
+:meth:`~pyhighlights.components.models.spp.base.SPP.load_embeddings`, which
+sizes the table to it, so ``vocab_size`` is not a number the configuration has
+to have guessed. Whether the table then trains is still the backbone's
+``freeze_embeddings``, untouched by the load.
+
+Only tokens the **training split** uses are read, for the same reason the
+fitted vocabulary is: keeping a vector for a word only the test split contains
+tells the model which words those are. ``pretrained_tokens_only`` decides what
+happens to a training token the file has no vector for — dropped by default, so
+every row is a released vector, since a random row inside a frozen table is
+noise nothing can learn away. Set it to ``False`` to keep the token with a
+random row instead.
+
+``embeddings`` and ``pretrained_model_card`` are mutually exclusive: a subword
+tokenizer brings its own embeddings.
+
 Metrics
 -------
 
