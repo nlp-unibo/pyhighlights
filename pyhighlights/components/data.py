@@ -186,6 +186,7 @@ class HighlightCollator:
         features = []
         masks = []
         highlights = []
+        sources = []
         for example, item in zip(examples, encoded):
             input_ids = list(item.input_ids[:width])
             word_ids = list(item.word_ids[:width])
@@ -207,6 +208,13 @@ class HighlightCollator:
                 ]
                 + [-1] * padding
             )
+            # Kept rather than discarded with the encoding: a selection is made
+            # over these positions, and only the word behind each one makes it
+            # readable once the run is over.
+            sources.append(
+                [-1 if word_id is None else word_id for word_id in word_ids]
+                + [-1] * padding
+            )
 
         return InputData(
             features=th.tensor(features, dtype=th.long),
@@ -214,4 +222,5 @@ class HighlightCollator:
             sample_ids=th.tensor([example.sample_id for example in examples]),
             y_true=th.tensor([example.label for example in examples]),
             highlight_true=th.tensor(highlights, dtype=th.long),
+            word_ids=th.tensor(sources, dtype=th.long),
         )

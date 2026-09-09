@@ -92,10 +92,13 @@ def test_a_task_trains_scores_and_writes_down_every_seed(tmp_path):
     assert (run / "manifest.json").exists()
 
     for seed in (0, 1):
-        directory = run / f"seed={seed}"
-        assert list(directory.glob("*.ckpt"))
-        predictions = pd.read_pickle(directory / "predictions.pkl")
-        assert {"highlight_mask", "class_logits", "y_true"} <= set(predictions[0])
+        assert list((run / f"seed={seed}").glob("*.ckpt"))
+        # Beside the run, not inside the checkpoint directory: a reader that
+        # finds them there can say which run they belong to.
+        predictions = pd.read_pickle(run / f"predictions-seed={seed}.pkl")
+        assert {"highlight_mask", "class_logits", "y_true", "word_ids"} <= set(
+            predictions[0]
+        )
 
 
 def test_a_task_runs_without_a_validation_split(tmp_path):
@@ -163,8 +166,10 @@ def test_a_genspp_task_searches_scores_and_writes_down_its_generations(tmp_path)
     (run,) = (tmp_path / "toy-genspp").iterdir()
     directory = run / "seed=0"
     assert (directory / "best.ckpt").exists()
-    predictions = pd.read_pickle(directory / "predictions.pkl")
-    assert {"highlight_mask", "class_logits", "y_true"} <= set(predictions[0])
+    predictions = pd.read_pickle(run / "predictions-seed=0.pkl")
+    assert {"highlight_mask", "class_logits", "y_true", "word_ids"} <= set(
+        predictions[0]
+    )
 
     # One entry per generation: the best fitness the search reached in it.
     progress = json.loads((directory / "search.json").read_text())

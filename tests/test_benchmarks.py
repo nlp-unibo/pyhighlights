@@ -9,6 +9,7 @@ import pyhighlights
 from pyhighlights.components.analyzers import (
     HighlightPositionAnalyzer,
     MetricsAnalyzer,
+    PredictionAnalyzer,
     latex_table,
 )
 from pyhighlights.components.benchmarks import Benchmark
@@ -16,6 +17,8 @@ from pyhighlights.components.tasks import Task
 from pyhighlights.configurations.keys import (
     HIGHLIGHT_POSITION_ANALYZER,
     METRICS_ANALYZER,
+    PREDICTION_ANALYZER,
+    TOY,
     TOY_BENCHMARK,
     TOY_TASK,
 )
@@ -132,7 +135,7 @@ def test_metrics_analyzer_reports_nothing_for_an_empty_directory(tmp_path):
 
 
 def test_highlight_position_analyzer_bins_where_the_selector_looked(tmp_path):
-    run = tmp_path / "seed=0"
+    run = tmp_path / "2026-01-01T00-00-00"
     run.mkdir()
     batch = {
         # Two documents: the first selects its opening token, the second its
@@ -140,11 +143,12 @@ def test_highlight_position_analyzer_bins_where_the_selector_looked(tmp_path):
         "highlight_mask": [[1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0]],
         "mask": [[1.0, 1.0, 1.0, 1.0], [1.0, 1.0, 1.0, 0.0]],
     }
-    pd.to_pickle([batch], run / "predictions.pkl")
+    pd.to_pickle([batch], run / "predictions-seed=0.pkl")
 
     report = HighlightPositionAnalyzer(directory=tmp_path, bins=2).analyze()
 
-    assert report.loc[0, "run"] == "seed=0"
+    assert report.loc[0, "run"] == "2026-01-01T00-00-00"
+    assert report.loc[0, "seed"] == "0"
     assert report.loc[0, "samples"] == 2
     assert report.loc[0, "selection_rate"] == pytest.approx(2 / 7)
     assert report.loc[0, "bin_0"] == pytest.approx(0.5)
@@ -155,11 +159,11 @@ def test_highlight_position_analyzer_bins_where_the_selector_looked(tmp_path):
 
 
 def test_an_empty_document_is_skipped(tmp_path):
-    run = tmp_path / "seed=0"
+    run = tmp_path / "2026-01-01T00-00-00"
     run.mkdir()
     pd.to_pickle(
         [{"highlight_mask": [[0.0, 0.0]], "mask": [[0.0, 0.0]]}],
-        run / "predictions.pkl",
+        run / "predictions-seed=0.pkl",
     )
 
     report = HighlightPositionAnalyzer(directory=tmp_path, bins=2).analyze()
@@ -207,7 +211,7 @@ def test_latex_table_typesets_pairs_and_escapes_the_rest():
 
 def test_position_analyzer_reads_the_head_the_metrics_score(tmp_path):
     """A multi-head model stores one mask per head; the aggregator keeps one."""
-    run = tmp_path / "seed=0"
+    run = tmp_path / "2026-01-01T00-00-00"
     run.mkdir()
     batch = {
         # Head 0 selects the opening token, the other heads the closing one.
@@ -216,7 +220,7 @@ def test_position_analyzer_reads_the_head_the_metrics_score(tmp_path):
         ],
         "mask": [[1.0, 1.0, 1.0, 1.0]],
     }
-    pd.to_pickle([batch], run / "predictions.pkl")
+    pd.to_pickle([batch], run / "predictions-seed=0.pkl")
 
     report = HighlightPositionAnalyzer(directory=tmp_path, bins=2).analyze()
 
@@ -239,3 +243,167 @@ def test_a_registered_benchmark_runs_the_task_it_names(tmp_path):
     assert (benchmark.directory / "benchmark.json").exists()
     # The report the benchmark wrote is JSON, so every number in it survived.
     assert json.loads((benchmark.directory / "benchmark.json").read_text()) == report
+
+
+def test_the_prediction_analyzer_reports_what_the_selector_kept(tmp_path):
+    """End to end: a real run's predictions, joined back to its own corpus."""
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+    task = Registry.from_key(
+        TOY_TASK,
+        save_path=str(tmp_path),
+        store_predictions=True,
+        trainer_args={"accelerator": "cpu", "max_epochs": 1},
+    )
+    task.run()
+
+    report = PredictionAnalyzer(directory=tmp_path).analyze()
+
+    assert not report.empty
+    assert list(report.columns) == [
+        "run",
+        "seed",
+        "sample_id",
+        "label",
+        "predicted",
+        "tokens",
+        "selected",
+        "rationale",
+        "highlights",
+    ]
+    # One row per test sample, and the words are words rather than ids.
+    corpus = Registry.from_key(TOY).load()["test"]
+    assert sorted(report["sample_id"]) == sorted(corpus["sample_id"])
+    assert report["seed"].unique().tolist() == ["42"]
+    for row in report.itertuples(index=False):
+        assert all(isinstance(token, str) for token in row.tokens)
+        # A selection names positions in the words it selected from, and the
+        # rationale is those words.
+        assert all(0 <= word < len(row.tokens) for word in row.selected)
+        assert row.rationale == " ".join(row.tokens[word] for word in row.selected)
+        assert row.label in (0, 1)
+        assert row.predicted in (0, 1)
+
+
+def write_run(directory: Path, batch: dict) -> Path:
+    """A run directory holding one seed's predictions and its manifest."""
+    run = directory / "2026-01-01T00-00-00"
+    run.mkdir(parents=True)
+    (run / "manifest.json").write_text(
+        json.dumps({"settings": {"loader": {"key": str(TOY)}, "preprocessor": None}})
+    )
+    pd.to_pickle([batch], run / "predictions-seed=7.pkl")
+    return run
+
+
+def test_a_selected_subtoken_selects_its_whole_word(tmp_path):
+    """Selections are made over subtokens and reported over words."""
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+    sample_id = int(Registry.from_key(TOY).load()["test"]["sample_id"].iloc[0])
+    write_run(
+        tmp_path,
+        {
+            # Four positions over two words, then a padded one. The second
+            # subtoken of word 1 is selected and nothing else is.
+            "word_ids": [[0, 0, 1, 1, -1]],
+            "mask": [[1.0, 1.0, 1.0, 1.0, 0.0]],
+            "highlight_mask": [[0.0, 0.0, 0.0, 1.0, 1.0]],
+            "class_logits": [[0.1, 0.9]],
+            "sample_ids": [sample_id],
+        },
+    )
+
+    report = PredictionAnalyzer(directory=tmp_path).analyze()
+
+    (row,) = report.itertuples(index=False)
+    assert row.run == "2026-01-01T00-00-00"
+    assert row.seed == "7"
+    assert row.sample_id == sample_id
+    # Word 1 selected once, word 0 never, and the padded position is nobody's.
+    assert row.selected == [1]
+    assert row.predicted == 1
+
+
+def test_a_sample_the_corpus_no_longer_holds_is_skipped(tmp_path):
+    """A corpus that changed under a run still reports the samples it kept."""
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+    write_run(
+        tmp_path,
+        {
+            "word_ids": [[0, -1]],
+            "mask": [[1.0, 0.0]],
+            "highlight_mask": [[1.0, 0.0]],
+            "class_logits": [[0.9, 0.1]],
+            "sample_ids": [10_000],
+        },
+    )
+
+    assert PredictionAnalyzer(directory=tmp_path).analyze().empty
+
+
+def test_the_prediction_analyzer_is_registered():
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+    assert isinstance(Registry.from_key(PREDICTION_ANALYZER), PredictionAnalyzer)
+
+
+def test_the_prediction_analyzer_reads_the_head_the_metrics_score(tmp_path):
+    """``forward`` stacks heads on axis 1, so ``[:, 0]`` is the first head."""
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+    sample_id = int(Registry.from_key(TOY).load()["test"]["sample_id"].iloc[0])
+    write_run(
+        tmp_path,
+        {
+            "word_ids": [[0, 1]],
+            "mask": [[1.0, 1.0]],
+            # Head 0 selects the first word and calls it class 0; the other
+            # head selects the second and calls it class 1.
+            "highlight_mask": [[[1.0, 0.0], [0.0, 1.0]]],
+            "class_logits": [[[0.9, 0.1], [0.1, 0.9]]],
+            "sample_ids": [sample_id],
+        },
+    )
+
+    (row,) = PredictionAnalyzer(directory=tmp_path).analyze().itertuples(index=False)
+
+    assert row.selected == [0]
+    assert row.predicted == 0
+
+
+def test_a_word_the_corpus_no_longer_has_skips_the_sample(tmp_path):
+    """A corpus that placed its words differently cannot read the selection."""
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+    sample_id = int(Registry.from_key(TOY).load()["test"]["sample_id"].iloc[0])
+    write_run(
+        tmp_path,
+        {
+            "word_ids": [[0, 9_999]],
+            "mask": [[1.0, 1.0]],
+            "highlight_mask": [[1.0, 1.0]],
+            "class_logits": [[0.9, 0.1]],
+            "sample_ids": [sample_id],
+        },
+    )
+
+    assert PredictionAnalyzer(directory=tmp_path).analyze().empty
+
+
+def test_a_padded_position_is_nobody_s_word(tmp_path):
+    """``-1`` marks a position with no source word and never reaches a row."""
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+    sample_id = int(Registry.from_key(TOY).load()["test"]["sample_id"].iloc[0])
+    write_run(
+        tmp_path,
+        {
+            # A mask that wrongly calls the padded position valid, and a
+            # selector that selects it.
+            "word_ids": [[0, -1]],
+            "mask": [[1.0, 1.0]],
+            "highlight_mask": [[0.0, 1.0]],
+            "class_logits": [[0.9, 0.1]],
+            "sample_ids": [sample_id],
+        },
+    )
+
+    (row,) = PredictionAnalyzer(directory=tmp_path).analyze().itertuples(index=False)
+
+    assert row.selected == []
+    assert row.rationale == ""
