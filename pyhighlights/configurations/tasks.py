@@ -45,13 +45,28 @@ BINARY_METRICS = [ACCURACY_METRIC, F1_METRIC, *HIGHLIGHT_METRICS]
 
 
 class TaskConfig(Configuration):
-    """Fields every task shares."""
+    """Fields every task shares.
+
+    Every setting a task takes is declared here, so a key records the whole
+    experiment rather than the part of it somebody remembered to register.
+    The exception is what a run *builds*: the embedding matrix a vector file
+    is read into is fitted against the training split at run time, so it
+    reaches the model as a tensor and never as a parameter.
+    """
 
     name: str = Param("task")
     save_path: str | None = Param(None)
     seeds: Sequence[int] = Param([42])
     batch_size: int = Param(32, ge=1)
     max_length: int | None = Param(None)
+    vocabulary_size: int = Param(10_000, ge=2)
+    pretrained_model_card: str | None = Param(None)
+    embeddings: str | None = Param(None)
+    pretrained_tokens_only: bool = Param(True)
+    monitor: str = Param("val_loss")
+    patience: int = Param(5, ge=0)
+    store_predictions: bool = Param(False)
+    faithfulness: bool = Param(False)
     highlight_supervision: bool = Param(False)
     highlight_loss: RegistrationKey[Loss] = Param(HIGHLIGHT_LOSS)
     highlight_coefficient: float = Param(1.0, ge=0.0)
@@ -68,7 +83,6 @@ class ToyTaskConfig(TaskConfig):
     train_metrics: List[RegistrationKey[BoundMetric]] = Param(BINARY_METRICS)
     val_metrics: List[RegistrationKey[BoundMetric]] = Param(BINARY_METRICS)
     test_metrics: List[RegistrationKey[BoundMetric]] = Param(BINARY_METRICS)
-    vocabulary_size: int = Param(10_000, ge=2)
     batch_size: int = Param(8, ge=1)
     trainer_args: Dict[str, Any] = Param({"accelerator": "cpu", "max_epochs": 2})
 
@@ -99,7 +113,6 @@ class GenSPPTaskConfig(TaskConfig):
     preprocessor: RegistrationKey[Preprocessor] | None = Param(None)
     val_metrics: List[RegistrationKey[BoundMetric]] = Param(BINARY_METRICS)
     test_metrics: List[RegistrationKey[BoundMetric]] = Param(BINARY_METRICS)
-    vocabulary_size: int = Param(10_000, ge=2)
 
 
 class ToyGenSPPTaskConfig(GenSPPTaskConfig):

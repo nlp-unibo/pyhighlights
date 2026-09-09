@@ -19,6 +19,15 @@ than remembering which loader went with which checkpoint.
 Registered with ``run_method="run"``, so ``cmn-run`` drives the same task from
 the command line.
 
+Every setting a task takes is a parameter of
+:class:`~pyhighlights.configurations.tasks.TaskConfig` — the monitored metric,
+the patience, the vector file, whether predictions and faithfulness are
+reported. A key therefore records the whole experiment, and two runs whose keys
+agree cannot differ. The kwargs above override a key at build time; they are
+not the only way to set a value. What a configuration may *not* carry is what
+a run builds: the embedding matrix is fitted against the training split at run
+time and reaches the model as a tensor, never as a parameter.
+
 What a run does
 ---------------
 
@@ -224,6 +233,63 @@ weights the search settled on -- and ``search.json``, the best fitness of every
 generation. A search that stopped improving in its tenth generation and one
 still climbing when the budget ran out report the same metrics otherwise.
 
+Faithfulness
+------------
+
+Metrics against an annotation check whether a highlight matches what a human
+marked. They cannot check whether the highlight is what the predictor read —
+a model can match the annotation and rest its prediction on something else.
+``faithfulness`` adds two measures that test the claim by changing what the
+predictor sees:
+
+.. code-block:: python
+
+   Registry.from_key(TOY_TASK, faithfulness=True).run()
+   # results.json gains test_sufficiency and test_comprehensiveness
+
+Writing ``x`` for the input, ``h`` for the highlight and ``x \ h`` for the
+input with the highlight removed:
+
+.. code-block:: text
+
+   sufficiency       = p(y_hat | x) - p(y_hat | h)
+   comprehensiveness = p(y_hat | x) - p(y_hat | x \ h)
+
+Sufficiency asks whether the highlight carries the signal alone, so **lower is
+better**. Comprehensiveness asks whether anything the class rests on was left
+outside it, so **higher is better**. Two extra predictor passes per test batch
+pay for both: the highlight pass is the model's own output, already computed.
+
+Off by default. They are two more columns rather than a correction, and a
+registered reproduction should report what its paper reports.
+
+**Every architecture is scored partly off its training distribution, and which
+part differs.** Nothing is trained on an input with a hole in it, so
+comprehensiveness is off-distribution for everyone. The other passes divide by
+family: a full-input classifier is trained for ``p(y_hat | x)`` and never sees
+``h`` alone, while a select-then-predict predictor is trained for
+``p(y_hat | h)`` and never sees ``x``. MCD is the exception — it trains both
+passes by design. So this is a property of the measure, not a demerit of a
+model, and published numbers carry the same distortion with the terms
+exchanged.
+
+Two consequences to know before reading a column:
+
+* ``y_hat`` **is the class predicted from the highlight**, not from the full
+  input. ERASER takes it from the full input because for a full-input
+  classifier that *is* the model's prediction; the intent is the class the
+  model predicts, and here that comes from ``h``. Anchoring on the full-input
+  pass would anchor on the one pass such a model was never trained for. A
+  documented deviation, and the reason a column here is not interchangeable
+  with a published one.
+* **Negative sufficiency is expected.** ``p(y_hat | h)`` is the trained pass
+  and ``p(y_hat | x)`` is not, so a select-then-predict model can score better
+  on its highlight than on the whole input. Not a defect.
+
+The library says *highlight* where the literature says *rationale*, and writes
+``h`` where it writes ``r``. The metric names stay as published, so a column
+still matches a paper's.
+
 Benchmarks
 ----------
 
@@ -278,6 +344,10 @@ API
 ---
 
 .. automodule:: pyhighlights.components.tasks
+   :members:
+   :show-inheritance:
+
+.. automodule:: pyhighlights.components.faithfulness
    :members:
    :show-inheritance:
 
