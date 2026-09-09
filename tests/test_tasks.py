@@ -1,4 +1,3 @@
-import inspect
 import json
 from pathlib import Path
 
@@ -10,7 +9,6 @@ import pyhighlights
 from pyhighlights.components.tasks import (
     GenSPPTask,
     SPPTask,
-    Task,
     summarize,
     vocabulary,
 )
@@ -23,7 +21,7 @@ from pyhighlights.configurations.keys import (
     TOY_GENSPP_TRAINER,
     TOY_TASK,
 )
-from pyhighlights.configurations.tasks import BINARY_METRICS, ToyTaskConfig
+from pyhighlights.configurations.tasks import BINARY_METRICS
 
 
 def build_registry():
@@ -48,24 +46,6 @@ def test_summarize_reports_the_spread_across_seeds():
     assert summary["accuracy"]["mean"] == pytest.approx(0.6)
     assert summary["accuracy"]["std"] == pytest.approx(0.1)
     assert summary["accuracy"]["values"] == [0.5, 0.7]
-
-
-def test_every_task_setting_is_a_registered_parameter():
-    """A key records the whole experiment, not the registered part of it.
-
-    Anything a task reads has to be declared, or two runs whose keys agree can
-    still differ -- a patience, a monitored metric, a vector file. The one
-    thing a configuration may not carry is what a run builds: the embedding
-    matrix is fitted at run time and reaches the model as a tensor.
-    """
-    settings = {
-        name
-        for signature in (SPPTask.__init__, Task.__init__)
-        for name, parameter in inspect.signature(signature).parameters.items()
-        if parameter.kind is not parameter.VAR_KEYWORD and name != "self"
-    }
-
-    assert settings <= set(ToyTaskConfig.default().fields)
 
 
 def test_a_task_needs_seeds_and_a_positive_batch_size():

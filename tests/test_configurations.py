@@ -9,7 +9,15 @@ from torch.utils.data import DataLoader
 import pyhighlights
 from pyhighlights.components.models import InputData
 from pyhighlights.components.models.spp import FR, MCD, MGR
-from pyhighlights.configurations.keys import GRU_FR, GRU_MCD, GRU_MGR
+from pyhighlights.configurations.keys import (
+    GRU_BACKBONE,
+    GRU_FR,
+    GRU_MCD,
+    GRU_MGR,
+    MLP_SELECTOR,
+)
+from pyhighlights.configurations.mgr import GRUMGRConfig
+from pyhighlights.configurations.tasks import ToyTaskConfig
 
 
 def test_registered_gru_fr_forward_backward_and_optimizer():
@@ -207,3 +215,45 @@ def test_registered_gru_mgr_has_independent_generators_and_head_policy():
     assert actual.class_logits.shape == (2, 1, 2)
     assert th.equal(actual.class_logits, expected.class_logits)
     assert th.equal(actual.highlight_mask, expected.highlight_mask)
+
+
+def test_a_task_refuses_two_embedding_sources_before_it_is_built():
+    """A key that names both is invalid, not a run that fails at the first batch.
+
+    The registry validates conditions while it expands keys, so a grid that
+    varies the embedding source drops the impossible combination up front.
+    """
+    config = ToyTaskConfig.default()
+    assert config.validate_conditions(strict=False).passed
+
+    config.pretrained_model_card = "prajjwal1/bert-tiny"
+    config.embeddings = "vectors.txt"
+    result = config.validate_conditions(strict=False)
+
+    assert not result.passed
+    assert "one_embedding_source" in result.error_message
+
+
+@pytest.mark.parametrize(
+    ("update", "condition"),
+    [
+        ({"selectors": [MLP_SELECTOR]}, "one_backbone_per_generator"),
+        (
+            {"selectors": [MLP_SELECTOR], "selector_backbones": [GRU_BACKBONE]},
+            "at_least_two_generators",
+        ),
+        ({"inference_head": 3}, "inference_head_exists"),
+    ],
+)
+def test_mgr_refuses_a_generator_set_it_cannot_run(update, condition):
+    """MGR's three shape constraints are conditions, so a grid over the
+    generator count never schedules a combination that cannot train."""
+    config = GRUMGRConfig.default()
+    assert config.validate_conditions(strict=False).passed
+
+    for name, value in update.items():
+        setattr(config, name, value)
+    result = config.validate_conditions(strict=False)
+
+    assert not result.passed
+    assert condition in result.error_message
