@@ -12,8 +12,9 @@ from __future__ import annotations
 
 import abc
 from collections import Counter
-from typing import Dict, List, Mapping, Sequence
+from typing import Any, Dict, List, Mapping, Sequence
 
+import numpy as np
 import pandas as pd
 from cinnamon.registry import RegistrationKey, Registry
 
@@ -30,7 +31,9 @@ TIES = ("drop", "keep")
 
 __all__ = [
     "AnnotationAggregator",
+    "LabelMapper",
     "LeakageRemover",
+    "LengthFilter",
     "PRIORITY",
     "Pipeline",
     "Preprocessor",
@@ -223,4 +226,66 @@ class Pipeline(Preprocessor):
         processed = dict(splits)
         for preprocessor in self.preprocessors:
             processed = preprocessor.process(processed)
+        return processed
+
+
+class LengthFilter(Preprocessor):
+    """Drops rows longer than ``max_length`` tokens.
+
+    Truncating would keep the row and lose the tokens, which for a corpus
+    scored on highlights means scoring against an annotation whose tail was
+    cut off. A study that caps length to bound its compute drops the row
+    instead, and says how many it dropped.
+    """
+
+    def __init__(self, max_length: int, column: str = "tokens"):
+        if max_length < 1:
+            raise ValueError("max_length must be positive")
+        self.max_length = max_length
+        self.column = column
+        self.removed: Dict[str, int] = {}
+
+    def process(self, splits: Mapping[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
+        processed = {}
+        for name, frame in splits.items():
+            keep = frame[self.column].map(len) <= self.max_length
+            self.removed[name] = int((~keep).sum())
+            processed[name] = frame[keep].reset_index(drop=True)
+        return processed
+
+
+class LabelMapper(Preprocessor):
+    """Rewrites label values through a mapping.
+
+    Collapsing classes is an editorial choice like any other -- the GenSPP
+    paper folds HateXplain's ``offensive`` into ``normal`` and trains on two
+    classes -- and it has to happen before the votes are counted, not after:
+    a post two annotators call ``hatespeech`` and one calls ``offensive`` has
+    a majority either way, but one where the votes are ``hatespeech``,
+    ``offensive`` and ``normal`` has one only once the last two are the same
+    class. So ``column`` may name the per-annotator judgements as readily as a
+    resolved label, and a list-valued column is mapped element by element.
+
+    A value the mapping does not name is left as it is.
+    """
+
+    def __init__(self, mapping: Mapping[Any, Any], column: str = "label"):
+        if not mapping:
+            raise ValueError("a label mapping needs at least one entry")
+        self.mapping = dict(mapping)
+        self.column = column
+
+    def convert(self, value):
+        if isinstance(value, (list, tuple, pd.Series, np.ndarray)):
+            return [self.mapping.get(item, item) for item in value]
+        return self.mapping.get(value, value)
+
+    def process(self, splits: Mapping[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
+        processed = {}
+        for name, frame in splits.items():
+            if self.column not in frame.columns:
+                raise KeyError(f"{name} has no column {self.column}")
+            frame = frame.copy()
+            frame[self.column] = frame[self.column].map(self.convert)
+            processed[name] = frame
         return processed

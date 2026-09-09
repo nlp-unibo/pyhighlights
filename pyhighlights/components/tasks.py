@@ -40,6 +40,7 @@ from pyhighlights.components.loaders import HighlightLoader, to_examples
 from pyhighlights.components.models.base import Model
 from pyhighlights.components.models.spp.genspp import GenSPPTrainer
 from pyhighlights.components.preprocessors import Preprocessor
+from pyhighlights.utility.embeddings import load_vectors
 from pyhighlights.utility.losses import Loss
 from pyhighlights.utility.metrics import BoundMetric, build_metrics
 
@@ -110,7 +111,16 @@ class Task(abc.ABC):
         self.directory.mkdir(parents=True, exist_ok=True)
         (self.directory / "results.json").write_text(json.dumps(results, indent=2))
         (self.directory / "config.json").write_text(
-            json.dumps({key: str(value) for key, value in vars(self).items()}, indent=2)
+            json.dumps(
+                {
+                    key: str(value)
+                    for key, value in vars(self).items()
+                    # Private attributes are what a run built, not what it
+                    # was asked for: an embedding matrix among them.
+                    if not key.startswith("_")
+                },
+                indent=2,
+            )
         )
         return self.directory
 
@@ -142,6 +152,8 @@ class SPPTask(Task):
         max_length: int | None = None,
         vocabulary_size: int = 10_000,
         pretrained_model_card: str | None = None,
+        embeddings: str | Path | None = None,
+        pretrained_tokens_only: bool = True,
         monitor: str = "val_loss",
         patience: int = 5,
         store_predictions: bool = False,
@@ -167,9 +179,17 @@ class SPPTask(Task):
         self.max_length = max_length
         self.vocabulary_size = vocabulary_size
         self.pretrained_model_card = pretrained_model_card
+        self.embeddings = Path(embeddings) if embeddings is not None else None
+        self.pretrained_tokens_only = pretrained_tokens_only
+        if self.embeddings is not None and pretrained_model_card is not None:
+            raise ValueError(
+                "a task embeds its tokens either with a pretrained model card "
+                "or with a vector file, not both"
+            )
         self.monitor = monitor
         self.patience = patience
         self.store_predictions = store_predictions
+        self._embedding_matrix: th.Tensor | None = None
         self.highlight_supervision = highlight_supervision
         self.highlight_loss = highlight_loss
         self.highlight_coefficient = highlight_coefficient
@@ -197,10 +217,26 @@ class SPPTask(Task):
 
         The vocabulary is fitted on ``train`` only, and its size has to match
         the backbone's ``vocab_size``: an id the embedding has no row for is a
-        crash at the first batch.
+        crash at the first batch. Naming ``embeddings`` fits it against a
+        vector file instead, and the matrix that comes back is handed to the
+        model, which sizes its table to it.
         """
         if self.pretrained_model_card is not None:
             return HuggingFaceTokenizer(self.pretrained_model_card)
+        if self.embeddings is not None:
+            words = {
+                token
+                for name in ("train",)
+                if name in splits
+                for tokens in splits[name]["tokens"]
+                for token in tokens
+            }
+            table, self._embedding_matrix = load_vectors(
+                self.embeddings,
+                tokens=words,
+                pretrained_only=self.pretrained_tokens_only,
+            )
+            return VocabularyTokenizer(table)
         return VocabularyTokenizer(
             vocabulary(
                 [splits[name] for name in ("train",) if name in splits],
@@ -234,7 +270,7 @@ class SPPTask(Task):
             if self.highlight_supervision
             else {}
         )
-        return Registry.from_key(
+        model = Registry.from_key(
             self.model,
             expected_type=Model,
             train_metrics=self.train_metrics,
@@ -242,6 +278,11 @@ class SPPTask(Task):
             test_metrics=self.test_metrics,
             **supervision,
         )
+        # The vectors are data, so they reach the model as a tensor rather than
+        # through a registration: no configuration should carry a matrix.
+        if self._embedding_matrix is not None:
+            model.load_embeddings(self._embedding_matrix)
+        return model
 
     def check_supervision(self, splits: Mapping[str, pd.DataFrame]) -> None:
         """Refuse to call a run supervised when nothing supervises it.

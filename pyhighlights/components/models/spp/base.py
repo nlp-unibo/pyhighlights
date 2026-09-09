@@ -33,6 +33,17 @@ class SPPBackbone(th.nn.Module, abc.ABC):
     def pool(self, states: th.Tensor, mask: th.Tensor) -> th.Tensor:
         """Return sequence states shaped [B, D]."""
 
+    def load_embeddings(self, matrix: th.Tensor) -> None:
+        """Adopt a pretrained token embedding table.
+
+        Optional: a backbone whose tokens are already embedded by something
+        else -- a pretrained Transformer, say -- has nothing to load, and says
+        so rather than silently ignoring the tensor it was handed.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not take a token embedding matrix"
+        )
+
 
 class SPPSelector(th.nn.Module, abc.ABC):
     @abc.abstractmethod
@@ -142,6 +153,18 @@ class SPP(Model[SPPOutput]):
     @property
     def selector_backbone(self) -> SPPBackbone:
         return self.selector_backbones[0]
+
+    def load_embeddings(self, matrix: th.Tensor) -> None:
+        """Hand the same pretrained table to every backbone.
+
+        Selector and predictor read the same ids, so they read the same table;
+        a backbone that shares weights with another is only loaded once.
+        """
+        for backbone in {
+            id(backbone): backbone
+            for backbone in (*self.selector_backbones, self.predictor_backbone)
+        }.values():
+            backbone.load_embeddings(matrix)
 
     def select_activation(self, highlight_logits: th.Tensor) -> th.Tensor:
         if self.training:

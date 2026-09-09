@@ -48,7 +48,7 @@ Preprocessing
 
 :class:`~pyhighlights.components.preprocessors.Preprocessor` takes the splits a
 loader produced and returns splits of the same shape, so any of them chains
-with any other. Two ship with pyhighlights, and
+with any other. Four ship with pyhighlights, and
 :class:`~pyhighlights.components.preprocessors.Pipeline` runs a list of them in
 order — its steps are registration keys, so a study states its pipeline in a
 configuration instead of in code.
@@ -65,6 +65,24 @@ configuration instead of in code.
 :class:`~pyhighlights.components.preprocessors.AnnotationAggregator`
    Reduces per-annotator labels and rationales to one of each. See HateXplain
    below.
+
+:class:`~pyhighlights.components.preprocessors.LengthFilter`
+   Drops rows longer than ``max_length`` tokens, rather than truncating them:
+   a truncated row keeps its label and loses the part of the annotation that
+   fell off the end, which is then scored as if the model had missed it.
+   :attr:`removed` records the count per split.
+
+:class:`~pyhighlights.components.preprocessors.LabelMapper`
+   Rewrites label values through a mapping — collapsing two classes into one,
+   say. ``column`` may name the per-annotator judgements rather than a
+   resolved label, and it usually should: a post the three annotators call
+   ``hatespeech``, ``offensive`` and ``normal`` has no majority over three
+   classes and a clear one over two, so folding the classes *before* the vote
+   is counted and folding them after give different labels.
+
+None of the four is registered with a default: ``max_length`` and a class
+mapping are study-specific numbers, and inventing one in the library would
+make it look like a recommendation.
 
 Leakage
 -------
