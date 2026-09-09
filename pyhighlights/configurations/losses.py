@@ -4,7 +4,7 @@ from typing import List
 
 import torch as th
 from cinnamon.configuration import Configuration, Param
-from cinnamon.registry import RegistrationKey, register_method
+from cinnamon.registry import RegistrationKey, register_class
 
 from pyhighlights.configurations.keys import (
     CONTIGUITY_PENALTY,
@@ -17,7 +17,15 @@ from pyhighlights.configurations.keys import (
     SPARSITY_PENALTY,
 )
 
+LOSS_COMPONENT = "pyhighlights.utility.losses.Loss"
 
+
+@register_class(
+    name="criterion",
+    tags={"cross_entropy"},
+    namespace=NAMESPACE,
+    component="pyhighlights.utility.losses.CrossEntropy",
+)
 class CrossEntropyConfig(Configuration):
     """Cross entropy, weighted per class where a corpus needs it."""
 
@@ -27,91 +35,70 @@ class CrossEntropyConfig(Configuration):
     #: part of its configuration rather than a detail of its training.
     weight: List[float] | None = Param(None)
 
-    @classmethod
-    @register_method(
-        name="criterion",
-        tags={"cross_entropy"},
-        namespace=NAMESPACE,
-        component="pyhighlights.utility.losses.CrossEntropy",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="criterion",
+    tags={"masked_cross_entropy"},
+    namespace=NAMESPACE,
+    component="pyhighlights.utility.losses.MaskedCrossEntropy",
+)
 class MaskedCrossEntropyConfig(Configuration):
-    @classmethod
-    @register_method(
-        name="criterion",
-        tags={"masked_cross_entropy"},
-        namespace=NAMESPACE,
-        component="pyhighlights.utility.losses.MaskedCrossEntropy",
-    )
-    def default(cls):
-        return super().default()
+    pass
 
 
+@register_class(
+    name="criterion",
+    tags={"masked_bce"},
+    namespace=NAMESPACE,
+    component="pyhighlights.utility.losses.MaskedBinaryCrossEntropy",
+)
 class MaskedBCEConfig(Configuration):
-    @classmethod
-    @register_method(
-        name="criterion",
-        tags={"masked_bce"},
-        namespace=NAMESPACE,
-        component="pyhighlights.utility.losses.MaskedBinaryCrossEntropy",
-    )
-    def default(cls):
-        return super().default()
+    pass
 
 
+@register_class(
+    name="criterion",
+    tags={"kl_div"},
+    namespace=NAMESPACE,
+    component="pyhighlights.utility.losses.KLDiv",
+)
 class KLDivConfig(Configuration):
-    @classmethod
-    @register_method(
-        name="criterion",
-        tags={"kl_div"},
-        namespace=NAMESPACE,
-        component="pyhighlights.utility.losses.KLDiv",
-    )
-    def default(cls):
-        return super().default()
+    pass
 
 
+@register_class(
+    name="criterion",
+    tags={"js_div"},
+    namespace=NAMESPACE,
+    component="pyhighlights.utility.losses.JSDiv",
+)
 class JSDivConfig(Configuration):
-    @classmethod
-    @register_method(
-        name="criterion",
-        tags={"js_div"},
-        namespace=NAMESPACE,
-        component="pyhighlights.utility.losses.JSDiv",
-    )
-    def default(cls):
-        return super().default()
+    pass
 
 
+@register_class(
+    name="criterion",
+    tags={"contiguity"},
+    namespace=NAMESPACE,
+    component="pyhighlights.utility.losses.ContiguityPenalty",
+)
 class ContiguityPenaltyConfig(Configuration):
-    @classmethod
-    @register_method(
-        name="criterion",
-        tags={"contiguity"},
-        namespace=NAMESPACE,
-        component="pyhighlights.utility.losses.ContiguityPenalty",
-    )
-    def default(cls):
-        return super().default()
+    pass
 
 
+@register_class(
+    name="criterion",
+    tags={"sparsity"},
+    namespace=NAMESPACE,
+    component="pyhighlights.utility.losses.SparsityPenalty",
+)
 class SparsityPenaltyConfig(Configuration):
     threshold: float = Param(0.15, ge=0.0, le=1.0)
 
-    @classmethod
-    @register_method(
-        name="criterion",
-        tags={"sparsity"},
-        namespace=NAMESPACE,
-        component="pyhighlights.utility.losses.SparsityPenalty",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="loss", tags={"classification"}, namespace=NAMESPACE, component=LOSS_COMPONENT
+)
 class LossConfig(Configuration):
     """Binds a criterion to the namespace fields it scores."""
 
@@ -121,124 +108,68 @@ class LossConfig(Configuration):
     coefficient: float = Param(1.0, ge=0.0)
     enabled: bool = Param(True)
 
-    @classmethod
-    @register_method(
-        name="loss",
-        tags={"classification"},
-        namespace=NAMESPACE,
-        component="pyhighlights.utility.losses.Loss",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="loss",
+    tags={"classification", "full"},
+    namespace=NAMESPACE,
+    component=LOSS_COMPONENT,
+)
 class FullClassificationLossConfig(LossConfig):
     name: str = Param("full_classification")
     inputs: List[str] = Param(["full_class_logits", "y_true"])
 
-    @classmethod
-    @register_method(
-        name="loss",
-        tags={"classification", "full"},
-        namespace=NAMESPACE,
-        component="pyhighlights.utility.losses.Loss",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="loss", tags={"highlight"}, namespace=NAMESPACE, component=LOSS_COMPONENT
+)
 class HighlightLossConfig(LossConfig):
     name: str = Param("highlight")
     loss: RegistrationKey[th.nn.Module] = Param(MASKED_CROSS_ENTROPY)
     inputs: List[str] = Param(["highlight_logits", "highlight_true", "mask"])
 
-    @classmethod
-    @register_method(
-        name="loss",
-        tags={"highlight"},
-        namespace=NAMESPACE,
-        component="pyhighlights.utility.losses.Loss",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="loss", tags={"sparsity"}, namespace=NAMESPACE, component=LOSS_COMPONENT
+)
 class SparsityLossConfig(LossConfig):
     name: str = Param("sparsity")
     loss: RegistrationKey[th.nn.Module] = Param(SPARSITY_PENALTY)
     inputs: List[str] = Param(["highlight_mask", "mask"])
 
-    @classmethod
-    @register_method(
-        name="loss",
-        tags={"sparsity"},
-        namespace=NAMESPACE,
-        component="pyhighlights.utility.losses.Loss",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="loss", tags={"contiguity"}, namespace=NAMESPACE, component=LOSS_COMPONENT
+)
 class ContiguityLossConfig(LossConfig):
     name: str = Param("contiguity")
     loss: RegistrationKey[th.nn.Module] = Param(CONTIGUITY_PENALTY)
     inputs: List[str] = Param(["highlight_mask", "mask"])
     coefficient: float = Param(2.0, ge=0.0)
 
-    @classmethod
-    @register_method(
-        name="loss",
-        tags={"contiguity"},
-        namespace=NAMESPACE,
-        component="pyhighlights.utility.losses.Loss",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="loss", tags={"discrepancy"}, namespace=NAMESPACE, component=LOSS_COMPONENT
+)
 class DiscrepancyLossConfig(LossConfig):
     name: str = Param("discrepancy")
     loss: RegistrationKey[th.nn.Module] = Param(KL_DIV)
     inputs: List[str] = Param(["class_logits", "full_class_logits"])
 
-    @classmethod
-    @register_method(
-        name="loss",
-        tags={"discrepancy"},
-        namespace=NAMESPACE,
-        component="pyhighlights.utility.losses.Loss",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="loss", tags={"guide"}, namespace=NAMESPACE, component=LOSS_COMPONENT
+)
 class GuideLossConfig(LossConfig):
     name: str = Param("guide")
     loss: RegistrationKey[th.nn.Module] = Param(MASKED_BCE)
     inputs: List[str] = Param(["selection_logits", "guide_target", "mask"])
 
-    @classmethod
-    @register_method(
-        name="loss",
-        tags={"guide"},
-        namespace=NAMESPACE,
-        component="pyhighlights.utility.losses.Loss",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="loss", tags={"jsd"}, namespace=NAMESPACE, component=LOSS_COMPONENT
+)
 class JSDLossConfig(LossConfig):
     name: str = Param("jsd")
     loss: RegistrationKey[th.nn.Module] = Param(JS_DIV)
     inputs: List[str] = Param(["class_logits", "guider_class_logits"])
-
-    @classmethod
-    @register_method(
-        name="loss",
-        tags={"jsd"},
-        namespace=NAMESPACE,
-        component="pyhighlights.utility.losses.Loss",
-    )
-    def default(cls):
-        return super().default()

@@ -9,6 +9,14 @@ subset alone. The subset — the **highlight** — is therefore not a story abou
 the prediction, it is the input to it: a highlight that omits what mattered
 produces a worse prediction, which is measurable rather than arguable.
 
+.. note::
+
+   **The literature calls this subset a** *rationale* **and writes it** ``r``.
+   This library says *highlight* and writes ``h``, throughout: in the loaders,
+   the models, the metrics and the batch fields. The two words name the same
+   object, so a paper's ``r`` is this library's ``h``. Metric names stay as
+   published, so a reported column still matches the paper it comes from.
+
 Five architectures over two backbones, five corpora, and a whole experiment
 behind one key:
 

@@ -4,7 +4,7 @@ from typing import List, Literal
 
 import torch as th
 from cinnamon.configuration import Configuration, Param
-from cinnamon.registry import RegistrationKey, register_method
+from cinnamon.registry import RegistrationKey, register_class
 
 from pyhighlights.components.models.spp.base import (
     SPPAggregator,
@@ -26,7 +26,12 @@ from pyhighlights.configurations.keys import (
 from pyhighlights.utility.losses import Loss
 from pyhighlights.utility.metrics import BoundMetric
 
+MGR_COMPONENT = "pyhighlights.components.models.spp.mgr.MGR"
 
+
+@register_class(
+    name="model", tags={"gru", "mgr"}, namespace=NAMESPACE, component=MGR_COMPONENT
+)
 class GRUMGRConfig(Configuration):
     name: str = Param("mgr")
     selector_backbones: List[RegistrationKey[SPPBackbone]] = Param(
@@ -50,12 +55,6 @@ class GRUMGRConfig(Configuration):
     test_metrics: List[RegistrationKey[BoundMetric]] | None = Param(None)
 
     @classmethod
-    @register_method(
-        name="model",
-        tags={"mgr", "gru"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.models.spp.mgr.MGR",
-    )
     def default(cls):
         config = super().default()
         # One backbone per generator, at least two generators, and a head that
@@ -84,18 +83,14 @@ class GRUMGRConfig(Configuration):
         return config
 
 
+@register_class(
+    name="model",
+    tags={"mgr", "transformer"},
+    namespace=NAMESPACE,
+    component=MGR_COMPONENT,
+)
 class TransformerMGRConfig(GRUMGRConfig):
     selector_backbones: List[RegistrationKey[SPPBackbone]] = Param(
         [TRANSFORMER_BACKBONE, TRANSFORMER_BACKBONE, TRANSFORMER_BACKBONE]
     )
     predictor_backbone: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)
-
-    @classmethod
-    @register_method(
-        name="model",
-        tags={"mgr", "transformer"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.models.spp.mgr.MGR",
-    )
-    def default(cls):
-        return super().default()

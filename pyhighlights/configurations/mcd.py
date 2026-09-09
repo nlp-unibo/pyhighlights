@@ -4,7 +4,7 @@ from typing import List
 
 import torch as th
 from cinnamon.configuration import Configuration, Param
-from cinnamon.registry import RegistrationKey, register_method
+from cinnamon.registry import RegistrationKey, register_class
 
 from pyhighlights.components.models.spp.base import (
     SPPAggregator,
@@ -28,7 +28,12 @@ from pyhighlights.configurations.keys import (
 from pyhighlights.utility.losses import Loss
 from pyhighlights.utility.metrics import BoundMetric
 
+MCD_COMPONENT = "pyhighlights.components.models.spp.mcd.MCD"
 
+
+@register_class(
+    name="model", tags={"gru", "mcd"}, namespace=NAMESPACE, component=MCD_COMPONENT
+)
 class GRUMCDConfig(Configuration):
     name: str = Param("mcd")
     selector_backbones: RegistrationKey[SPPBackbone] = Param(GRU_BACKBONE)
@@ -49,27 +54,13 @@ class GRUMCDConfig(Configuration):
     val_metrics: List[RegistrationKey[BoundMetric]] | None = Param(None)
     test_metrics: List[RegistrationKey[BoundMetric]] | None = Param(None)
 
-    @classmethod
-    @register_method(
-        name="model",
-        tags={"mcd", "gru"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.models.spp.mcd.MCD",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="model",
+    tags={"mcd", "transformer"},
+    namespace=NAMESPACE,
+    component=MCD_COMPONENT,
+)
 class TransformerMCDConfig(GRUMCDConfig):
     selector_backbones: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)
     predictor_backbone: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)
-
-    @classmethod
-    @register_method(
-        name="model",
-        tags={"mcd", "transformer"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.models.spp.mcd.MCD",
-    )
-    def default(cls):
-        return super().default()

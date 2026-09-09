@@ -81,14 +81,7 @@ def evaluate(model: Model, loader: DataLoader) -> Dict[str, float]:
     try:
         with th.no_grad():
             for batch in loader:
-                batch = type(batch)(
-                    **{
-                        name: value.to(model.device)
-                        if isinstance(value, th.Tensor)
-                        else value
-                        for name, value in batch.as_dict().items()
-                    }
-                )
+                batch = batch.to(model.device)
                 terms = model.faithfulness(batch, model.test_forward(batch))
                 for name, value in terms.items():
                     totals[name] = totals.get(name, 0.0) + float(value.sum())

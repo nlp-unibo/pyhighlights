@@ -210,16 +210,14 @@ class GRAT(SPP):
             self._model_steps.add_(1)
 
         total = model_total.detach()
-        self.log_metrics(
+        self.record(
             split="train",
+            batch=batch,
+            output_data=output,
             total_loss=total,
             losses={
                 **{f"guider_{name}": value for name, value in guider_losses.items()},
                 **model_losses,
             },
-            batch_size=batch.y_true.shape[0],
         )
-        self.update_metrics(split="train", input_data=batch, output_data=output)
-        if self.store_predictions:
-            self.predictions.append({**batch.as_numpy(), **output.as_numpy()})
         return total

@@ -3,7 +3,7 @@
 from typing import List, Sequence
 
 from cinnamon.configuration import Configuration, Param
-from cinnamon.registry import RegistrationKey, register_method
+from cinnamon.registry import RegistrationKey, register_class
 
 from pyhighlights.components.analyzers import PREDICTIONS
 from pyhighlights.components.tasks import Task
@@ -19,23 +19,26 @@ class BenchmarkConfig(Configuration):
     strict: bool = Param(False)
 
 
+@register_class(
+    name="benchmark",
+    tags={"toy"},
+    namespace=NAMESPACE,
+    component="pyhighlights.components.benchmarks.Benchmark",
+    run_method="run",
+)
 class ToyBenchmarkConfig(BenchmarkConfig):
     """The synthetic corpus, as a benchmark of one: the end-to-end smoke test."""
 
     name: str = Param("toy-benchmark")
 
-    @classmethod
-    @register_method(
-        name="benchmark",
-        tags={"toy"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.benchmarks.Benchmark",
-        run_method="run",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="analyzer",
+    tags={"metrics"},
+    namespace=NAMESPACE,
+    component="pyhighlights.components.analyzers.MetricsAnalyzer",
+    run_method="run",
+)
 class MetricsAnalyzerConfig(Configuration):
     """One row per task, ``mean +/- std`` across seeds."""
 
@@ -44,18 +47,14 @@ class MetricsAnalyzerConfig(Configuration):
     split: str = Param("test")
     pairs: bool = Param(False)
 
-    @classmethod
-    @register_method(
-        name="analyzer",
-        tags={"metrics"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.analyzers.MetricsAnalyzer",
-        run_method="run",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="analyzer",
+    tags={"highlight", "position"},
+    namespace=NAMESPACE,
+    component="pyhighlights.components.analyzers.HighlightPositionAnalyzer",
+    run_method="run",
+)
 class HighlightPositionAnalyzerConfig(Configuration):
     """Where in the document the selector looked."""
 
@@ -64,18 +63,14 @@ class HighlightPositionAnalyzerConfig(Configuration):
     bins: int = Param(10, ge=1)
     absolute: bool = Param(False)
 
-    @classmethod
-    @register_method(
-        name="analyzer",
-        tags={"position", "highlight"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.analyzers.HighlightPositionAnalyzer",
-        run_method="run",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="analyzer",
+    tags={"prediction"},
+    namespace=NAMESPACE,
+    component="pyhighlights.components.analyzers.PredictionAnalyzer",
+    run_method="run",
+)
 class PredictionAnalyzerConfig(Configuration):
     """What the selector kept, in words, one row per sample."""
 
@@ -83,18 +78,14 @@ class PredictionAnalyzerConfig(Configuration):
     pattern: str = Param(PREDICTIONS)
     split: str = Param("test")
 
-    @classmethod
-    @register_method(
-        name="analyzer",
-        tags={"prediction"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.analyzers.PredictionAnalyzer",
-        run_method="run",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="analyzer",
+    tags={"label-studio"},
+    namespace=NAMESPACE,
+    component="pyhighlights.components.analyzers.LabelStudioExporter",
+    run_method="run",
+)
 class LabelStudioExporterConfig(PredictionAnalyzerConfig):
     """Predicted highlights, written where a domain expert can read them."""
 
@@ -102,17 +93,6 @@ class LabelStudioExporterConfig(PredictionAnalyzerConfig):
     labels: Sequence[str] = Param(["highlight"])
     only: int | None = Param(None)
     stem: str = Param("label-studio")
-
-    @classmethod
-    @register_method(
-        name="analyzer",
-        tags={"label-studio"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.analyzers.LabelStudioExporter",
-        run_method="run",
-    )
-    def default(cls):
-        return super().default()
 
 
 __all__: List[str] = [

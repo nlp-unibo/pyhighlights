@@ -46,6 +46,17 @@ class MCD(SPP):
     ):
         if predictor_backbone is None:
             raise ValueError("MCD requires a separate predictor backbone")
+        # MCD groups its losses per training phase and replaces the flat list
+        # SPP builds, so a supervision loss appended to that list would be
+        # dropped before the first batch. Refused rather than silently ignored:
+        # a run that reports itself as the supervised ceiling and trains
+        # unsupervised is a number nobody can read as wrong.
+        if kwargs.get("supervise_highlights"):
+            raise ValueError(
+                "MCD scores its losses per training phase, so highlight "
+                "supervision has to name the phase it belongs to; put the "
+                "highlight loss in rationale_losses instead"
+            )
         super().__init__(
             selector_backbones=selector_backbones,
             selectors=selectors,
@@ -155,8 +166,10 @@ class MCD(SPP):
         generator_optimizer.zero_grad()
 
         total = classifier_total.detach() + generator_total.detach()
-        self.log_metrics(
+        self.record(
             split="train",
+            batch=batch,
+            output_data=output,
             total_loss=total,
             losses={
                 **{
@@ -168,9 +181,5 @@ class MCD(SPP):
                     for name, value in generator_losses.items()
                 },
             },
-            batch_size=batch.y_true.shape[0],
         )
-        self.update_metrics(split="train", input_data=batch, output_data=output)
-        if self.store_predictions:
-            self.predictions.append({**batch.as_numpy(), **output.as_numpy()})
         return total

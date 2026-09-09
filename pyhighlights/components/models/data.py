@@ -20,6 +20,15 @@ class ModelData:
             if isinstance((value := getattr(self, field.name)), th.Tensor)
         }
 
+    def to(self: D, device: th.device | str) -> D:
+        """The same record with every tensor on ``device``, non-tensors as they are."""
+        return type(self)(
+            **{
+                name: value.to(device) if isinstance(value, th.Tensor) else value
+                for name, value in self.as_dict().items()
+            }
+        )
+
     def unbind(self: D, dim: int = 0) -> Generator[D, None, None]:
         tensor_fields = {
             field.name: th.unbind(value, dim=dim)

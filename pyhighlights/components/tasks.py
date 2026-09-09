@@ -102,13 +102,14 @@ def load_splits(
 def summarize(runs: Sequence[Mapping[str, float]]) -> Dict[str, Dict[str, float]]:
     """Mean and standard deviation of each metric across seeds."""
     names = sorted({name for run in runs for name in run})
+    found = {name: [float(run[name]) for run in runs if name in run] for name in names}
     return {
         name: {
-            "mean": float(np.mean([run[name] for run in runs if name in run])),
-            "std": float(np.std([run[name] for run in runs if name in run])),
-            "values": [float(run[name]) for run in runs if name in run],
+            "mean": float(np.mean(values)),
+            "std": float(np.std(values)),
+            "values": values,
         }
-        for name in names
+        for name, values in found.items()
     }
 
 
@@ -267,12 +268,14 @@ class SPPTask(Task):
         """
         if self.pretrained_model_card is not None:
             return HuggingFaceTokenizer(self.pretrained_model_card)
+        # Fitted on the training split alone, and on nothing at all when a
+        # corpus has none: a vocabulary that saw the evaluation text leaks it.
+        training = [splits["train"]] if "train" in splits else []
         if self.embeddings is not None:
             words = {
                 token
-                for name in ("train",)
-                if name in splits
-                for tokens in splits[name]["tokens"]
+                for frame in training
+                for tokens in frame["tokens"]
                 for token in tokens
             }
             table, self._embedding_matrix = load_vectors(
@@ -281,12 +284,7 @@ class SPPTask(Task):
                 pretrained_only=self.pretrained_tokens_only,
             )
             return VocabularyTokenizer(table)
-        return VocabularyTokenizer(
-            vocabulary(
-                [splits[name] for name in ("train",) if name in splits],
-                size=self.vocabulary_size,
-            )
-        )
+        return VocabularyTokenizer(vocabulary(training, size=self.vocabulary_size))
 
     def loaders(self, splits: Mapping[str, pd.DataFrame]) -> Dict[str, DataLoader]:
         if self.highlight_supervision:

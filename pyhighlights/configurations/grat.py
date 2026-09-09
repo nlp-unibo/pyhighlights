@@ -4,7 +4,7 @@ from typing import List
 
 import torch as th
 from cinnamon.configuration import Configuration, Param
-from cinnamon.registry import RegistrationKey, register_method
+from cinnamon.registry import RegistrationKey, register_class
 
 from pyhighlights.components.models.spp.base import (
     SPPAggregator,
@@ -31,37 +31,35 @@ from pyhighlights.configurations.keys import (
 from pyhighlights.utility.losses import Loss
 from pyhighlights.utility.metrics import BoundMetric
 
+ATTENTION_GUIDER_COMPONENT = "pyhighlights.components.models.spp.grat.AttentionGuider"
+GRAT_COMPONENT = "pyhighlights.components.models.spp.grat.GRAT"
 
+
+@register_class(
+    name="guider",
+    tags={"attention", "gru"},
+    namespace=NAMESPACE,
+    component=ATTENTION_GUIDER_COMPONENT,
+)
 class AttentionGuiderConfig(Configuration):
     backbone: RegistrationKey[SPPBackbone] = Param(GRU_BACKBONE)
     predictor: RegistrationKey[SPPPredictor] = Param(MLP_PREDICTOR)
     noise_sigma: float = Param(1.0, ge=0.0)
 
-    @classmethod
-    @register_method(
-        name="guider",
-        tags={"attention", "gru"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.models.spp.grat.AttentionGuider",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="guider",
+    tags={"attention", "transformer"},
+    namespace=NAMESPACE,
+    component=ATTENTION_GUIDER_COMPONENT,
+)
 class TransformerAttentionGuiderConfig(AttentionGuiderConfig):
     backbone: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)
 
-    @classmethod
-    @register_method(
-        name="guider",
-        tags={"attention", "transformer"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.models.spp.grat.AttentionGuider",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="model", tags={"grat", "gru"}, namespace=NAMESPACE, component=GRAT_COMPONENT
+)
 class GRUGRATConfig(Configuration):
     name: str = Param("grat")
     selector_backbones: RegistrationKey[SPPBackbone] = Param(GRU_BACKBONE)
@@ -84,28 +82,14 @@ class GRUGRATConfig(Configuration):
     val_metrics: List[RegistrationKey[BoundMetric]] | None = Param(None)
     test_metrics: List[RegistrationKey[BoundMetric]] | None = Param(None)
 
-    @classmethod
-    @register_method(
-        name="model",
-        tags={"grat", "gru"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.models.spp.grat.GRAT",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="model",
+    tags={"grat", "transformer"},
+    namespace=NAMESPACE,
+    component=GRAT_COMPONENT,
+)
 class TransformerGRATConfig(GRUGRATConfig):
     selector_backbones: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)
     predictor_backbone: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)
     guider: RegistrationKey[GRATGuider] = Param(TRANSFORMER_GUIDER)
-
-    @classmethod
-    @register_method(
-        name="model",
-        tags={"grat", "transformer"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.models.spp.grat.GRAT",
-    )
-    def default(cls):
-        return super().default()

@@ -17,7 +17,7 @@ once and used by every corpus.
 from typing import List, Sequence
 
 from cinnamon.configuration import Configuration, Param
-from cinnamon.registry import RegistrationKey, register_method
+from cinnamon.registry import RegistrationKey, register_class
 from torchmetrics import Metric
 
 from pyhighlights.configurations.keys import (
@@ -37,64 +37,50 @@ from pyhighlights.configurations.keys import (
 MULTICLASS_CLASSES = 3
 
 
+BOUND_METRIC_COMPONENT = "pyhighlights.utility.metrics.BoundMetric"
+ACCURACY_COMPONENT = "torchmetrics.Accuracy"
+F1_SCORE_COMPONENT = "torchmetrics.F1Score"
+
+
+@register_class(
+    name="torchmetric",
+    tags={"accuracy"},
+    namespace=NAMESPACE,
+    component=ACCURACY_COMPONENT,
+)
 class AccuracyConfig(Configuration):
     task: str = Param("multiclass")
     num_classes: int = Param(2, ge=2)
     average: str = Param("micro")
 
-    @classmethod
-    @register_method(
-        name="torchmetric",
-        tags={"accuracy"},
-        namespace=NAMESPACE,
-        component="torchmetrics.Accuracy",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="torchmetric",
+    tags={"accuracy", "multiclass"},
+    namespace=NAMESPACE,
+    component=ACCURACY_COMPONENT,
+)
 class MulticlassAccuracyConfig(AccuracyConfig):
     num_classes: int = Param(MULTICLASS_CLASSES, ge=2)
 
-    @classmethod
-    @register_method(
-        name="torchmetric",
-        tags={"accuracy", "multiclass"},
-        namespace=NAMESPACE,
-        component="torchmetrics.Accuracy",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="torchmetric", tags={"f1"}, namespace=NAMESPACE, component=F1_SCORE_COMPONENT
+)
 class F1Config(Configuration):
     task: str = Param("multiclass")
     num_classes: int = Param(2, ge=2)
     average: str = Param("macro")
 
-    @classmethod
-    @register_method(
-        name="torchmetric",
-        tags={"f1"},
-        namespace=NAMESPACE,
-        component="torchmetrics.F1Score",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="torchmetric",
+    tags={"f1", "multiclass"},
+    namespace=NAMESPACE,
+    component=F1_SCORE_COMPONENT,
+)
 class MulticlassF1Config(F1Config):
     num_classes: int = Param(MULTICLASS_CLASSES, ge=2)
-
-    @classmethod
-    @register_method(
-        name="torchmetric",
-        tags={"f1", "multiclass"},
-        namespace=NAMESPACE,
-        component="torchmetrics.F1Score",
-    )
-    def default(cls):
-        return super().default()
 
 
 class HighlightMetricConfig(Configuration):
@@ -109,60 +95,54 @@ class HighlightMetricConfig(Configuration):
     ignore_index: int = Param(-1)
 
 
+@register_class(
+    name="torchmetric",
+    tags={"f1", "highlight"},
+    namespace=NAMESPACE,
+    component="pyhighlights.utility.metrics.BinaryHighlightF1Score",
+)
 class HighlightF1Config(HighlightMetricConfig):
-    @classmethod
-    @register_method(
-        name="torchmetric",
-        tags={"f1", "highlight"},
-        namespace=NAMESPACE,
-        component="pyhighlights.utility.metrics.BinaryHighlightF1Score",
-    )
-    def default(cls):
-        return super().default()
+    pass
 
 
+@register_class(
+    name="torchmetric",
+    tags={"highlight", "iou"},
+    namespace=NAMESPACE,
+    component="pyhighlights.utility.metrics.BinaryHighlightIoU",
+)
 class HighlightIoUConfig(HighlightMetricConfig):
-    @classmethod
-    @register_method(
-        name="torchmetric",
-        tags={"iou", "highlight"},
-        namespace=NAMESPACE,
-        component="pyhighlights.utility.metrics.BinaryHighlightIoU",
-    )
-    def default(cls):
-        return super().default()
+    pass
 
 
+@register_class(
+    name="torchmetric",
+    tags={"selection_rate"},
+    namespace=NAMESPACE,
+    component="pyhighlights.utility.metrics.SelectionRate",
+)
 class SelectionRateConfig(Configuration):
     """Share of a document the selector kept, averaged over samples."""
 
     ignore_index: int = Param(-1)
 
-    @classmethod
-    @register_method(
-        name="torchmetric",
-        tags={"selection_rate"},
-        namespace=NAMESPACE,
-        component="pyhighlights.utility.metrics.SelectionRate",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="torchmetric",
+    tags={"selection_size"},
+    namespace=NAMESPACE,
+    component="pyhighlights.utility.metrics.SelectionSize",
+)
 class SelectionSizeConfig(SelectionRateConfig):
     """Tokens the selector kept, averaged over samples."""
 
-    @classmethod
-    @register_method(
-        name="torchmetric",
-        tags={"selection_size"},
-        namespace=NAMESPACE,
-        component="pyhighlights.utility.metrics.SelectionSize",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="metric",
+    tags={"accuracy"},
+    namespace=NAMESPACE,
+    component=BOUND_METRIC_COMPONENT,
+)
 class MetricConfig(Configuration):
     """A scoring object bound to the namespace fields it reads."""
 
@@ -170,60 +150,41 @@ class MetricConfig(Configuration):
     metric: RegistrationKey[Metric] = Param(ACCURACY)
     inputs: Sequence[str] = Param(["class_logits", "y_true"])
 
-    @classmethod
-    @register_method(
-        name="metric",
-        tags={"accuracy"},
-        namespace=NAMESPACE,
-        component="pyhighlights.utility.metrics.BoundMetric",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="metric",
+    tags={"accuracy", "multiclass"},
+    namespace=NAMESPACE,
+    component=BOUND_METRIC_COMPONENT,
+)
 class MulticlassAccuracyMetricConfig(MetricConfig):
     metric: RegistrationKey[Metric] = Param(MULTICLASS_ACCURACY)
 
-    @classmethod
-    @register_method(
-        name="metric",
-        tags={"accuracy", "multiclass"},
-        namespace=NAMESPACE,
-        component="pyhighlights.utility.metrics.BoundMetric",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="metric", tags={"f1"}, namespace=NAMESPACE, component=BOUND_METRIC_COMPONENT
+)
 class F1MetricConfig(MetricConfig):
     name: str = Param("f1")
     metric: RegistrationKey[Metric] = Param(F1)
 
-    @classmethod
-    @register_method(
-        name="metric",
-        tags={"f1"},
-        namespace=NAMESPACE,
-        component="pyhighlights.utility.metrics.BoundMetric",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="metric",
+    tags={"f1", "multiclass"},
+    namespace=NAMESPACE,
+    component=BOUND_METRIC_COMPONENT,
+)
 class MulticlassF1MetricConfig(F1MetricConfig):
     metric: RegistrationKey[Metric] = Param(MULTICLASS_F1)
 
-    @classmethod
-    @register_method(
-        name="metric",
-        tags={"f1", "multiclass"},
-        namespace=NAMESPACE,
-        component="pyhighlights.utility.metrics.BoundMetric",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="metric",
+    tags={"f1", "highlight"},
+    namespace=NAMESPACE,
+    component=BOUND_METRIC_COMPONENT,
+)
 class HighlightF1MetricConfig(MetricConfig):
     """Scores the selected tokens against the annotated ones."""
 
@@ -231,32 +192,24 @@ class HighlightF1MetricConfig(MetricConfig):
     metric: RegistrationKey[Metric] = Param(HIGHLIGHT_F1)
     inputs: Sequence[str] = Param(["highlight_mask", "highlight_true"])
 
-    @classmethod
-    @register_method(
-        name="metric",
-        tags={"f1", "highlight"},
-        namespace=NAMESPACE,
-        component="pyhighlights.utility.metrics.BoundMetric",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="metric",
+    tags={"highlight", "iou"},
+    namespace=NAMESPACE,
+    component=BOUND_METRIC_COMPONENT,
+)
 class HighlightIoUMetricConfig(HighlightF1MetricConfig):
     name: str = Param("highlight_iou")
     metric: RegistrationKey[Metric] = Param(HIGHLIGHT_IOU)
 
-    @classmethod
-    @register_method(
-        name="metric",
-        tags={"iou", "highlight"},
-        namespace=NAMESPACE,
-        component="pyhighlights.utility.metrics.BoundMetric",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="metric",
+    tags={"selection_rate"},
+    namespace=NAMESPACE,
+    component=BOUND_METRIC_COMPONENT,
+)
 class SelectionRateMetricConfig(HighlightF1MetricConfig):
     """Reports what the selector kept, whether or not the corpus is annotated."""
 
@@ -264,30 +217,16 @@ class SelectionRateMetricConfig(HighlightF1MetricConfig):
     metric: RegistrationKey[Metric] = Param(SELECTION_RATE)
     inputs: Sequence[str] = Param(["highlight_mask", "mask"])
 
-    @classmethod
-    @register_method(
-        name="metric",
-        tags={"selection_rate"},
-        namespace=NAMESPACE,
-        component="pyhighlights.utility.metrics.BoundMetric",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="metric",
+    tags={"selection_size"},
+    namespace=NAMESPACE,
+    component=BOUND_METRIC_COMPONENT,
+)
 class SelectionSizeMetricConfig(SelectionRateMetricConfig):
     name: str = Param("selection_size")
     metric: RegistrationKey[Metric] = Param(SELECTION_SIZE)
-
-    @classmethod
-    @register_method(
-        name="metric",
-        tags={"selection_size"},
-        namespace=NAMESPACE,
-        component="pyhighlights.utility.metrics.BoundMetric",
-    )
-    def default(cls):
-        return super().default()
 
 
 __all__: List[str] = [

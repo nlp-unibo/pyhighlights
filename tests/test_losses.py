@@ -223,3 +223,22 @@ def test_the_registered_criterion_takes_its_weights_from_the_configuration():
 
     weighted = Registry.from_key(CROSS_ENTROPY, weight=[1.0, 20.0])
     assert weighted.weight.tolist() == [1.0, 20.0]
+
+
+def test_mcd_refuses_highlight_supervision():
+    """MCD replaces the flat loss list, so a supervision term would be lost.
+
+    It groups its losses per training phase; a term appended to the list SPP
+    builds never reaches either phase. Refusing says so, where accepting would
+    report an unsupervised run as the supervised ceiling.
+    """
+    import pyhighlights
+    from pyhighlights.configurations.keys import GRU_MCD, HIGHLIGHT_LOSS
+
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+    with pytest.raises(ValueError, match="highlight supervision"):
+        Registry.from_key(
+            GRU_MCD,
+            supervise_highlights=True,
+            highlight_loss=HIGHLIGHT_LOSS,
+        )

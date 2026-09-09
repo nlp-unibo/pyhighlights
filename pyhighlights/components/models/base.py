@@ -137,12 +137,20 @@ class Model(L.LightningModule, abc.ABC, Generic[OutputT]):
     def test_forward(self, batch: InputData) -> OutputT:
         return self.training_forward(batch=batch)
 
-    def _step(self, batch: InputData, batch_idx: int, split: Split) -> th.Tensor:
-        output_data = self.forward_mapping[split](batch)
-        total_loss, losses = self.compute_loss(
-            input_data=batch, output_data=output_data
-        )
+    def record(
+        self,
+        split: Split,
+        batch: InputData,
+        output_data: OutputT,
+        total_loss: th.Tensor,
+        losses: Dict[str, th.Tensor],
+    ) -> None:
+        """Log the losses, update the metrics, keep the predictions if asked.
 
+        What every step does once its loss is known, however it got there: a
+        model driving its own optimizers computes that loss in phases, but has
+        the same record to write afterwards.
+        """
         self.log_metrics(
             split=split,
             total_loss=total_loss,
@@ -150,10 +158,15 @@ class Model(L.LightningModule, abc.ABC, Generic[OutputT]):
             batch_size=batch.y_true.shape[0],
         )
         self.update_metrics(split=split, input_data=batch, output_data=output_data)
-
         if self.store_predictions:
             self.predictions.append({**batch.as_numpy(), **output_data.as_numpy()})
 
+    def _step(self, batch: InputData, batch_idx: int, split: Split) -> th.Tensor:
+        output_data = self.forward_mapping[split](batch)
+        total_loss, losses = self.compute_loss(
+            input_data=batch, output_data=output_data
+        )
+        self.record(split, batch, output_data, total_loss, losses)
         return total_loss
 
     def training_step(self, batch: InputData, batch_idx: int):

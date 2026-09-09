@@ -4,7 +4,7 @@ from typing import List
 
 import torch as th
 from cinnamon.configuration import Configuration, Param
-from cinnamon.registry import RegistrationKey, register_method
+from cinnamon.registry import RegistrationKey, register_class
 
 from pyhighlights.components.models.spp.base import SPPBackbone
 from pyhighlights.components.models.spp.genspp import GenSPP
@@ -25,51 +25,48 @@ from pyhighlights.configurations.keys import (
 from pyhighlights.configurations.optimizers import AdamConfig
 from pyhighlights.utility.losses import Loss
 
+GENSPP_COMPONENT = "pyhighlights.components.models.spp.genspp.GenSPP"
+GENSPP_TRAINER_COMPONENT = "pyhighlights.components.models.spp.genspp.GenSPPTrainer"
 
+
+@register_class(
+    name="backbone",
+    tags={"genspp", "gru"},
+    namespace=NAMESPACE,
+    component="pyhighlights.components.models.spp.implementations.GRUBackbone",
+)
 class GenSPPGRUBackboneConfig(GRUBackboneConfig):
     hidden_size: int = Param(16, ge=1)
     freeze_embeddings: bool = Param(True)
     bidirectional: bool = Param(False)
 
-    @classmethod
-    @register_method(
-        name="backbone",
-        tags={"genspp", "gru"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.models.spp.implementations.GRUBackbone",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="backbone",
+    tags={"genspp", "transformer"},
+    namespace=NAMESPACE,
+    component="pyhighlights.components.models.spp.implementations.TransformerBackbone",
+)
 class GenSPPTransformerBackboneConfig(TransformerBackboneConfig):
     freeze_transformer: bool = Param(True)
 
-    @classmethod
-    @register_method(
-        name="backbone",
-        tags={"genspp", "transformer"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.models.spp.implementations.TransformerBackbone",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="optimizer",
+    tags={"adam", "genspp"},
+    namespace=NAMESPACE,
+    component="torch.optim.Adam",
+)
 class GenSPPAdamConfig(AdamConfig):
     lr: float = Param(1e-2, gt=0.0)
 
-    @classmethod
-    @register_method(
-        name="optimizer",
-        tags={"adam", "genspp"},
-        namespace=NAMESPACE,
-        component="torch.optim.Adam",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="model",
+    tags={"genspp", "gru"},
+    namespace=NAMESPACE,
+    component=GENSPP_COMPONENT,
+)
 class GRUGenSPPConfig(SPPModelConfig):
     name: str = Param("genspp")
     selector_backbones: RegistrationKey[SPPBackbone] = Param(GENSPP_GRU_BACKBONE)
@@ -77,17 +74,13 @@ class GRUGenSPPConfig(SPPModelConfig):
     losses: List[RegistrationKey[Loss]] = Param([CLASSIFICATION_LOSS])
     optimizer: RegistrationKey[th.optim.Optimizer] = Param(GENSPP_ADAM)
 
-    @classmethod
-    @register_method(
-        name="model",
-        tags={"genspp", "gru"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.models.spp.genspp.GenSPP",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="model",
+    tags={"genspp", "transformer"},
+    namespace=NAMESPACE,
+    component=GENSPP_COMPONENT,
+)
 class TransformerGenSPPConfig(GRUGenSPPConfig):
     selector_backbones: RegistrationKey[SPPBackbone] = Param(
         GENSPP_TRANSFORMER_BACKBONE
@@ -96,17 +89,13 @@ class TransformerGenSPPConfig(GRUGenSPPConfig):
         GENSPP_TRANSFORMER_BACKBONE
     )
 
-    @classmethod
-    @register_method(
-        name="model",
-        tags={"genspp", "transformer"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.models.spp.genspp.GenSPP",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="trainer",
+    tags={"genspp", "gru"},
+    namespace=NAMESPACE,
+    component=GENSPP_TRAINER_COMPONENT,
+)
 class GRUGenSPPTrainerConfig(Configuration):
     model: RegistrationKey[GenSPP] = Param(GRU_GENSPP)
     n_generations: int = Param(100, ge=0)
@@ -119,31 +108,23 @@ class GRUGenSPPTrainerConfig(Configuration):
     seed: int | None = Param(None)
     device: str = Param("cpu")
 
-    @classmethod
-    @register_method(
-        name="trainer",
-        tags={"genspp", "gru"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.models.spp.genspp.GenSPPTrainer",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="trainer",
+    tags={"genspp", "transformer"},
+    namespace=NAMESPACE,
+    component=GENSPP_TRAINER_COMPONENT,
+)
 class TransformerGenSPPTrainerConfig(GRUGenSPPTrainerConfig):
     model: RegistrationKey[GenSPP] = Param(TRANSFORMER_GENSPP)
 
-    @classmethod
-    @register_method(
-        name="trainer",
-        tags={"genspp", "transformer"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.models.spp.genspp.GenSPPTrainer",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="trainer",
+    tags={"genspp", "gru", "toy"},
+    namespace=NAMESPACE,
+    component=GENSPP_TRAINER_COMPONENT,
+)
 class ToyGenSPPTrainerConfig(GRUGenSPPTrainerConfig):
     """A search small enough to finish: two candidates, one generation.
 
@@ -155,13 +136,3 @@ class ToyGenSPPTrainerConfig(GRUGenSPPTrainerConfig):
     population_size: int = Param(2, ge=2)
     predictor_epochs: int = Param(1, ge=1)
     task_loss_limit: float = Param(10.0, ge=0.0)
-
-    @classmethod
-    @register_method(
-        name="trainer",
-        tags={"genspp", "gru", "toy"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.models.spp.genspp.GenSPPTrainer",
-    )
-    def default(cls):
-        return super().default()

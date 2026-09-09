@@ -20,6 +20,13 @@ anything else, the highlight is not an explanation of the prediction: it is the
 input to it. A highlight that omits what mattered produces a worse prediction,
 which is a property that can be measured rather than argued about.
 
+The literature calls that subset a *rationale* and writes it ``r``; this
+library says *highlight* and writes ``h`` everywhere — ``highlights`` in a
+corpus frame, ``highlight_mask`` and ``highlight_logits`` in a batch,
+``highlight_f1`` in a report. Same object, one word for it. Where a name comes
+from outside — the ``rationale`` column of the R2A files, the per-annotator
+vectors HateXplain ships — it keeps the name its source gave it.
+
 The cost is that selection is a discrete choice inside a differentiable model,
 which is what every architecture below is a different answer to.
 

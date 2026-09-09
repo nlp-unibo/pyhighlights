@@ -395,7 +395,7 @@ class GenSPPTrainer:
 
         with th.no_grad():
             for batch in val_loader:
-                batch = self._move_batch(batch)
+                batch = batch.to(self.device)
                 output = model(batch)
                 batch_size = batch.y_true.shape[0]
                 loss, _ = model.compute_loss(batch, output)
@@ -473,13 +473,3 @@ class GenSPPTrainer:
     @staticmethod
     def _chromosome(model: GenSPP) -> th.Tensor:
         return th.nn.utils.parameters_to_vector(model.generator_parameters()).detach()
-
-    def _move_batch(self, batch: InputData) -> InputData:
-        if self.device.type == "cpu":
-            return batch
-        return InputData(
-            **{
-                name: value.to(self.device) if isinstance(value, th.Tensor) else value
-                for name, value in batch.as_dict().items()
-            }
-        )
