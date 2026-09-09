@@ -85,12 +85,14 @@ def test_a_task_trains_scores_and_writes_down_every_seed(tmp_path):
     assert accuracy["values"] == [run["test_accuracy"] for run in results["runs"]]
     assert accuracy["std"] >= 0.0
 
-    written = json.loads((tmp_path / "toy" / "results.json").read_text())
+    # One directory per run, named for the moment it started.
+    (run,) = (tmp_path / "toy").iterdir()
+    written = json.loads((run / "results.json").read_text())
     assert written == results
-    assert (tmp_path / "toy" / "config.json").exists()
+    assert (run / "manifest.json").exists()
 
     for seed in (0, 1):
-        directory = tmp_path / "toy" / f"seed={seed}"
+        directory = run / f"seed={seed}"
         assert list(directory.glob("*.ckpt"))
         predictions = pd.read_pickle(directory / "predictions.pkl")
         assert {"highlight_mask", "class_logits", "y_true"} <= set(predictions[0])
@@ -158,7 +160,8 @@ def test_a_genspp_task_searches_scores_and_writes_down_its_generations(tmp_path)
     # Nothing trains the winner, so no split named ``train`` is ever scored.
     assert not any(name.startswith("train_") for name in results["summary"])
 
-    directory = tmp_path / "toy-genspp" / "seed=0"
+    (run,) = (tmp_path / "toy-genspp").iterdir()
+    directory = run / "seed=0"
     assert (directory / "best.ckpt").exists()
     predictions = pd.read_pickle(directory / "predictions.pkl")
     assert {"highlight_mask", "class_logits", "y_true"} <= set(predictions[0])
@@ -257,9 +260,9 @@ def test_a_task_can_embed_its_tokens_with_a_vector_file(tmp_path):
     )
     assert model.selector_backbone.embedding.embedding_dim == 128
 
-    written = json.loads((task.serialize({"runs": []}) / "config.json").read_text())
+    written = json.loads((task.serialize({"runs": []}) / "manifest.json").read_text())
     # A matrix is not a setting, so it stays out of what a run says it was.
-    assert "embedding_matrix" not in written
+    assert "embedding_matrix" not in written["settings"]
 
 
 def test_a_task_embeds_its_tokens_one_way_or_the_other(tmp_path):

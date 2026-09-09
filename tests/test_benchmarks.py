@@ -66,8 +66,8 @@ def test_a_benchmark_runs_its_tasks_and_collects_them(tmp_path, monkeypatch):
     assert report["failed"] == []
     written = json.loads((tmp_path / "grid" / "benchmark.json").read_text())
     assert written == report
-    # Each task wrote inside the benchmark's own directory.
-    assert (tmp_path / "grid" / "first" / "results.json").exists()
+    # Each task wrote inside the benchmark's own directory, in a run of its own.
+    assert list((tmp_path / "grid" / "first").glob("*/results.json"))
 
 
 def test_a_failing_task_does_not_take_the_grid_with_it(tmp_path, monkeypatch):
@@ -111,7 +111,7 @@ def test_metrics_analyzer_reads_every_result_beneath_a_directory(tmp_path):
         directory=tmp_path, metrics=["accuracy", "highlight_f1"]
     ).analyze()
 
-    assert list(report.columns) == ["task", "seeds", "accuracy", "highlight_f1"]
+    assert list(report.columns) == ["task", "run", "seeds", "accuracy", "highlight_f1"]
     assert sorted(report["task"]) == ["fr", "mgr", "toy"]
     assert report.set_index("task").loc["fr", "accuracy"] == "0.8000 +/- 0.1000"
     # A metric a task never measured reads as absent, not as zero.
@@ -235,7 +235,7 @@ def test_a_registered_benchmark_runs_the_task_it_names(tmp_path):
 
     assert report["failed"] == []
     assert [item["task"] for item in report["tasks"]] == ["toy"]
-    assert (benchmark.directory / "toy" / "results.json").exists()
+    assert list((benchmark.directory / "toy").glob("*/results.json"))
     assert (benchmark.directory / "benchmark.json").exists()
     # The report the benchmark wrote is JSON, so every number in it survived.
     assert json.loads((benchmark.directory / "benchmark.json").read_text()) == report
