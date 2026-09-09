@@ -13,5 +13,6 @@ explainable AI research.
    datasets
    models
    tasks
+   benchmarks
    configurations
    contributing
