@@ -50,7 +50,8 @@ For each seed, in order:
    ``patience`` worse epochs, so the weights still in memory are not the ones
    anybody would keep.
 4. Score validation and test, and store the test predictions when
-   ``store_predictions`` is set.
+   ``store_predictions`` is set — one ``predictions-seed=<seed>.pkl`` per seed,
+   in the run directory.
 
 Then the seeds are summarised — mean, standard deviation and the individual
 values for every metric — and written out.
@@ -61,11 +62,12 @@ What lands on disk
 .. code-block:: text
 
    results/<name>/<started>/
-   ├── results.json      # every seed's metrics, and their summary
-   ├── manifest.json     # the whole configuration tree, and the versions
+   ├── results.json                 # every seed's metrics, and their summary
+   ├── manifest.json                # the whole configuration tree, and the versions
+   ├── predictions-seed=42.pkl      # when ``store_predictions`` is set
+   ├── predictions-seed=1337.pkl
    ├── seed=42/
-   │   ├── epoch=3-step=128.ckpt
-   │   └── predictions.pkl
+   │   └── epoch=3-step=128.ckpt
    └── seed=1337/…
 
 ``<started>`` is the moment the run began, ``2026-09-09T16-13-00``. A run never
@@ -102,6 +104,10 @@ used:
        }
      }
    }
+
+Predictions sit beside the run rather than inside a checkpoint directory. They
+belong to the run: a reader that finds them next to a checkpoint can say which
+seed produced them and not which run, and the analyzers report both.
 
 The versions are there because a metric that moved between two runs of the same
 configuration is a version difference or nothing at all. Private attributes are
@@ -398,7 +404,26 @@ analyzer serves a notebook, a test and a LaTeX table.
    mask per head; the analysis reads the head its aggregator keeps, which is
    the one every reported metric scored.
 
-Neither is interactive and neither plots. An analyzer that asks which folder
+:class:`~pyhighlights.components.analyzers.PredictionAnalyzer`
+   What the selector kept, in words, one row per sample: the gold label and
+   the predicted one, the words the run selected, and the rationale they spell
+   out. A stored prediction is token ids and masks — enough to score, and
+   unreadable on its own — so the corpus is reloaded and joined back to it.
+   The run's ``manifest.json`` names the loader and the preprocessor that
+   produced it, and those are the keys the analyzer builds: a corpus loaded
+   from anywhere else is a different corpus. The corpus is not stored beside
+   the predictions because it would be stored once per run and per seed.
+
+   Selections are folded from token positions back to words through the
+   ``word_ids`` the batch carries, so a subword model reports words like every
+   other, and a word counts as selected when any of its subtokens was. A
+   sample the corpus no longer holds is skipped rather than failing the split:
+   a corpus that changed under a run is worth reporting around.
+
+   This one resolves keys, so the registry has to be built before it runs —
+   inside a cinnamon script it already is.
+
+None of them is interactive and none plots. An analyzer that asks which folder
 you meant cannot run unattended, and a figure is a presentation choice that
 belongs to whoever is writing the paper.
 

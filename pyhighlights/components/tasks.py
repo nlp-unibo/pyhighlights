@@ -161,7 +161,8 @@ class SPPTask(Task):
     correction, and a registered reproduction should report what its paper
     reports. What lands on disk is
     ``results.json`` -- every seed's metrics, plus their mean and standard
-    deviation -- ``config.json``, and, when asked, the test predictions.
+    deviation -- ``manifest.json``, and, when asked, one
+    ``predictions-seed=<seed>.pkl`` per seed.
     """
 
     def __init__(
@@ -373,16 +374,24 @@ class SPPTask(Task):
                 state = th.load(checkpoint.best_model_path, map_location="cpu")
             model.load_state_dict(state["state_dict"])
 
-        return self.score(trainer, model, loaders, checkpoints)
+        return self.score(
+            trainer, model, loaders, self.directory / f"predictions-seed={seed}.pkl"
+        )
 
     def score(
         self,
         trainer: L.Trainer,
         model: Model,
         loaders: Mapping[str, DataLoader],
-        directory: Path,
+        predictions: Path,
     ) -> Dict[str, float]:
-        """Score a trained model on whichever evaluation splits exist."""
+        """Score a trained model on whichever evaluation splits exist.
+
+        ``predictions`` is where this seed's predictions go, named rather than a
+        directory: they belong to the run, not to the checkpoint, and a reader
+        that finds them beside a checkpoint can only say which seed produced
+        them, not which run.
+        """
         results: Dict[str, float] = {}
         if "val" in loaders:
             results.update(trainer.validate(model, dataloaders=loaders["val"])[0])
@@ -391,7 +400,7 @@ class SPPTask(Task):
                 model.enable_storing_predictions()
             results.update(trainer.test(model, dataloaders=loaders["test"])[0])
             if self.store_predictions:
-                pd.to_pickle(model.predictions, directory / "predictions.pkl")
+                pd.to_pickle(model.predictions, predictions)
                 model.flush_predictions()
                 model.disable_storing_predictions()
             # After the metrics rather than beside them: the terms need the
@@ -480,4 +489,6 @@ class GenSPPTask(SPPTask):
             json.dumps({"training_progress": search.training_progress}, indent=2)
         )
         trainer = L.Trainer(**{"default_root_dir": directory, **self.trainer_args})
-        return self.score(trainer, model, loaders, directory)
+        return self.score(
+            trainer, model, loaders, self.directory / f"predictions-seed={seed}.pkl"
+        )

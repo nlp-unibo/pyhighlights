@@ -478,5 +478,8 @@ class GenSPPTrainer:
         if self.device.type == "cpu":
             return batch
         return InputData(
-            **{name: value.to(self.device) for name, value in batch.as_dict().items()}
+            **{
+                name: value.to(self.device) if isinstance(value, th.Tensor) else value
+                for name, value in batch.as_dict().items()
+            }
         )
