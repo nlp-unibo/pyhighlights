@@ -177,3 +177,51 @@ def test_a_genspp_task_needs_a_validation_split(tmp_path):
     # Fitness is what the search selects on, and it is measured on validation.
     with pytest.raises(ValueError, match="validation split"):
         task.fit(seed=0, loaders=task.loaders(splits))
+
+
+def test_a_supervised_task_trains_against_the_annotation(tmp_path):
+    build_registry()
+    task = Registry.from_key(
+        TOY_TASK,
+        save_path=str(tmp_path),
+        seeds=[0],
+        highlight_supervision=True,
+        highlight_coefficient=0.5,
+        trainer_args={"accelerator": "cpu", "max_epochs": 1},
+    )
+    model = task.build_model()
+    assert [loss.name for loss in model.losses][-1] == "highlight"
+    assert model.losses[-1].coefficient == 0.5
+
+    results = task.run()
+    # The supervised term is reported like any other, so a table can show what
+    # the ceiling cost in classification loss.
+    assert "val_highlight" in results["summary"]
+    assert "test_highlight" in results["summary"]
+
+
+def test_supervision_is_refused_when_the_train_split_carries_no_annotation(tmp_path):
+    build_registry()
+    task = Registry.from_key(
+        TOY_TASK, save_path=str(tmp_path), highlight_supervision=True
+    )
+    # The toy corpus annotates every split, so this one passes.
+    task.check_supervision(task.splits())
+
+    unannotated = pd.DataFrame({"highlights": [None, None]})
+    # Unannotated positions are padded with -1 and skipped by the criterion, so
+    # a corpus annotated on test alone would train as an unsupervised run does.
+    with pytest.raises(ValueError, match="annotated train split"):
+        task.check_supervision({"train": unannotated})
+    with pytest.raises(ValueError, match="annotated train split"):
+        task.check_supervision({"test": unannotated})
+
+
+def test_genspp_refuses_highlight_supervision(tmp_path):
+    build_registry()
+    # No gradient reaches the generator: the loss would be built and never
+    # train anything.
+    with pytest.raises(ValueError, match="nothing to guide"):
+        Registry.from_key(
+            TOY_GENSPP_TASK, save_path=str(tmp_path), highlight_supervision=True
+        )

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 import torch as th
 from cinnamon.configuration import Configuration
@@ -8,6 +10,7 @@ from pyhighlights.utility.losses import (
     JSDiv,
     Loss,
     MaskedCrossEntropy,
+    SparsityPenalty,
     compute_losses,
 )
 
@@ -105,3 +108,58 @@ def test_compute_losses_scales_by_name_and_skips_disabled_losses():
 
     with pytest.raises(KeyError, match="mask"):
         penalty({"highlight_mask": th.ones((1, 2))})
+
+
+def test_supervision_appends_the_highlight_loss_and_guides_the_first_head_only():
+    """One annotation guides one head: the one every metric scores."""
+    import pyhighlights
+    from pyhighlights.components.models import InputData
+    from pyhighlights.configurations.keys import GRU_MGR, HIGHLIGHT_LOSS
+
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+    plain = Registry.from_key(GRU_MGR)
+    guided = Registry.from_key(
+        GRU_MGR,
+        supervise_highlights=True,
+        highlight_loss=HIGHLIGHT_LOSS,
+        highlight_coefficient=0.5,
+    )
+    assert [loss.name for loss in plain.losses] == [
+        "classification",
+        "sparsity",
+        "contiguity",
+    ]
+    assert guided.losses[guided.supervised].name == "highlight"
+    assert guided.losses[guided.supervised].coefficient == 0.5
+    assert plain.supervised is None
+
+    batch = InputData(
+        features=th.tensor([[4, 5, 6, 0]]),
+        mask=th.tensor([[1.0, 1.0, 1.0, 0.0]]),
+        sample_ids=th.tensor([0]),
+        y_true=th.tensor([1]),
+        highlight_true=th.tensor([[0, 1, 1, -1]]),
+    )
+    guided.eval()
+    with th.no_grad():
+        output = guided(batch)
+        _, terms = guided.compute_loss(batch, output)
+
+        criterion = MaskedCrossEntropy()
+        heads = list(output.unbind(dim=1))
+        first = criterion(heads[0].highlight_logits, batch.highlight_true, batch.mask)
+        every = sum(
+            criterion(head.highlight_logits, batch.highlight_true, batch.mask)
+            for head in heads
+        )
+
+    assert len(heads) == 3
+    # The other terms are summed over every head; the supervised one is not.
+    assert terms["highlight"] == pytest.approx(first.item())
+    assert terms["highlight"] != pytest.approx(every.item())
+
+    with th.no_grad():
+        sparsity = sum(
+            SparsityPenalty()(head.highlight_mask, batch.mask) for head in heads
+        )
+    assert terms["sparsity"] == pytest.approx(sparsity.item())

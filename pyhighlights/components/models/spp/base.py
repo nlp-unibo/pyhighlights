@@ -9,6 +9,7 @@ from cinnamon.registry import RegistrationKey, Registry
 
 from pyhighlights.components.models.base import InputData, Model, Split
 from pyhighlights.components.models.spp.data import SPPOutput
+from pyhighlights.utility.losses import Loss, compute_losses
 
 
 class SPPBackbone(th.nn.Module, abc.ABC):
@@ -70,9 +71,31 @@ class SPP(Model[SPPOutput]):
         predictor_backbone: RegistrationKey[SPPBackbone] | None = None,
         aggregator: RegistrationKey[SPPAggregator] | None = None,
         temperature: float = 1.0,
+        supervise_highlights: bool = False,
+        highlight_loss: RegistrationKey[Loss] | None = None,
+        highlight_coefficient: float = 1.0,
         **kwargs,
     ):
         super().__init__(**kwargs)
+
+        # Supervision is a setting, not a variant: the same model key runs
+        # unsupervised or guided by the annotation, and the two are different
+        # experiments rather than two points on one scale -- the guided one is
+        # the ceiling the unsupervised one is measured against.
+        self.supervised = None
+        if supervise_highlights:
+            if highlight_loss is None:
+                raise ValueError(
+                    "supervise_highlights needs a highlight loss to supervise with"
+                )
+            self.losses.append(
+                Registry.from_key(
+                    highlight_loss,
+                    expected_type=Loss,
+                    coefficient=highlight_coefficient,
+                )
+            )
+            self.supervised = len(self.losses) - 1
 
         backbone_keys = (
             [selector_backbones]
@@ -209,10 +232,21 @@ class SPP(Model[SPPOutput]):
         total_loss = output_data.class_logits.new_zeros(())
         losses: Dict[str, th.Tensor] = {}
 
-        for head_output in output_data.unbind(dim=1):
-            head_loss, head_losses = super().compute_loss(input_data, head_output)
+        for index, head_output in enumerate(output_data.unbind(dim=1)):
+            # There is one annotation, so it guides one head: the one the
+            # aggregator keeps and every reported metric scores. Guiding the
+            # rest towards the same tokens would undo what a model with several
+            # generators has them for.
+            head_losses = [
+                loss
+                for position, loss in enumerate(self.losses)
+                if index == 0 or position != self.supervised
+            ]
+            head_loss, computed = compute_losses(
+                head_losses, self.namespace(input_data, head_output)
+            )
             total_loss = total_loss + head_loss
-            for name, value in head_losses.items():
+            for name, value in computed.items():
                 losses[name] = losses.get(name, value.new_zeros(())) + value
 
         return total_loss, losses

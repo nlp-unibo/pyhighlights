@@ -40,6 +40,7 @@ from pyhighlights.components.loaders import HighlightLoader, to_examples
 from pyhighlights.components.models.base import Model
 from pyhighlights.components.models.spp.genspp import GenSPPTrainer
 from pyhighlights.components.preprocessors import Preprocessor
+from pyhighlights.utility.losses import Loss
 from pyhighlights.utility.metrics import BoundMetric, build_metrics
 
 logger = logging.getLogger(__name__)
@@ -144,6 +145,9 @@ class SPPTask(Task):
         monitor: str = "val_loss",
         patience: int = 5,
         store_predictions: bool = False,
+        highlight_supervision: bool = False,
+        highlight_loss: RegistrationKey[Loss] | None = None,
+        highlight_coefficient: float = 1.0,
         trainer_args: Mapping[str, Any] | None = None,
         **kwargs,
     ):
@@ -166,6 +170,9 @@ class SPPTask(Task):
         self.monitor = monitor
         self.patience = patience
         self.store_predictions = store_predictions
+        self.highlight_supervision = highlight_supervision
+        self.highlight_loss = highlight_loss
+        self.highlight_coefficient = highlight_coefficient
         # Defaults a batch run wants, overridden by whatever the caller passes:
         # the progress bar writes one line per step into a log nobody reads.
         self.trainer_args = {
@@ -202,6 +209,8 @@ class SPPTask(Task):
         )
 
     def loaders(self, splits: Mapping[str, pd.DataFrame]) -> Dict[str, DataLoader]:
+        if self.highlight_supervision:
+            self.check_supervision(splits)
         collator = HighlightCollator(self.tokenizer(splits), self.max_length)
         return {
             name: DataLoader(
@@ -214,13 +223,41 @@ class SPPTask(Task):
         }
 
     def build_model(self) -> Model:
+        # Passed only when asked for, so an unsupervised run builds exactly the
+        # model its key describes.
+        supervision = (
+            {
+                "supervise_highlights": True,
+                "highlight_loss": self.highlight_loss,
+                "highlight_coefficient": self.highlight_coefficient,
+            }
+            if self.highlight_supervision
+            else {}
+        )
         return Registry.from_key(
             self.model,
             expected_type=Model,
             train_metrics=self.train_metrics,
             val_metrics=self.val_metrics,
             test_metrics=self.test_metrics,
+            **supervision,
         )
+
+    def check_supervision(self, splits: Mapping[str, pd.DataFrame]) -> None:
+        """Refuse to call a run supervised when nothing supervises it.
+
+        The collator pads unannotated positions with ``-1`` and the criterion
+        skips them, so supervising a corpus annotated on test alone trains
+        exactly as an unsupervised run does -- and reports itself as the
+        ceiling that run was measured against. Checked where the loaders are
+        built, which is the one thing every path to ``fit`` goes through.
+        """
+        train = splits.get("train")
+        if train is None or not train["highlights"].notna().any():
+            raise ValueError(
+                f"{self.name}: highlight supervision needs an annotated train "
+                "split, and this corpus has none"
+            )
 
     def fit(self, seed: int, loaders: Mapping[str, DataLoader]) -> Dict[str, float]:
         """Train one model and score it, leaving its checkpoint behind."""
@@ -325,6 +362,14 @@ class GenSPPTask(SPPTask):
     """
 
     def __init__(self, search: RegistrationKey[GenSPPTrainer], **kwargs):
+        # Supervision would have to condition the population the search draws
+        # from; no gradient reaches the generator, so the loss the flag adds
+        # would train nothing. Left open rather than silently accepted.
+        if kwargs.get("highlight_supervision"):
+            raise ValueError(
+                "GenSPP searches its generator rather than training it, so "
+                "highlight supervision has nothing to guide"
+            )
         self.search = search
         # The model key lives on the search: naming it twice is a way for the
         # two to disagree about which model was actually evolved.
