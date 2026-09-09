@@ -366,6 +366,35 @@ Every split is annotated, a seed makes the corpus reproducible, and there is
 nothing to fetch — which makes it the cheap way to exercise a model, a
 configuration or a training loop before pointing it at a real corpus.
 
+Corpus statistics
+-----------------
+
+:func:`pyhighlights.utility.statistics.describe` reports, per split, how long
+the documents are and how much of them the annotation marks:
+
+.. code-block:: python
+
+   from pyhighlights.utility.statistics import describe
+
+   describe(BeerLoader().load())
+
+Document length sets a token budget — what
+:class:`~pyhighlights.components.preprocessors.LengthFilter` drops rows over --
+and ``highlight_rate`` is the ratio
+:class:`~pyhighlights.utility.losses.SparsityPenalty` compares its
+``threshold`` against. So a sparsity target is read off the **training**
+split, and only off it. An evaluation split's rate is a fact to report once
+the numbers are in, never a target: the model has not seen that split, and
+tuning against it is tuning on the test set.
+
+That leaves a real ceiling, and it belongs to the penalty rather than to any
+corpus. One ``threshold`` names one corpus-level rate, so a corpus whose
+splits are annotated at different densities — ERASER ``movies`` marks test at
+0.31 against training's 0.09 — cannot be served by a single target, and no
+choice of threshold fixes it. The mismatch is measured rather than hidden:
+``selection_rate`` reports what the selector actually keeps at test, beside
+the highlight scores.
+
 API
 ---
 
@@ -374,6 +403,10 @@ API
    :show-inheritance:
 
 .. automodule:: pyhighlights.components.leakage
+   :members:
+   :show-inheritance:
+
+.. automodule:: pyhighlights.utility.statistics
    :members:
    :show-inheritance:
 
