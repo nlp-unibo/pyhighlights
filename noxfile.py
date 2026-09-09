@@ -25,6 +25,7 @@ def tests(session: nox.Session) -> None:
     session.run(
         "pytest",
         "--cov=pyhighlights",
+        "--cov=pyhighlights_benchmarks",
         "--cov-branch",
         "--cov-fail-under=75",
         "--cov-report=term-missing",
