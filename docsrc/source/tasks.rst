@@ -91,7 +91,7 @@ used:
      "component": "pyhighlights.components.tasks.SPPTask",
      "key": "name=task--tags=['fr', 'gru', 'movies']--namespace=pyhighlights",
      "build_args": {"seeds": [0, 1, 2]},
-     "versions": {"python": "3.13.15", "pyhighlights": "0.1.0",
+     "versions": {"python": "3.13.15", "pyhighlights": "0.2.0",
                   "cinnamon-core": "2.0.3", "torch": "2.14.0",
                   "lightning": "2.6.5"},
      "settings": {

@@ -104,7 +104,7 @@ overwrites the first: two runs of one task are two results to compare.
      "key": "name=task--tags=['toy']--namespace=pyhighlights",
      "build_args": {"seeds": [0, 1], "store_predictions": true,
                     "trainer_args": {"accelerator": "cpu", "max_epochs": 1}},
-     "versions": {"python": "3.13.15", "pyhighlights": "0.1.0",
+     "versions": {"python": "3.13.15", "pyhighlights": "0.2.0",
                   "cinnamon-core": "2.0.3", "torch": "2.14.0",
                   "lightning": "2.6.5"},
      "settings": {"model": {"key": "name=model--tags=['fr', 'gru']--namespace=pyhighlights",
