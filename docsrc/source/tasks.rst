@@ -87,8 +87,10 @@ used:
    {
      "started": "2026-09-09T16-13-00",
      "component": "pyhighlights.components.tasks.SPPTask",
+     "key": "name=task--tags=['fr', 'gru', 'movies']--namespace=pyhighlights",
+     "build_args": {"seeds": [0, 1, 2]},
      "versions": {"python": "3.13.15", "pyhighlights": "0.1.0",
-                  "cinnamon-core": "2.0.2", "torch": "2.14.0",
+                  "cinnamon-core": "2.0.3", "torch": "2.14.0",
                   "lightning": "2.6.5"},
      "settings": {
        "patience": 5,
@@ -106,11 +108,16 @@ configuration is a version difference or nothing at all. Private attributes are
 absent: they are what the run *built* — the embedding matrix fitted against the
 training split among them — and no more a setting than the trained weights are.
 
-One field is deliberately missing: the task's own registration key. A component
-is built as ``component_class(**{**config.values, **build_args})`` and is never
-told which key produced it, so a task cannot record what it does not know. The
-tree is every argument the task received, which is enough to rebuild the run; it
-just cannot be replayed as a single ``Registry.from_key`` call.
+``key`` and ``build_args`` are what make the file replayable rather than merely
+readable. The key alone rebuilds the *registered defaults*, not the run that was
+launched, so the overrides go down beside it: a manifest saying
+``seeds: [0, 1, 2]`` is a run somebody can re-run, and one saying only the key
+is not. cinnamon annotates every component it builds with both, so a task
+constructed directly rather than through a key reports ``null`` for each.
+
+Build args are resolved like everything else, so an override that names a key --
+``Registry.from_key(TASK, model=GRU_MGR)`` -- is written out as the settings
+behind it rather than as a name.
 
 Corpus and model
 ----------------

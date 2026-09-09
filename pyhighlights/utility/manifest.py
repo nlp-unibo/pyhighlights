@@ -13,11 +13,11 @@ them go the versions of the packages that did the computing, since a metric
 that moved between two runs of the same configuration is a version difference
 or nothing at all.
 
-What is deliberately absent: the task's own registration key. A component is
-built as ``component_class(**{**config.values, **build_args})`` and is never
-told which key produced it, so a task cannot record what it does not know. The
-tree below is enough to rebuild the run -- it is every argument the task
-received -- it just cannot be replayed as a single ``Registry.from_key`` call.
+The record also names the key that built the component and the arguments the
+caller overrode, which is what makes a run replayable rather than merely
+readable: the key alone rebuilds the registered defaults, not the run that was
+launched. Both come from cinnamon 2.0.3, which annotates every component it
+builds; a component built by hand has neither, and says so with ``null``.
 """
 
 from __future__ import annotations
@@ -28,11 +28,16 @@ from typing import Any, Dict, Mapping, Sequence
 
 from cinnamon.registry import RegistrationKey, Registry
 
-__all__ = ["PACKAGES", "describe", "resolve", "versions"]
+__all__ = ["ANNOTATIONS", "PACKAGES", "describe", "resolve", "versions"]
 
 #: The packages whose version can change a number. Anything else installed
 #: alongside them is noise in a file somebody has to read.
 PACKAGES = ("pyhighlights", "cinnamon-core", "torch", "lightning")
+
+#: What cinnamon puts on a component it builds. Reported as a record of its
+#: own rather than left among the settings, where it would read as something
+#: the task was configured with.
+ANNOTATIONS = ("registration_key", "build_args")
 
 
 def versions() -> Dict[str, str]:
@@ -80,14 +85,21 @@ def describe(component: Any) -> Dict[str, Any]:
     Private attributes are what the run *built* rather than what it was asked
     for -- an embedding matrix fitted against the training split is among them
     -- and they are no more a setting than the trained weights are.
+
+    ``key`` and ``build_args`` are what cinnamon wrote on the component when it
+    built it, and are ``null`` for a component nobody built through a registry.
     """
     kind = type(component)
+    key = getattr(component, "registration_key", None)
+    build_args = getattr(component, "build_args", None)
     return {
         "component": f"{kind.__module__}.{kind.__qualname__}",
+        "key": None if key is None else str(key),
+        "build_args": None if build_args is None else resolve(build_args),
         "versions": versions(),
         "settings": {
             name: resolve(value)
             for name, value in vars(component).items()
-            if not name.startswith("_")
+            if not name.startswith("_") and name not in ANNOTATIONS
         },
     }
