@@ -48,7 +48,7 @@ Preprocessing
 
 :class:`~pyhighlights.components.preprocessors.Preprocessor` takes the splits a
 loader produced and returns splits of the same shape, so any of them chains
-with any other. Four ship with pyhighlights, and
+with any other. Five ship with pyhighlights, and
 :class:`~pyhighlights.components.preprocessors.Pipeline` runs a list of them in
 order — its steps are registration keys, so a study states its pipeline in a
 configuration instead of in code.
@@ -80,9 +80,21 @@ configuration instead of in code.
    classes and a clear one over two, so folding the classes *before* the vote
    is counted and folding them after give different labels.
 
-None of the four is registered with a default: ``max_length`` and a class
-mapping are study-specific numbers, and inventing one in the library would
-make it look like a recommendation.
+:class:`~pyhighlights.components.preprocessors.ClassWeights`
+   Reads the class frequencies of one split -- ``train`` unless told otherwise
+   -- and returns every row untouched. What it found is in :attr:`weights` and
+   :attr:`counts`, and
+   :class:`~pyhighlights.components.tasks.ClassWeightsTask` is what writes them
+   somewhere they persist. Being a step rather than a calculation inside a task
+   is what makes it run over the split the study trains on, after the filtering
+   and the aggregation that change the frequencies.
+
+:class:`~pyhighlights.components.preprocessors.LengthFilter` and
+:class:`~pyhighlights.components.preprocessors.LabelMapper` ship without a
+registration: ``max_length`` and a class mapping are study-specific numbers, and
+inventing one in the library would make it look like a recommendation. The other
+three are registered, since repairing leakage, reducing annotators and reading a
+split's class frequencies are the same operation whoever asks for them.
 
 Leakage
 -------

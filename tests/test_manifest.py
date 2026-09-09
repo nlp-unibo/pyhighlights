@@ -1,12 +1,14 @@
 """What a run wrote down about itself."""
 
 import json
+from datetime import datetime
 from pathlib import Path
 
 import pytest
 from cinnamon.registry import Registry
 
 import pyhighlights
+from pyhighlights.components import tasks
 from pyhighlights.components.analyzers import MetricsAnalyzer
 from pyhighlights.components.tasks import SPPTask
 from pyhighlights.configurations.keys import GRU_FR, TOY, TOY_TASK
@@ -182,8 +184,21 @@ def test_the_metrics_table_reports_the_newest_run_of_each_task(tmp_path, latest)
         assert list(report["accuracy"]) == [(0.5, 0.0), (0.9, 0.0)]
 
 
-def test_two_runs_inside_one_second_still_get_a_directory_each(tmp_path):
+class FrozenClock:
+    """A clock that never moves, so two runs always start in the same second."""
+
+    @staticmethod
+    def now():
+        return datetime(2026, 1, 1, 12, 0, 0)
+
+
+def test_two_runs_inside_one_second_still_get_a_directory_each(tmp_path, monkeypatch):
     """The stamp is one second wide; the guarantee is not."""
+    # The clock is pinned because a real one produces this collision only by
+    # luck: two runs that straddle a second boundary get two different stamps,
+    # which is correct behaviour and a failing assertion below.
+    monkeypatch.setattr(tasks, "datetime", FrozenClock)
+
     first = SPPTask(loader=TOY, model=GRU_FR, name="quick", save_path=str(tmp_path))
     first.serialize({"runs": []})
     second = SPPTask(loader=TOY, model=GRU_FR, name="quick", save_path=str(tmp_path))

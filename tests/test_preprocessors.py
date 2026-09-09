@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pandas as pd
 import pytest
 from cinnamon.registry import Registry
 
@@ -8,10 +9,12 @@ from pyhighlights.components.leakage import LeakageDetector
 from pyhighlights.components.loaders import HateXplainLoader, HotelLoader
 from pyhighlights.components.preprocessors import (
     AnnotationAggregator,
+    ClassWeights,
     LabelMapper,
     LeakageRemover,
     LengthFilter,
     Pipeline,
+    class_weights,
     remove_leakage,
 )
 from pyhighlights.configurations.keys import (
@@ -198,3 +201,49 @@ def test_label_mapper_rewrites_resolved_labels_and_per_annotator_votes():
         LabelMapper(mapping, column="missing").process(splits)
     with pytest.raises(ValueError, match="at least one entry"):
         LabelMapper({})
+
+
+def test_class_weights_invert_frequency():
+    # Three of one class and one of the other: the rare one costs three times
+    # what the common one does, and the two average to 1.
+    assert class_weights([0, 0, 0, 1]) == pytest.approx([4 / 6, 4 / 2])
+    assert class_weights([0, 1]) == [1.0, 1.0]
+
+
+def test_class_weights_count_the_classes_the_model_has():
+    assert len(class_weights([0, 1, 1], classes=2)) == 2
+    # Absent from the split, so there is no frequency to invert: a weight of
+    # zero or of infinity would both train something the corpus never showed.
+    with pytest.raises(ValueError, match="no examples"):
+        class_weights([0, 1, 1], classes=3)
+
+
+def test_class_weights_refuse_what_is_not_a_class_index():
+    with pytest.raises(ValueError, match="at least one label"):
+        class_weights([])
+    with pytest.raises(ValueError, match="non-negative"):
+        class_weights([0, -1])
+
+
+def test_the_class_weights_step_reads_a_split_and_changes_nothing():
+    splits = {
+        "train": pd.DataFrame({"label": [0, 0, 0, 1], "text": list("abcd")}),
+        "test": pd.DataFrame({"label": [0, 1], "text": list("ef")}),
+    }
+    step = ClassWeights()
+    processed = step.process(splits)
+
+    assert step.weights == pytest.approx([4 / 6, 4 / 2])
+    assert step.counts == {0: 3, 1: 1}
+    for name, frame in splits.items():
+        pd.testing.assert_frame_equal(processed[name], frame)
+
+
+def test_the_class_weights_step_weighs_the_split_it_was_given():
+    splits = {"val": pd.DataFrame({"label": [0, 1, 1, 1]})}
+    step = ClassWeights(split="val")
+    assert step.process(splits)["val"] is splits["val"]
+    assert step.weights == pytest.approx([4 / 2, 4 / 6])
+
+    with pytest.raises(KeyError, match="'train'"):
+        ClassWeights().process(splits)
