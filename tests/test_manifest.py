@@ -65,6 +65,41 @@ def test_describe_states_the_component_and_omits_what_the_run_built():
     assert manifest["versions"] == versions()
 
 
+def test_a_manifest_names_the_key_that_built_the_task_and_the_overrides():
+    """The key alone rebuilds the defaults; the overrides say what was run."""
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+    task = Registry.from_key(TOY_TASK, seeds=[7])
+
+    manifest = describe(task)
+
+    assert manifest["key"] == str(TOY_TASK)
+    assert manifest["build_args"] == {"seeds": [7]}
+    # Reported as a record of the build, not among the settings, where they
+    # would read as something the task was configured with.
+    assert not {"registration_key", "build_args"} & set(manifest["settings"])
+
+
+def test_a_manifest_says_so_when_nobody_built_the_task():
+    """A task constructed directly carries no annotation to report."""
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+
+    manifest = describe(SPPTask(loader=TOY, model=GRU_FR))
+
+    assert manifest["key"] is None
+    assert manifest["build_args"] is None
+
+
+def test_an_overridden_key_is_resolved_like_any_other():
+    """A build arg holding a key is written out as the values behind it."""
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+    task = Registry.from_key(TOY_TASK, model=GRU_FR)
+
+    build_args = describe(task)["build_args"]
+
+    assert build_args["model"]["key"] == str(GRU_FR)
+    assert "selectors" in build_args["model"]
+
+
 def test_a_run_never_overwrites_an_earlier_one(tmp_path):
     """Two runs of one task are two results, not one amended."""
     Registry.build(directory=Path(pyhighlights.__file__).parent)
