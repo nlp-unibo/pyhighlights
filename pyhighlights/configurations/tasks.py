@@ -47,11 +47,11 @@ BINARY_METRICS = [ACCURACY_METRIC, F1_METRIC, *HIGHLIGHT_METRICS]
 class TaskConfig(Configuration):
     """Fields every task shares.
 
-    Every setting a task takes is declared here, so a key records the whole
-    experiment rather than the part of it somebody remembered to register.
-    The exception is what a run *builds*: the embedding matrix a vector file
-    is read into is fitted against the training split at run time, so it
-    reaches the model as a tensor and never as a parameter.
+    Anything decided before a run is declared here, so a key records what was
+    asked for rather than the part of it somebody remembered to register. A
+    value a run computes cannot be declared at all: the embedding matrix a
+    vector file is read into is fitted against the training split at run time,
+    so it reaches the model as a tensor and never as a parameter.
     """
 
     name: str = Param("task")
@@ -71,6 +71,25 @@ class TaskConfig(Configuration):
     highlight_loss: RegistrationKey[Loss] = Param(HIGHLIGHT_LOSS)
     highlight_coefficient: float = Param(1.0, ge=0.0)
     trainer_args: Dict[str, Any] = Param({"accelerator": "cpu", "max_epochs": 5})
+
+    @classmethod
+    def default(cls):
+        config = super().default()
+        # Declared rather than checked in the component: the registry validates
+        # conditions while it expands keys, so a grid that varies the embedding
+        # source drops the impossible combination before anything trains,
+        # instead of raising halfway through the sweep that reaches it.
+        config.add_condition(
+            name="one_embedding_source",
+            description=(
+                "A task embeds its tokens with a pretrained model card or with "
+                "a vector file, never with both."
+            ),
+            condition=lambda task: (
+                task.pretrained_model_card is None or task.embeddings is None
+            ),
+        )
+        return config
 
 
 class ToyTaskConfig(TaskConfig):

@@ -19,14 +19,21 @@ than remembering which loader went with which checkpoint.
 Registered with ``run_method="run"``, so ``cmn-run`` drives the same task from
 the command line.
 
-Every setting a task takes is a parameter of
+Anything decided before a run is a parameter of
 :class:`~pyhighlights.configurations.tasks.TaskConfig` — the monitored metric,
 the patience, the vector file, whether predictions and faithfulness are
-reported. A key therefore records the whole experiment, and two runs whose keys
-agree cannot differ. The kwargs above override a key at build time; they are
-not the only way to set a value. What a configuration may *not* carry is what
-a run builds: the embedding matrix is fitted against the training split at run
-time and reaches the model as a tensor, never as a parameter.
+reported — so a key records what was asked for rather than the part of it
+somebody remembered to register. The kwargs above override a key at build time;
+they are not the only way to set a value. A value a run *computes* cannot be a
+parameter at all: the embedding matrix is fitted against the training split and
+reaches the model as a tensor, and a vocabulary size measured by a tokenizer is
+known only once that split has been read.
+
+Constraints between parameters are declared as cinnamon conditions rather than
+checked in the component, so an invalid combination is rejected while the
+registry expands keys. A task that names both ``pretrained_model_card`` and
+``embeddings`` fails the ``one_embedding_source`` condition, and a grid varying
+the embedding source drops that combination before anything trains.
 
 What a run does
 ---------------
