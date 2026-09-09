@@ -3,7 +3,7 @@
 from typing import Dict, List
 
 from cinnamon.configuration import Configuration, Param
-from cinnamon.registry import register_method
+from cinnamon.registry import register_class
 
 from pyhighlights.components.loaders import (
     BEER_TASKS,
@@ -29,56 +29,50 @@ class R2AConfig(LoaderConfig):
     sha256: str | None = Param(None)
 
 
+@register_class(
+    name="dataset",
+    tags={"beer"},
+    namespace=NAMESPACE,
+    component="pyhighlights.components.loaders.BeerLoader",
+)
 class BeerConfig(R2AConfig):
     """Beer aspects; one variant per aspect."""
 
     # Cinnamon rejects a default that also appears in the variant list.
     task: str = Param(BEER_TASKS[0], variants=list(BEER_TASKS[1:]))
 
-    @classmethod
-    @register_method(
-        name="dataset",
-        tags={"beer"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.loaders.BeerLoader",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="dataset",
+    tags={"hotel"},
+    namespace=NAMESPACE,
+    component="pyhighlights.components.loaders.HotelLoader",
+)
 class HotelConfig(R2AConfig):
     """Hotel aspects; one variant per aspect."""
 
     task: str = Param(HOTEL_TASKS[0], variants=list(HOTEL_TASKS[1:]))
 
-    @classmethod
-    @register_method(
-        name="dataset",
-        tags={"hotel"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.loaders.HotelLoader",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="dataset",
+    tags={"hatexplain"},
+    namespace=NAMESPACE,
+    component="pyhighlights.components.loaders.HateXplainLoader",
+)
 class HateXplainConfig(LoaderConfig):
     """Hate-speech posts, every annotator judgement kept."""
 
     url: str = Param(HateXplainLoader.URL)
     divisions_url: str = Param(HateXplainLoader.DIVISIONS_URL)
 
-    @classmethod
-    @register_method(
-        name="dataset",
-        tags={"hatexplain"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.loaders.HateXplainLoader",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="dataset",
+    tags={"movies"},
+    namespace=NAMESPACE,
+    component="pyhighlights.components.loaders.MoviesLoader",
+)
 class MoviesConfig(LoaderConfig):
     """ERASER movies: evidence spans become highlights."""
 
@@ -87,17 +81,13 @@ class MoviesConfig(LoaderConfig):
     url: str = Param(ERASERLoader.URL)
     sha256: str | None = Param(None)
 
-    @classmethod
-    @register_method(
-        name="dataset",
-        tags={"movies"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.loaders.MoviesLoader",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="dataset",
+    tags={"toy"},
+    namespace=NAMESPACE,
+    component="pyhighlights.components.loaders.ToyLoader",
+)
 class ToyConfig(LoaderConfig):
     """Synthetic corpus for smoke tests and demos; no download."""
 
@@ -106,16 +96,6 @@ class ToyConfig(LoaderConfig):
     length: int = Param(24, ge=1)
     vocabulary_size: int = Param(32, ge=1)
     seed: int = Param(0)
-
-    @classmethod
-    @register_method(
-        name="dataset",
-        tags={"toy"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.loaders.ToyLoader",
-    )
-    def default(cls):
-        return super().default()
 
 
 __all__: List[str] = [

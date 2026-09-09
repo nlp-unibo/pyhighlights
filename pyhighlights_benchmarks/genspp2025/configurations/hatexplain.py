@@ -21,7 +21,7 @@ task is given rather than a URL it fetches::
 from typing import List
 
 from cinnamon.configuration import Configuration, Param
-from cinnamon.registry import RegistrationKey, register_method
+from cinnamon.registry import RegistrationKey, register_class
 
 from pyhighlights.components.models.base import Model
 from pyhighlights.components.models.spp.base import SPPBackbone
@@ -86,39 +86,44 @@ from pyhighlights_benchmarks.genspp2025.configurations.keys import (
 VOCABULARY_SIZE = 2
 
 
+GRU_BACKBONE_COMPONENT = (
+    "pyhighlights.components.models.spp.implementations.GRUBackbone"
+)
+SPP_TASK_COMPONENT = "pyhighlights.components.tasks.SPPTask"
+LOSS_COMPONENT = "pyhighlights.utility.losses.Loss"
+
+
+@register_class(
+    name="preprocessor",
+    tags={"hatexplain", "length"},
+    namespace=NAMESPACE,
+    component="pyhighlights.components.preprocessors.LengthFilter",
+)
 class LengthFilterConfig(Configuration):
     """Posts over thirty tokens are dropped, not truncated."""
 
     max_length: int = Param(30, ge=1)
 
-    @classmethod
-    @register_method(
-        name="preprocessor",
-        tags={"length", "hatexplain"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.preprocessors.LengthFilter",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="preprocessor",
+    tags={"hatexplain", "labels"},
+    namespace=NAMESPACE,
+    component="pyhighlights.components.preprocessors.LabelMapper",
+)
 class LabelMapperConfig(Configuration):
     """``offensive`` becomes ``hatespeech``, before the votes are counted."""
 
     mapping: dict = Param({"offensive": "hatespeech"})
     column: str = Param("annotator_labels")
 
-    @classmethod
-    @register_method(
-        name="preprocessor",
-        tags={"labels", "hatexplain"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.preprocessors.LabelMapper",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="preprocessor",
+    tags={"aggregator", "hatexplain"},
+    namespace=NAMESPACE,
+    component="pyhighlights.components.preprocessors.AnnotationAggregator",
+)
 class AggregatorConfig(Configuration):
     """Two classes left, so three annotators always have a majority."""
 
@@ -126,17 +131,13 @@ class AggregatorConfig(Configuration):
     rationale: str = Param("majority")
     ties: str = Param("drop")
 
-    @classmethod
-    @register_method(
-        name="preprocessor",
-        tags={"aggregator", "hatexplain"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.preprocessors.AnnotationAggregator",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="preprocessor",
+    tags={"hatexplain", "pipeline"},
+    namespace=NAMESPACE,
+    component="pyhighlights.components.preprocessors.Pipeline",
+)
 class HateXplainPipelineConfig(PipelineConfig):
     """Filter, fold, then reduce -- in that order."""
 
@@ -144,77 +145,57 @@ class HateXplainPipelineConfig(PipelineConfig):
         [HATEXPLAIN_LENGTH_FILTER, HATEXPLAIN_LABEL_MAPPER, HATEXPLAIN_AGGREGATOR]
     )
 
-    @classmethod
-    @register_method(
-        name="preprocessor",
-        tags={"pipeline", "hatexplain"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.preprocessors.Pipeline",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="criterion",
+    tags={"hatexplain", "sparsity"},
+    namespace=NAMESPACE,
+    component="pyhighlights.utility.losses.SparsityPenalty",
+)
 class HateXplainSparsityConfig(SparsityPenaltyConfig):
     """A higher selection target than the toy corpus asks for."""
 
     threshold: float = Param(0.22, ge=0.0, le=1.0)
 
-    @classmethod
-    @register_method(
-        name="criterion",
-        tags={"sparsity", "hatexplain"},
-        namespace=NAMESPACE,
-        component="pyhighlights.utility.losses.SparsityPenalty",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="loss",
+    tags={"hatexplain", "sparsity"},
+    namespace=NAMESPACE,
+    component=LOSS_COMPONENT,
+)
 class HateXplainSparsityLossConfig(SparsityLossConfig):
     loss: RegistrationKey = Param(HATEXPLAIN_SPARSITY)
 
-    @classmethod
-    @register_method(
-        name="loss",
-        tags={"sparsity", "hatexplain"},
-        namespace=NAMESPACE,
-        component="pyhighlights.utility.losses.Loss",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="loss",
+    tags={"guide", "hatexplain"},
+    namespace=NAMESPACE,
+    component=LOSS_COMPONENT,
+)
 class HateXplainGuideLossConfig(GuideLossConfig):
     loss: RegistrationKey = Param(MASKED_BCE)
     coefficient: float = Param(2.5, ge=0.0)
 
-    @classmethod
-    @register_method(
-        name="loss",
-        tags={"guide", "hatexplain"},
-        namespace=NAMESPACE,
-        component="pyhighlights.utility.losses.Loss",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="loss",
+    tags={"hatexplain", "jsd"},
+    namespace=NAMESPACE,
+    component=LOSS_COMPONENT,
+)
 class HateXplainJSDLossConfig(JSDLossConfig):
     loss: RegistrationKey = Param(JS_DIV)
     coefficient: float = Param(1.5, ge=0.0)
 
-    @classmethod
-    @register_method(
-        name="loss",
-        tags={"jsd", "hatexplain"},
-        namespace=NAMESPACE,
-        component="pyhighlights.utility.losses.Loss",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="backbone",
+    tags={"hatexplain"},
+    namespace=NAMESPACE,
+    component=GRU_BACKBONE_COMPONENT,
+)
 class HateXplainBackboneConfig(GRUBackboneConfig):
     vocab_size: int = Param(VOCABULARY_SIZE, ge=1)
     embedding_dim: int = Param(25, ge=1)
@@ -222,63 +203,47 @@ class HateXplainBackboneConfig(GRUBackboneConfig):
     freeze_embeddings: bool = Param(True)
     dropout_rate: float = Param(0.0, ge=0.0, lt=1.0)
 
-    @classmethod
-    @register_method(
-        name="backbone",
-        tags={"hatexplain"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.models.spp.implementations.GRUBackbone",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="backbone",
+    tags={"genspp", "hatexplain"},
+    namespace=NAMESPACE,
+    component=GRU_BACKBONE_COMPONENT,
+)
 class HateXplainGenSPPBackboneConfig(HateXplainBackboneConfig):
     bidirectional: bool = Param(False)
 
-    @classmethod
-    @register_method(
-        name="backbone",
-        tags={"hatexplain", "genspp"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.models.spp.implementations.GRUBackbone",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="guider",
+    tags={"hatexplain"},
+    namespace=NAMESPACE,
+    component="pyhighlights.components.models.spp.grat.AttentionGuider",
+)
 class HateXplainGuiderConfig(AttentionGuiderConfig):
     backbone: RegistrationKey[SPPBackbone] = Param(HATEXPLAIN_BACKBONE)
     noise_sigma: float = Param(1.0, ge=0.0)
 
-    @classmethod
-    @register_method(
-        name="guider",
-        tags={"hatexplain"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.models.spp.grat.AttentionGuider",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="model",
+    tags={"fr", "hatexplain"},
+    namespace=NAMESPACE,
+    component="pyhighlights.components.models.spp.fr.FR",
+)
 class HateXplainFRConfig(GRUFRConfig):
     selector_backbones: RegistrationKey[SPPBackbone] = Param(HATEXPLAIN_BACKBONE)
     losses: List[RegistrationKey[Loss]] = Param(
         [CLASSIFICATION_LOSS, HATEXPLAIN_SPARSITY_LOSS]
     )
 
-    @classmethod
-    @register_method(
-        name="model",
-        tags={"fr", "hatexplain"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.models.spp.fr.FR",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="model",
+    tags={"hatexplain", "mgr"},
+    namespace=NAMESPACE,
+    component="pyhighlights.components.models.spp.mgr.MGR",
+)
 class HateXplainMGRConfig(GRUMGRConfig):
     selector_backbones: List[RegistrationKey[SPPBackbone]] = Param(
         [HATEXPLAIN_BACKBONE, HATEXPLAIN_BACKBONE, HATEXPLAIN_BACKBONE]
@@ -288,17 +253,13 @@ class HateXplainMGRConfig(GRUMGRConfig):
         [CLASSIFICATION_LOSS, HATEXPLAIN_SPARSITY_LOSS]
     )
 
-    @classmethod
-    @register_method(
-        name="model",
-        tags={"mgr", "hatexplain"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.models.spp.mgr.MGR",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="model",
+    tags={"hatexplain", "mcd"},
+    namespace=NAMESPACE,
+    component="pyhighlights.components.models.spp.mcd.MCD",
+)
 class HateXplainMCDConfig(GRUMCDConfig):
     selector_backbones: RegistrationKey[SPPBackbone] = Param(HATEXPLAIN_BACKBONE)
     predictor_backbone: RegistrationKey[SPPBackbone] = Param(HATEXPLAIN_BACKBONE)
@@ -308,17 +269,13 @@ class HateXplainMCDConfig(GRUMCDConfig):
     predictor_losses: List[RegistrationKey[Loss]] = Param([FULL_CLASSIFICATION_LOSS])
     generator_losses: List[RegistrationKey[Loss]] = Param([DISCREPANCY_LOSS])
 
-    @classmethod
-    @register_method(
-        name="model",
-        tags={"mcd", "hatexplain"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.models.spp.mcd.MCD",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="model",
+    tags={"grat", "hatexplain"},
+    namespace=NAMESPACE,
+    component="pyhighlights.components.models.spp.grat.GRAT",
+)
 class HateXplainGRATConfig(GRUGRATConfig):
     selector_backbones: RegistrationKey[SPPBackbone] = Param(HATEXPLAIN_BACKBONE)
     predictor_backbone: RegistrationKey[SPPBackbone] = Param(HATEXPLAIN_BACKBONE)
@@ -334,47 +291,29 @@ class HateXplainGRATConfig(GRUGRATConfig):
     guide_decay: float = Param(1e-5, ge=0.0)
     pretrain_epochs: int = Param(10, ge=0)
 
-    @classmethod
-    @register_method(
-        name="model",
-        tags={"grat", "hatexplain"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.models.spp.grat.GRAT",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="model",
+    tags={"genspp", "hatexplain"},
+    namespace=NAMESPACE,
+    component="pyhighlights.components.models.spp.genspp.GenSPP",
+)
 class HateXplainGenSPPConfig(GRUGenSPPConfig):
     selector_backbones: RegistrationKey[SPPBackbone] = Param(HATEXPLAIN_GENSPP_BACKBONE)
     predictor_backbone: RegistrationKey[SPPBackbone] = Param(HATEXPLAIN_GENSPP_BACKBONE)
 
-    @classmethod
-    @register_method(
-        name="model",
-        tags={"genspp", "hatexplain"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.models.spp.genspp.GenSPP",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="trainer",
+    tags={"genspp", "hatexplain"},
+    namespace=NAMESPACE,
+    component="pyhighlights.components.models.spp.genspp.GenSPPTrainer",
+)
 class HateXplainGenSPPTrainerConfig(GRUGenSPPTrainerConfig):
     """A looser expected cross entropy than the toy corpus: 0.6 against 0.1."""
 
     model: RegistrationKey[GenSPP] = Param(HATEXPLAIN_GENSPP)
     task_loss_limit: float = Param(0.6, ge=0.0)
-
-    @classmethod
-    @register_method(
-        name="trainer",
-        tags={"genspp", "hatexplain"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.models.spp.genspp.GenSPPTrainer",
-    )
-    def default(cls):
-        return super().default()
 
 
 class HateXplainTaskConfig(PaperTaskConfig):
@@ -387,70 +326,61 @@ class HateXplainTaskConfig(PaperTaskConfig):
     vocabulary_size: int = Param(VOCABULARY_SIZE, ge=2)
 
 
+@register_class(
+    name="task",
+    tags={"fr", "hatexplain"},
+    namespace=NAMESPACE,
+    component=SPP_TASK_COMPONENT,
+    run_method="run",
+)
 class HateXplainFRTaskConfig(HateXplainTaskConfig):
     name: str = Param("hatexplain-fr")
     model: RegistrationKey[Model] = Param(HATEXPLAIN_FR)
 
-    @classmethod
-    @register_method(
-        name="task",
-        tags={"fr", "hatexplain"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.tasks.SPPTask",
-        run_method="run",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="task",
+    tags={"hatexplain", "mgr"},
+    namespace=NAMESPACE,
+    component=SPP_TASK_COMPONENT,
+    run_method="run",
+)
 class HateXplainMGRTaskConfig(HateXplainTaskConfig):
     name: str = Param("hatexplain-mgr")
     model: RegistrationKey[Model] = Param(HATEXPLAIN_MGR)
 
-    @classmethod
-    @register_method(
-        name="task",
-        tags={"mgr", "hatexplain"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.tasks.SPPTask",
-        run_method="run",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="task",
+    tags={"hatexplain", "mcd"},
+    namespace=NAMESPACE,
+    component=SPP_TASK_COMPONENT,
+    run_method="run",
+)
 class HateXplainMCDTaskConfig(HateXplainTaskConfig):
     name: str = Param("hatexplain-mcd")
     model: RegistrationKey[Model] = Param(HATEXPLAIN_MCD)
 
-    @classmethod
-    @register_method(
-        name="task",
-        tags={"mcd", "hatexplain"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.tasks.SPPTask",
-        run_method="run",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="task",
+    tags={"grat", "hatexplain"},
+    namespace=NAMESPACE,
+    component=SPP_TASK_COMPONENT,
+    run_method="run",
+)
 class HateXplainGRATTaskConfig(HateXplainTaskConfig):
     name: str = Param("hatexplain-grat")
     model: RegistrationKey[Model] = Param(HATEXPLAIN_GRAT)
 
-    @classmethod
-    @register_method(
-        name="task",
-        tags={"grat", "hatexplain"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.tasks.SPPTask",
-        run_method="run",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="task",
+    tags={"genspp", "hatexplain"},
+    namespace=NAMESPACE,
+    component="pyhighlights.components.tasks.GenSPPTask",
+    run_method="run",
+)
 class HateXplainGenSPPTaskConfig(PaperGenSPPTaskConfig):
     name: str = Param("hatexplain-genspp")
     loader: RegistrationKey = Param(HATEXPLAIN)
@@ -460,18 +390,14 @@ class HateXplainGenSPPTaskConfig(PaperGenSPPTaskConfig):
     pretrained_tokens_only: bool = Param(True)
     vocabulary_size: int = Param(VOCABULARY_SIZE, ge=2)
 
-    @classmethod
-    @register_method(
-        name="task",
-        tags={"genspp", "hatexplain"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.tasks.GenSPPTask",
-        run_method="run",
-    )
-    def default(cls):
-        return super().default()
 
-
+@register_class(
+    name="benchmark",
+    tags={"hatexplain"},
+    namespace=NAMESPACE,
+    component="pyhighlights.components.benchmarks.Benchmark",
+    run_method="run",
+)
 class HateXplainBenchmarkConfig(BenchmarkConfig):
     """The paper's real-world table: five models, one corpus."""
 
@@ -485,17 +411,6 @@ class HateXplainBenchmarkConfig(BenchmarkConfig):
             HATEXPLAIN_GENSPP_TASK,
         ]
     )
-
-    @classmethod
-    @register_method(
-        name="benchmark",
-        tags={"hatexplain"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.benchmarks.Benchmark",
-        run_method="run",
-    )
-    def default(cls):
-        return super().default()
 
 
 __all__ = ["VOCABULARY_SIZE"]

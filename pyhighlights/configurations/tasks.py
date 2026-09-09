@@ -9,7 +9,7 @@ since a token is either selected or it is not.
 from typing import Any, Dict, List, Sequence
 
 from cinnamon.configuration import Configuration, Param
-from cinnamon.registry import RegistrationKey, register_method
+from cinnamon.registry import RegistrationKey, register_class
 
 from pyhighlights.components.loaders import HighlightLoader
 from pyhighlights.components.models.base import Model
@@ -93,6 +93,13 @@ class TaskConfig(Configuration):
         return config
 
 
+@register_class(
+    name="task",
+    tags={"toy"},
+    namespace=NAMESPACE,
+    component="pyhighlights.components.tasks.SPPTask",
+    run_method="run",
+)
 class ToyTaskConfig(TaskConfig):
     """The synthetic corpus against FR: a smoke test that trains in seconds."""
 
@@ -105,17 +112,6 @@ class ToyTaskConfig(TaskConfig):
     test_metrics: List[RegistrationKey[BoundMetric]] = Param(BINARY_METRICS)
     batch_size: int = Param(8, ge=1)
     trainer_args: Dict[str, Any] = Param({"accelerator": "cpu", "max_epochs": 2})
-
-    @classmethod
-    @register_method(
-        name="task",
-        tags={"toy"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.tasks.SPPTask",
-        run_method="run",
-    )
-    def default(cls):
-        return super().default()
 
 
 class ClassWeightsTaskConfig(Configuration):
@@ -135,21 +131,17 @@ class ClassWeightsTaskConfig(Configuration):
     save_path: str | None = Param(None)
 
 
+@register_class(
+    name="task",
+    tags={"class_weights", "toy"},
+    namespace=NAMESPACE,
+    component="pyhighlights.components.tasks.ClassWeightsTask",
+    run_method="run",
+)
 class ToyClassWeightsTaskConfig(ClassWeightsTaskConfig):
     """The synthetic corpus, weighed: the end-to-end check of the above."""
 
     name: str = Param("toy-class-weights")
-
-    @classmethod
-    @register_method(
-        name="task",
-        tags={"class_weights", "toy"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.tasks.ClassWeightsTask",
-        run_method="run",
-    )
-    def default(cls):
-        return super().default()
 
 
 class GenSPPTaskConfig(TaskConfig):
@@ -169,23 +161,19 @@ class GenSPPTaskConfig(TaskConfig):
     test_metrics: List[RegistrationKey[BoundMetric]] = Param(BINARY_METRICS)
 
 
+@register_class(
+    name="task",
+    tags={"genspp", "toy"},
+    namespace=NAMESPACE,
+    component="pyhighlights.components.tasks.GenSPPTask",
+    run_method="run",
+)
 class ToyGenSPPTaskConfig(GenSPPTaskConfig):
     """The synthetic corpus against GenSPP, searched two candidates wide."""
 
     name: str = Param("toy-genspp")
     batch_size: int = Param(8, ge=1)
     trainer_args: Dict[str, Any] = Param({"accelerator": "cpu"})
-
-    @classmethod
-    @register_method(
-        name="task",
-        tags={"genspp", "toy"},
-        namespace=NAMESPACE,
-        component="pyhighlights.components.tasks.GenSPPTask",
-        run_method="run",
-    )
-    def default(cls):
-        return super().default()
 
 
 __all__: List[str] = [

@@ -4,6 +4,9 @@ author = "Federico Ruggeri"
 
 extensions = [
     "sphinx.ext.autodoc",
+    # cinnamon documents its API in Google style, and these pages render
+    # cinnamon symbols imported into the configuration modules.
+    "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
     "sphinx_autodoc_typehints",
 ]
