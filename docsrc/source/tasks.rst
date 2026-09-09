@@ -404,6 +404,13 @@ analyzer serves a notebook, a test and a LaTeX table.
    mask per head; the analysis reads the head its aggregator keeps, which is
    the one every reported metric scored.
 
+   ``absolute`` asks the other question. A model keying on the first three
+   words of every document does that regardless of how long the document is,
+   and a share hides it — in the first bin of a short document, and in the
+   first tenth of a long one. Columns then cover the first ``bins`` words, and
+   a selection past them counts in the total without a column of its own, so
+   the shares sum to less than one by however much the tail holds.
+
 :class:`~pyhighlights.components.analyzers.PredictionAnalyzer`
    What the selector kept, in words, one row per sample: the gold label and
    the predicted one, the words the run selected, and the rationale they spell
@@ -422,6 +429,34 @@ analyzer serves a notebook, a test and a LaTeX table.
 
    This one resolves keys, so the registry has to be built before it runs —
    inside a cinnamon script it already is.
+
+:class:`~pyhighlights.components.analyzers.LabelStudioExporter`
+   The same rows, written where a domain expert can read them: one Label
+   Studio file per run, pre-annotated with the words the model selected, so
+   judging a highlight is a review rather than a fresh annotation. A corpus
+   with no highlight annotation is exactly the case this is for — there is no
+   F1 to report, and what the highlights are worth is a question for somebody
+   who knows the domain.
+
+   ``only`` narrows the export to samples of one gold label, which a corpus
+   annotated for a rare class needs: the negatives are most of it and the
+   interesting highlights are all on the positives. ``labels`` names the span
+   label the file carries, and
+   :func:`~pyhighlights.components.analyzers.label_studio` does the conversion
+   on any frame carrying the columns
+   :class:`~pyhighlights.components.analyzers.PredictionAnalyzer` reports.
+
+   One ``label-studio-seed=<seed>.json`` per seed, beside the predictions it
+   came from. A run's seeds are separate predictions of the same samples, so
+   one merged file would show each sentence once per seed with different words
+   marked, which is not a thing to read. Nothing to export writes no file
+   rather than an empty one.
+
+The ``run`` column of both prediction analyzers is a path under the directory
+they were pointed at — ``fr/2026-09-09T16-13-00`` rather than
+``2026-09-09T16-13-00`` — because a benchmark writes ``<name>/<started>`` per
+task, and two tasks that started inside the same second would otherwise report
+themselves as the same run.
 
 None of them is interactive and none plots. An analyzer that asks which folder
 you meant cannot run unattended, and a figure is a presentation choice that

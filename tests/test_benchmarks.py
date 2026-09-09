@@ -8,9 +8,12 @@ from cinnamon.registry import Registry
 import pyhighlights
 from pyhighlights.components.analyzers import (
     HighlightPositionAnalyzer,
+    LabelStudioExporter,
     MetricsAnalyzer,
     PredictionAnalyzer,
+    label_studio,
     latex_table,
+    offsets,
 )
 from pyhighlights.components.benchmarks import Benchmark
 from pyhighlights.components.tasks import Task
@@ -407,3 +410,147 @@ def test_a_padded_position_is_nobody_s_word(tmp_path):
 
     assert row.selected == []
     assert row.rationale == ""
+
+
+def test_offsets_span_the_text_the_tokens_join_into():
+    """Label Studio addresses a span by character offset, not by word."""
+    tokens = ["ab", "c", "def"]
+
+    spans = offsets(tokens)
+
+    text = " ".join(tokens)
+    assert spans == [(0, 2), (3, 4), (5, 8)]
+    assert [text[start:end] for start, end in spans] == tokens
+
+
+def test_label_studio_marks_every_selected_word_in_the_text():
+    frame = pd.DataFrame(
+        [
+            {
+                "sample_id": 7,
+                "label": 1,
+                "predicted": 1,
+                "tokens": ["you", "waive", "your", "rights"],
+                "selected": [1, 3],
+            }
+        ]
+    )
+
+    (task,) = label_studio(frame, model_version="fr", labels=("unfair",))
+
+    assert task["data"]["text"] == "you waive your rights"
+    assert task["data"]["label"] == 1
+    prediction = task["predictions"][0]
+    assert prediction["model_version"] == "fr"
+    spans = prediction["result"]
+    assert [span["value"]["text"] for span in spans] == ["waive", "rights"]
+    assert [span["value"]["labels"] for span in spans] == [["unfair"], ["unfair"]]
+    # The offsets have to name those words in the text the file shows.
+    for span in spans:
+        value = span["value"]
+        assert task["data"]["text"][value["start"] : value["end"]] == value["text"]
+    assert [span["id"] for span in spans] == ["7_1", "7_3"]
+
+
+def test_the_exporter_writes_one_file_per_seed(tmp_path):
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+    sample_id = int(Registry.from_key(TOY).load()["test"]["sample_id"].iloc[0])
+    run = write_run(
+        tmp_path,
+        {
+            "word_ids": [[0, 1]],
+            "mask": [[1.0, 1.0]],
+            "highlight_mask": [[1.0, 0.0]],
+            "class_logits": [[0.1, 0.9]],
+            "sample_ids": [sample_id],
+        },
+    )
+
+    exporter = LabelStudioExporter(directory=tmp_path, labels=("unfair",))
+    (path,) = exporter.export()
+
+    # Named for the seed, beside the predictions it came from.
+    assert path == run / "label-studio-seed=7.json"
+    (task,) = json.loads(path.read_text())
+    assert task["data"]["sample_id"] == sample_id
+    assert task["predictions"][0]["result"][0]["value"]["labels"] == ["unfair"]
+
+
+def test_the_exporter_can_narrow_to_one_gold_label(tmp_path):
+    """A corpus that is 97% negative has its interesting highlights on 3%."""
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+    corpus = Registry.from_key(TOY).load()["test"]
+    sample_id = int(corpus["sample_id"].iloc[0])
+    label = int(corpus["label"].iloc[0])
+    write_run(
+        tmp_path,
+        {
+            "word_ids": [[0, 1]],
+            "mask": [[1.0, 1.0]],
+            "highlight_mask": [[1.0, 0.0]],
+            "class_logits": [[0.1, 0.9]],
+            "sample_ids": [sample_id],
+        },
+    )
+
+    assert not LabelStudioExporter(directory=tmp_path, only=label).analyze().empty
+    assert LabelStudioExporter(directory=tmp_path, only=1 - label).analyze().empty
+    # Nothing to export is no file, not an empty one.
+    assert LabelStudioExporter(directory=tmp_path, only=1 - label).export() == {}
+
+
+def test_absolute_positions_answer_a_different_question(tmp_path):
+    """A model keying on the first word does so at any document length."""
+    run = tmp_path / "2026-01-01T00-00-00"
+    run.mkdir()
+    batch = {
+        # Both documents select their opening word; one is twice as long.
+        "highlight_mask": [[1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]],
+        "mask": [[1.0, 1.0, 0.0, 0.0], [1.0, 1.0, 1.0, 1.0]],
+    }
+    pd.to_pickle([batch], run / "predictions-seed=0.pkl")
+
+    shares = HighlightPositionAnalyzer(directory=tmp_path, bins=4).analyze()
+    words = HighlightPositionAnalyzer(
+        directory=tmp_path, bins=4, absolute=True
+    ).analyze()
+
+    # As a share of the document the two land in different bins, because the
+    # documents are different lengths.
+    assert shares.loc[0, "bin_0"] == pytest.approx(1.0)
+    assert list(words.columns[4:]) == [
+        "position_0",
+        "position_1",
+        "position_2",
+        "position_3",
+    ]
+    assert words.loc[0, "position_0"] == pytest.approx(1.0)
+    assert words.loc[0, "position_1"] == 0.0
+
+
+def test_a_run_is_named_by_where_it_sits_not_by_its_stamp(tmp_path):
+    """A benchmark writes ``<name>/<started>``, and stamps can coincide."""
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+    sample_id = int(Registry.from_key(TOY).load()["test"]["sample_id"].iloc[0])
+    batch = {
+        "word_ids": [[0, 1]],
+        "mask": [[1.0, 1.0]],
+        "highlight_mask": [[1.0, 0.0]],
+        "class_logits": [[0.1, 0.9]],
+        "sample_ids": [sample_id],
+    }
+    for task in ("fr", "mgr"):
+        write_run(tmp_path / task, batch)
+
+    report = PredictionAnalyzer(directory=tmp_path).analyze()
+
+    # Two tasks that started in the same second are still two runs.
+    assert sorted(report["run"]) == [
+        "fr/2026-01-01T00-00-00",
+        "mgr/2026-01-01T00-00-00",
+    ]
+    # And each file is written under the run it belongs to, not under the stamp.
+    assert sorted(LabelStudioExporter(directory=tmp_path).export()) == [
+        tmp_path / task / "2026-01-01T00-00-00" / "label-studio-seed=7.json"
+        for task in ("fr", "mgr")
+    ]
