@@ -50,6 +50,11 @@ class InputData(ModelData):
     sample_ids: th.Tensor
     y_true: th.Tensor
     highlight_true: th.Tensor
+    #: Which source word each position came from, ``-1`` where none did. No
+    #: model reads it: it is what turns a selection over subtokens back into a
+    #: selection over words, which is the only form a person can read. Optional
+    #: because a batch assembled by hand has no words behind it.
+    word_ids: th.Tensor | None = None
 
 
 @dataclass

@@ -5,6 +5,7 @@ from typing import List, Sequence
 from cinnamon.configuration import Configuration, Param
 from cinnamon.registry import RegistrationKey, register_method
 
+from pyhighlights.components.analyzers import PREDICTIONS
 from pyhighlights.components.tasks import Task
 from pyhighlights.configurations.keys import NAMESPACE, TOY_TASK
 
@@ -59,7 +60,7 @@ class HighlightPositionAnalyzerConfig(Configuration):
     """Where in the document the selector looked."""
 
     directory: str | None = Param(None)
-    filename: str = Param("predictions.pkl")
+    pattern: str = Param(PREDICTIONS)
     bins: int = Param(10, ge=1)
 
     @classmethod
@@ -74,9 +75,29 @@ class HighlightPositionAnalyzerConfig(Configuration):
         return super().default()
 
 
+class PredictionAnalyzerConfig(Configuration):
+    """What the selector kept, in words, one row per sample."""
+
+    directory: str | None = Param(None)
+    pattern: str = Param(PREDICTIONS)
+    split: str = Param("test")
+
+    @classmethod
+    @register_method(
+        name="analyzer",
+        tags={"prediction"},
+        namespace=NAMESPACE,
+        component="pyhighlights.components.analyzers.PredictionAnalyzer",
+        run_method="run",
+    )
+    def default(cls):
+        return super().default()
+
+
 __all__: List[str] = [
     "BenchmarkConfig",
     "HighlightPositionAnalyzerConfig",
     "MetricsAnalyzerConfig",
+    "PredictionAnalyzerConfig",
     "ToyBenchmarkConfig",
 ]

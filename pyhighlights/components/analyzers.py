@@ -21,14 +21,41 @@ from typing import Any, Dict, List, Sequence
 
 import numpy as np
 import pandas as pd
+from cinnamon.registry import RegistrationKey, Registry
+
+from pyhighlights.components.loaders import HighlightLoader
+from pyhighlights.components.preprocessors import Preprocessor
+
+#: The predictions one seed left behind. A glob rather than a name: a run
+#: stores one file per seed, and every analyzer here reads all of them.
+PREDICTIONS = "predictions-seed=*.pkl"
 
 __all__ = [
     "Analyzer",
     "HighlightPositionAnalyzer",
     "MetricsAnalyzer",
+    "PREDICTIONS",
+    "PredictionAnalyzer",
     "escape",
     "latex_table",
+    "reported_head",
+    "seed_of",
 ]
+
+
+def seed_of(path: Path) -> str:
+    """The seed in ``predictions-seed=42.pkl``, or ``"?"`` if it says none."""
+    _, _, seed = path.stem.partition("seed=")
+    return seed or "?"
+
+
+def reported_head(masks: np.ndarray) -> np.ndarray:
+    """The head a model with several selectors is scored on.
+
+    The reported metrics score the head the aggregator keeps, so every analysis
+    reads that one rather than a mixture of heads nothing else reports on.
+    """
+    return masks[:, 0] if masks.ndim == 3 else masks
 
 
 def escape(value: Any) -> str:
@@ -176,29 +203,23 @@ class HighlightPositionAnalyzer(Analyzer):
     def __init__(
         self,
         directory: str | Path | None = None,
-        filename: str = "predictions.pkl",
+        pattern: str = PREDICTIONS,
         bins: int = 10,
     ):
         super().__init__(directory)
         if bins < 1:
             raise ValueError("bins must be positive")
-        self.filename = filename
+        self.pattern = pattern
         self.bins = bins
 
     def analyze(self) -> pd.DataFrame:
         rows = []
-        for path in sorted(self.directory.rglob(self.filename)):
+        for path in sorted(self.directory.rglob(self.pattern)):
             positions: Counter = Counter()
             selected = kept = tokens = 0
             for batch in pd.read_pickle(path):
-                masks = np.asarray(batch["highlight_mask"])
+                masks = reported_head(np.asarray(batch["highlight_mask"]))
                 valid = np.asarray(batch["mask"])
-                if masks.ndim == 3:
-                    # A model with several selectors stores one mask per head.
-                    # The reported metrics score the head the aggregator keeps,
-                    # so the analysis reads that one rather than a mixture of
-                    # heads nothing else reports on.
-                    masks = masks[:, 0]
                 for highlights, length_mask in zip(masks, valid):
                     length = int(length_mask.sum())
                     if not length:
@@ -213,6 +234,7 @@ class HighlightPositionAnalyzer(Analyzer):
 
             row: Dict[str, Any] = {
                 "run": path.parent.name,
+                "seed": seed_of(path),
                 "samples": kept,
                 "selection_rate": selected / tokens if tokens else 0.0,
             }
@@ -220,5 +242,115 @@ class HighlightPositionAnalyzer(Analyzer):
             for index in range(self.bins):
                 row[f"bin_{index}"] = positions[index] / total if total else 0.0
             rows.append(row)
+
+        return pd.DataFrame(rows)
+
+
+class PredictionAnalyzer(Analyzer):
+    """What the model selected, in words, one row per sample.
+
+    A stored prediction is token ids and masks: enough to score, unreadable on
+    its own. This joins it back to the corpus it came from, so a row says which
+    words the selector kept and what the predictor made of them.
+
+    The corpus is not stored beside the predictions -- it would be stored once
+    per run and per seed -- so it is reloaded. The run's ``manifest.json`` names
+    the loader and the preprocessor that produced it, and those keys are what
+    get built here: a corpus loaded from anywhere else is a different corpus.
+
+    Selections are folded from token positions back to words through the
+    ``word_ids`` the batch carries, so a subword model reports words like every
+    other. A word counts as selected when any of its subtokens was.
+
+    A task builds its loader and its preprocessor from their keys alone, with
+    no overrides, so rebuilding those keys rebuilds exactly the corpus the run
+    trained against -- an override changes *which* key a task holds, and that
+    key is the one the manifest wrote down.
+
+    The registry has to be built before this runs, since it resolves the keys
+    the manifest names. Inside a cinnamon script it already is.
+    """
+
+    def __init__(
+        self,
+        directory: str | Path | None = None,
+        pattern: str = PREDICTIONS,
+        split: str = "test",
+    ):
+        super().__init__(directory)
+        self.pattern = pattern
+        self.split = split
+
+    def corpus(self, run: Path) -> Dict[int, pd.Series]:
+        """The split these predictions were made on, keyed by sample id."""
+        settings = json.loads((run / "manifest.json").read_text())["settings"]
+        splits = Registry.from_key(
+            RegistrationKey.parse(registration_key=settings["loader"]["key"]),
+            expected_type=HighlightLoader,
+        ).load()
+        preprocessor = settings.get("preprocessor")
+        if preprocessor is not None:
+            splits = Registry.from_key(
+                RegistrationKey.parse(registration_key=preprocessor["key"]),
+                expected_type=Preprocessor,
+            ).process(splits)
+        frame = splits[self.split]
+        return {int(row.sample_id): row for row in frame.itertuples(index=False)}
+
+    def analyze(self) -> pd.DataFrame:
+        rows = []
+        # One corpus per run rather than per seed: every seed of a run was
+        # trained on the same split, and loading it again per file is the whole
+        # cost of the analysis repeated.
+        corpora: Dict[Path, Dict[int, Any]] = {}
+        for path in sorted(self.directory.rglob(self.pattern)):
+            run = path.parent
+            if run not in corpora:
+                corpora[run] = self.corpus(run)
+            examples = corpora[run]
+            for batch in pd.read_pickle(path):
+                masks = reported_head(np.asarray(batch["highlight_mask"]))
+                word_ids = np.asarray(batch["word_ids"])
+                valid = np.asarray(batch["mask"]) > 0
+                predicted = np.asarray(batch["class_logits"])
+                if predicted.ndim == 3:
+                    predicted = reported_head(predicted)
+                predicted = predicted.argmax(-1)
+
+                for index, sample_id in enumerate(batch["sample_ids"]):
+                    example = examples.get(int(sample_id))
+                    if example is None:
+                        # A corpus that no longer holds the sample is a corpus
+                        # that changed under the run. Reporting the rest of the
+                        # split is more use than refusing all of it.
+                        continue
+                    tokens = list(example.tokens)
+                    words = word_ids[index][valid[index] & (masks[index] > 0)]
+                    if words.size and words.max() >= len(tokens):
+                        # The corpus places this sample's words differently
+                        # than the run did. Folding the selection against it
+                        # anyway would print a rationale nothing selected.
+                        continue
+                    # A padded position belongs to no word and says ``-1``.
+                    selected = sorted({int(word) for word in words if word >= 0})
+                    rows.append(
+                        {
+                            "run": path.parent.name,
+                            "seed": seed_of(path),
+                            "sample_id": int(sample_id),
+                            "label": int(example.label),
+                            "predicted": int(predicted[index]),
+                            "tokens": tokens,
+                            "selected": selected,
+                            "rationale": " ".join(tokens[word] for word in selected),
+                            "highlights": None
+                            if example.highlights is None
+                            else [
+                                word
+                                for word, marked in enumerate(example.highlights)
+                                if marked
+                            ],
+                        }
+                    )
 
         return pd.DataFrame(rows)

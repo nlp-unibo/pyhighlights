@@ -84,6 +84,8 @@ def evaluate(model: Model, loader: DataLoader) -> Dict[str, float]:
                 batch = type(batch)(
                     **{
                         name: value.to(model.device)
+                        if isinstance(value, th.Tensor)
+                        else value
                         for name, value in batch.as_dict().items()
                     }
                 )
