@@ -33,7 +33,7 @@ class BeerConfig(R2AConfig):
     """Beer aspects; one variant per aspect."""
 
     # Cinnamon rejects a default that also appears in the variant list.
-    task: str = Param(BEER_TASKS[0], variants=[task for task in BEER_TASKS[1:]])
+    task: str = Param(BEER_TASKS[0], variants=list(BEER_TASKS[1:]))
 
     @classmethod
     @register_method(
@@ -49,7 +49,7 @@ class BeerConfig(R2AConfig):
 class HotelConfig(R2AConfig):
     """Hotel aspects; one variant per aspect."""
 
-    task: str = Param(HOTEL_TASKS[0], variants=[task for task in HOTEL_TASKS[1:]])
+    task: str = Param(HOTEL_TASKS[0], variants=list(HOTEL_TASKS[1:]))
 
     @classmethod
     @register_method(
