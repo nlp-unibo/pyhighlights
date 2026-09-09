@@ -62,6 +62,7 @@ class HighlightPositionAnalyzerConfig(Configuration):
     directory: str | None = Param(None)
     pattern: str = Param(PREDICTIONS)
     bins: int = Param(10, ge=1)
+    absolute: bool = Param(False)
 
     @classmethod
     @register_method(
@@ -94,8 +95,29 @@ class PredictionAnalyzerConfig(Configuration):
         return super().default()
 
 
+class LabelStudioExporterConfig(PredictionAnalyzerConfig):
+    """Predicted highlights, written where a domain expert can read them."""
+
+    model_version: str = Param("pyhighlights")
+    labels: Sequence[str] = Param(["highlight"])
+    only: int | None = Param(None)
+    stem: str = Param("label-studio")
+
+    @classmethod
+    @register_method(
+        name="analyzer",
+        tags={"label-studio"},
+        namespace=NAMESPACE,
+        component="pyhighlights.components.analyzers.LabelStudioExporter",
+        run_method="run",
+    )
+    def default(cls):
+        return super().default()
+
+
 __all__: List[str] = [
     "BenchmarkConfig",
+    "LabelStudioExporterConfig",
     "HighlightPositionAnalyzerConfig",
     "MetricsAnalyzerConfig",
     "PredictionAnalyzerConfig",
