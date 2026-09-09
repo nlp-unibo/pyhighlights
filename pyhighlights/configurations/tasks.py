@@ -21,12 +21,14 @@ from pyhighlights.configurations.keys import (
     GRU_FR,
     HIGHLIGHT_F1_METRIC,
     HIGHLIGHT_IOU_METRIC,
+    HIGHLIGHT_LOSS,
     NAMESPACE,
     SELECTION_RATE_METRIC,
     SELECTION_SIZE_METRIC,
     TOY,
     TOY_GENSPP_TRAINER,
 )
+from pyhighlights.utility.losses import Loss
 from pyhighlights.utility.metrics import BoundMetric
 
 #: What every select-then-predict run reports, whatever the corpus: how much
@@ -50,6 +52,9 @@ class TaskConfig(Configuration):
     seeds: Sequence[int] = Param([42])
     batch_size: int = Param(32, ge=1)
     max_length: int | None = Param(None)
+    highlight_supervision: bool = Param(False)
+    highlight_loss: RegistrationKey[Loss] = Param(HIGHLIGHT_LOSS)
+    highlight_coefficient: float = Param(1.0, ge=0.0)
     trainer_args: Dict[str, Any] = Param({"accelerator": "cpu", "max_epochs": 5})
 
 
