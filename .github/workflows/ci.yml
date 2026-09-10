@@ -42,7 +42,9 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
       - run: pip install -e ".[dev]"
-      - run: pytest --cov=pyhighlights --cov-branch --cov-fail-under=75 --cov-report=term-missing
+      # `-n auto` is the runner's core count, which is inside the cap the
+      # noxfile applies locally. The suite is 153 short, independent tests.
+      - run: pytest -n auto --cov=pyhighlights --cov-branch --cov-fail-under=75 --cov-report=term-missing
 
   transformers:
     name: Transformers extra
