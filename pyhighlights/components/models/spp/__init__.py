@@ -18,6 +18,7 @@ from pyhighlights.components.models.spp.implementations import (
     GRUBackbone,
     MLPPredictor,
     MLPSelector,
+    StackedBackbone,
     TransformerBackbone,
 )
 from pyhighlights.components.models.spp.mcd import MCD
@@ -32,6 +33,7 @@ __all__ = [
     "GRATGuider",
     "GRATGuiderOutput",
     "GRUBackbone",
+    "StackedBackbone",
     "MCD",
     "MGR",
     "MLPPredictor",
