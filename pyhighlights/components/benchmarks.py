@@ -39,6 +39,7 @@ class Benchmark:
         name: str = "benchmark",
         save_path: str | Path | None = None,
         strict: bool = False,
+        task_args: Mapping[str, Any] | None = None,
     ):
         if not tasks:
             raise ValueError("a benchmark needs at least one task")
@@ -46,6 +47,13 @@ class Benchmark:
         self.name = name
         self.save_path = Path(save_path) if save_path is not None else Path("results")
         self.strict = strict
+        # Given to every task the benchmark builds. What it is for is running
+        # a grid differently without registering a second one: one batch and
+        # one seed to check that every cell holds together, or a smaller batch
+        # for a card that cannot fit the registered one. Each task's manifest
+        # records what it was built with, so a run overridden this way says so
+        # rather than looking like the registered configuration.
+        self.task_args = dict(task_args or {})
 
     @property
     def directory(self) -> Path:
@@ -53,7 +61,11 @@ class Benchmark:
 
     def build(self, key: RegistrationKey[Task]) -> Task:
         """The task, told to save inside the benchmark's own directory."""
-        return Registry.from_key(key, expected_type=Task, save_path=str(self.directory))
+        return Registry.from_key(
+            key,
+            expected_type=Task,
+            **{"save_path": str(self.directory), **self.task_args},
+        )
 
     def run(self) -> Dict[str, Any]:
         results: List[Dict[str, Any]] = []
