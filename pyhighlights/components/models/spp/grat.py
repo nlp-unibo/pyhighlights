@@ -25,8 +25,16 @@ class GRATGuiderOutput:
 
 class GRATGuider(th.nn.Module, abc.ABC):
     @abc.abstractmethod
-    def forward(self, data: InputData) -> GRATGuiderOutput:
-        """Return normalized token attention [B, T] and logits [B, C]."""
+    def forward(
+        self, data: InputData, mask: th.Tensor | None = None
+    ) -> GRATGuiderOutput:
+        """Return normalized token attention [B, T] and logits [B, C].
+
+        ``mask`` is what the guider's encoder attends over, ``data.mask`` when
+        the caller says nothing. G-RAT passes the subtoken axis, which is the
+        only one a subword backbone can encode; the attention is then folded
+        back onto the selection axis by whoever asked for it.
+        """
 
 
 class AttentionGuider(GRATGuider):
@@ -50,9 +58,16 @@ class AttentionGuider(GRATGuider):
         )
         self.noise_sigma = noise_sigma
 
-    def forward(self, data: InputData) -> GRATGuiderOutput:
-        valid = data.mask.bool()
-        states = self.backbone.encode(data.features, data.mask)
+    def forward(
+        self, data: InputData, mask: th.Tensor | None = None
+    ) -> GRATGuiderOutput:
+        # The encoder's own axis, subtokens included: `mask` is the word axis,
+        # which is narrower than `features` whenever a backbone tokenizes into
+        # subwords, and encoding against it is a crash. G-RAT passes the axis
+        # its own encoders read and folds the attention that comes back.
+        attends = data.mask if mask is None else mask
+        valid = attends.bool()
+        states = self.backbone.encode(data.features, attends)
         scores = self.attention(states).squeeze(-1)
         if self.training and self.noise_sigma:
             scores = scores + th.randn_like(scores).abs() * self.noise_sigma
@@ -137,6 +152,17 @@ class GRAT(SPP):
             ),
         )
 
+    def to_selection_axis(self, attention: th.Tensor, data: InputData) -> th.Tensor:
+        """The guider's attention on the axis the selection is scored on.
+
+        The guider attends over subtokens because that is what its encoder
+        reads. The selection it guides is over words, so each word takes the
+        attention its subtokens hold between them -- summed, since attention
+        is a distribution. A model selecting over subtokens, or a vocabulary
+        tokenizer, needs no folding and gets none.
+        """
+        return self.to_words(attention.unsqueeze(-1), data, reduce="sum").squeeze(-1)
+
     def guide_target(self, attention: th.Tensor, mask: th.Tensor) -> th.Tensor:
         valid = mask.bool()
         count = valid.sum(dim=1, keepdim=True).clamp_min(1)
@@ -155,7 +181,8 @@ class GRAT(SPP):
             output_data,
             selection_logits=output_data.highlight_logits[:, 0, :, 1],
             guide_target=self.guide_target(
-                guider_output.attention.detach(), input_data.mask
+                self.to_selection_axis(guider_output.attention.detach(), input_data),
+                self.selection_valid(input_data),
             ),
             guider_class_logits=guider_output.class_logits.detach(),
         )
@@ -170,7 +197,7 @@ class GRAT(SPP):
         self, input_data: InputData, output_data: SPPOutput
     ) -> Tuple[th.Tensor, Dict[str, th.Tensor]]:
         with th.no_grad():
-            guider_output = self.guider(input_data)
+            guider_output = self.guider(input_data, self.encoder_mask(input_data))
         return self.model_loss(input_data, output_data, guider_output)
 
     def configure_optimizers(self):
@@ -188,7 +215,7 @@ class GRAT(SPP):
     def training_step(self, batch: InputData, batch_idx: int):
         guider_optimizer, model_optimizer = self.optimizers()
         guider_optimizer.zero_grad()
-        guider_output = self.guider(batch)
+        guider_output = self.guider(batch, self.encoder_mask(batch))
         guider_total, guider_losses = self.guider_loss(batch, guider_output)
         self.manual_backward(guider_total)
         guider_optimizer.step()
@@ -198,7 +225,7 @@ class GRAT(SPP):
         was_training = self.guider.training
         self.guider.eval()
         with th.no_grad():
-            guider_output = self.guider(batch)
+            guider_output = self.guider(batch, self.encoder_mask(batch))
         self.guider.train(was_training)
         model_total, model_losses = self.model_loss(batch, output, guider_output)
 
