@@ -64,6 +64,33 @@ class FrozenTransformerBackboneConfig(TransformerBackboneConfig):
 
 
 @register_class(
+    name="backbone",
+    tags={"transformer", "gru"},
+    namespace=NAMESPACE,
+    component="pyhighlights.components.models.spp.implementations.StackedBackbone",
+)
+class StackedBackboneConfig(Configuration):
+    """A frozen transformer read by a GRU trained from scratch.
+
+    The shape every select-then-predict paper uses -- a bidirectional GRU over
+    a frozen pretrained table -- with the table replaced by a transformer. One
+    learning rate serves it, because everything trainable starts from scratch.
+
+    ``hidden_size`` is the library's GRU default rather than the transformer's
+    width: the GRU is the encoder here, and 768 units of it is a large layer to
+    train on a corpus of a few thousand documents.
+    """
+
+    pretrained_model_card: str = Param("distilbert-base-uncased")
+    hidden_size: int = Param(128, ge=1)
+    num_features: int | None = Param(None, ge=1)
+    freeze_transformer: bool = Param(True)
+    num_layers: int = Param(1, ge=1)
+    bidirectional: bool = Param(True)
+    dropout_rate: float = Param(0.0, ge=0.0, lt=1.0)
+
+
+@register_class(
     name="selector",
     tags={"mlp"},
     namespace=NAMESPACE,

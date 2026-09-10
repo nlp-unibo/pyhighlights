@@ -3,7 +3,8 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
-from cinnamon.registry import Registry
+import torch as th
+from cinnamon.registry import RegistrationKey, Registry
 
 import pyhighlights
 from pyhighlights.components.tasks import (
@@ -315,3 +316,59 @@ def test_a_class_weights_task_records_the_preprocessing_it_weighed_after(tmp_pat
 
     manifest = json.loads((task.directory / "manifest.json").read_text())
     assert manifest["settings"]["preprocessor"]["priority"] == ["test", "val", "train"]
+
+
+def test_a_run_can_drop_its_checkpoints_once_they_are_scored(tmp_path):
+    """The weights are hundreds of gigabytes on a grid and nothing reads them.
+
+    What a run is read from has to survive: the metrics, the manifest and the
+    stored predictions. The checkpoint is written and restored either way --
+    scoring the epoch training happened to end on is a different experiment
+    from scoring the best one -- so this deletes it afterwards rather than
+    never asking for it.
+    """
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+
+    kept, dropped = [
+        Registry.from_key(
+            TOY_TASK,
+            expected_type=SPPTask,
+            save_path=str(tmp_path / name),
+            seeds=(0,),
+            keep_checkpoints=keep,
+            trainer_args={"accelerator": "cpu", "max_epochs": 1},
+        ).run()
+        for name, keep in (("kept", True), ("dropped", False))
+    ]
+
+    checkpoints = sorted((tmp_path / "kept").rglob("*.ckpt"))
+    assert checkpoints, "a kept run leaves the weights it scored"
+    assert not sorted((tmp_path / "dropped").rglob("*.ckpt"))
+
+    # Everything a reader needs is still there.
+    for name in ("kept", "dropped"):
+        assert sorted(path.name for path in (tmp_path / name).rglob("results.json"))
+        assert sorted(path.name for path in (tmp_path / name).rglob("manifest.json"))
+    assert set(kept["summary"]) == set(dropped["summary"])
+
+
+def test_weights_only_checkpoints_still_restore_the_best_epoch(tmp_path):
+    """Enough to score, not enough to resume -- which no task does."""
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+
+    task = Registry.from_key(
+        TOY_TASK,
+        expected_type=SPPTask,
+        save_path=str(tmp_path),
+        seeds=(0,),
+        save_weights_only=True,
+        trainer_args={"accelerator": "cpu", "max_epochs": 2},
+    )
+    results = task.run()
+
+    checkpoint = next(iter(sorted(tmp_path.rglob("*.ckpt"))))
+    with th.serialization.safe_globals([RegistrationKey, frozenset, set]):
+        state = th.load(checkpoint, map_location="cpu")
+    assert "state_dict" in state
+    assert "optimizer_states" not in state
+    assert results["summary"]
