@@ -200,6 +200,7 @@ class SPPTask(Task):
         max_length: int | None = None,
         vocabulary_size: int = 10_000,
         pretrained_model_card: str | None = None,
+        add_special_tokens: bool = True,
         embeddings: str | Path | None = None,
         pretrained_tokens_only: bool = True,
         monitor: str = "val_loss",
@@ -228,6 +229,7 @@ class SPPTask(Task):
         self.max_length = max_length
         self.vocabulary_size = vocabulary_size
         self.pretrained_model_card = pretrained_model_card
+        self.add_special_tokens = add_special_tokens
         self.embeddings = Path(embeddings) if embeddings is not None else None
         self.pretrained_tokens_only = pretrained_tokens_only
         if self.embeddings is not None and pretrained_model_card is not None:
@@ -267,7 +269,10 @@ class SPPTask(Task):
         model, which sizes its table to it.
         """
         if self.pretrained_model_card is not None:
-            return HuggingFaceTokenizer(self.pretrained_model_card)
+            return HuggingFaceTokenizer(
+                self.pretrained_model_card,
+                add_special_tokens=self.add_special_tokens,
+            )
         # Fitted on the training split alone, and on nothing at all when a
         # corpus has none: a vocabulary that saw the evaluation text leaks it.
         training = [splits["train"]] if "train" in splits else []

@@ -210,6 +210,8 @@ class HighlightPositionAnalyzer(Analyzer):
     model keying on the first tokens of every document scores like a model that
     found the rationale, until you look at where it selected.
 
+    Positions are word positions, since that is what a selection is made over.
+
     Positions are reported as a share of the document, so documents of
     different lengths are comparable. ``absolute`` reports word positions
     instead, which is the other question: a model keying on the first three
@@ -283,9 +285,12 @@ class PredictionAnalyzer(Analyzer):
     the loader and the preprocessor that produced it, and those keys are what
     get built here: a corpus loaded from anywhere else is a different corpus.
 
-    Selections are folded from token positions back to words through the
-    ``word_ids`` the batch carries, so a subword model reports words like every
-    other. A word counts as selected when any of its subtokens was.
+    A selection is made over words, so it is already in the unit a person
+    reads: a row lists word positions and the words at them. A run that
+    selected over subtokens instead is folded back through the ``word_ids``
+    the batch carries, and a word counts as selected when any of its subtokens
+    was -- which is why that setting cannot say what the predictor actually
+    read, and why it is not the default.
 
     A task builds its loader and its preprocessor from their keys alone, with
     no overrides, so rebuilding those keys rebuilds exactly the corpus the run
@@ -349,6 +354,10 @@ class PredictionAnalyzer(Analyzer):
                     predicted = reported_head(predicted)
                 predicted = predicted.argmax(-1)
 
+                # A selection over words is already word-indexed; one over
+                # subtokens is as wide as the encoding and has to be folded.
+                over_subtokens = masks.shape[1] == word_ids.shape[1]
+
                 for index, sample_id in enumerate(batch["sample_ids"]):
                     example = examples.get(int(sample_id))
                     if example is None:
@@ -357,7 +366,12 @@ class PredictionAnalyzer(Analyzer):
                         # split is more use than refusing all of it.
                         continue
                     tokens = list(example.tokens)
-                    words = word_ids[index][valid[index] & (masks[index] > 0)]
+                    kept = valid[index] & (masks[index] > 0)
+                    words = (
+                        word_ids[index][kept]
+                        if over_subtokens
+                        else np.flatnonzero(kept)
+                    )
                     if words.size and words.max() >= len(tokens):
                         # The corpus places this sample's words differently
                         # than the run did. Folding the selection against it

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import abc
 import math
-from typing import Dict, List, Tuple, Union
+from typing import Dict, List, Literal, Tuple, Union
 
 import torch as th
 from cinnamon.registry import RegistrationKey, Registry
@@ -82,6 +82,7 @@ class SPP(Model[SPPOutput]):
         predictor_backbone: RegistrationKey[SPPBackbone] | None = None,
         aggregator: RegistrationKey[SPPAggregator] | None = None,
         temperature: float = 1.0,
+        select_over: Literal["word", "subtoken"] = "word",
         supervise_highlights: bool = False,
         highlight_loss: RegistrationKey[Loss] | None = None,
         highlight_coefficient: float = 1.0,
@@ -149,10 +150,106 @@ class SPP(Model[SPPOutput]):
         if not math.isfinite(temperature) or temperature <= 0:
             raise ValueError("temperature must be finite and greater than zero")
         self.temperature = temperature
+        if select_over not in ("word", "subtoken"):
+            raise ValueError("select_over must be 'word' or 'subtoken'")
+        # A word is what the corpus annotates, what a sparsity target is a
+        # fraction of, and what an export shows -- and it is the same unit
+        # whichever backbone read the text. `subtoken` is the older behaviour,
+        # kept so the difference can be measured rather than argued about.
+        self.select_over = select_over
 
     @property
     def selector_backbone(self) -> SPPBackbone:
         return self.selector_backbones[0]
+
+    def selection_valid(self, data: InputData) -> th.Tensor:
+        """Which positions of the selection axis hold something selectable.
+
+        The word axis says so directly. On the subtoken axis a special token
+        is not a word and is never a choice, so it is excluded here even
+        though the encoder always attends over it.
+        """
+        if self.select_over == "word" or data.word_ids is None:
+            return data.mask
+        return (data.word_ids >= 0).to(data.mask.dtype)
+
+    def selection_truth(self, data: InputData) -> th.Tensor:
+        """The annotation on the selection axis, ``-1`` where there is none."""
+        if self.select_over == "word" or data.word_ids is None:
+            return data.highlight_true
+        index = data.word_ids.clamp_min(0)
+        spread = data.highlight_true.gather(1, index)
+        return th.where(data.word_ids >= 0, spread, th.full_like(spread, -1))
+
+    def namespace(
+        self, input_data: InputData, output_data, **extra: th.Tensor
+    ) -> Dict[str, th.Tensor]:
+        """The batch as losses and metrics see it, on the selection axis.
+
+        ``mask`` and ``highlight_true`` arrive on the word axis, which is the
+        selection axis unless a model was told otherwise. A model selecting
+        over subtokens gets them spread onto that axis instead, so a loss
+        binds the same field name either way and always scores the unit the
+        selection was made in.
+        """
+        values = super().namespace(input_data, output_data, **extra)
+        if self.select_over == "subtoken":
+            values["mask"] = self.selection_valid(input_data)
+            values["highlight_true"] = self.selection_truth(input_data)
+        return values
+
+    def to_words(self, states: th.Tensor, data: InputData) -> th.Tensor:
+        """Average each word's subtoken states into one state for the word.
+
+        A selection is made over these, so it is made over the unit a person
+        reads and the corpus annotates. Selecting over subtokens instead lets
+        a model keep ``un`` and drop ``##fair``, which the export then reports
+        as the word ``unfair`` -- a highlight that is not what the predictor
+        read, in a library whose whole claim is that it is.
+
+        Pooling happens *after* the encoder, never before: the backbone still
+        attends over its own subtokens and stays on the distribution it was
+        pretrained on. For a vocabulary tokenizer the axes coincide and this
+        is the identity.
+        """
+        # No word ids means the axes already coincide -- a vocabulary
+        # tokenizer, or a batch assembled by hand in a test.
+        if self.select_over == "subtoken" or data.word_ids is None:
+            return states
+        word_ids, width = data.word_ids, data.mask.shape[1]
+        # -1 marks a special token or padding; folding those into slot 0 would
+        # mix `[CLS]` into the first word, so they are sent to a slot past the
+        # end and dropped with the slice.
+        index = word_ids.clamp_min(-1).masked_fill(word_ids < 0, width)
+        pooled = states.new_zeros((states.shape[0], width + 1, states.shape[2]))
+        pooled.scatter_reduce_(
+            dim=1,
+            index=index.unsqueeze(-1).expand_as(states),
+            src=states,
+            reduce="mean",
+            include_self=False,
+        )
+        return pooled[:, :width]
+
+    def to_subtokens(self, selection: th.Tensor, data: InputData) -> th.Tensor:
+        """Spread a word's decision back over the subtokens that spell it.
+
+        The predictor reads subtokens, so a word-level selection has to become
+        one. Every position of a selected word is kept and every position of a
+        dropped word is dropped, which is what makes the exported highlight
+        exactly the predictor's input rather than an approximation of it.
+
+        A special token belongs to no word and is always kept: it is not
+        content, so it is never a choice, but the encoder was pretrained
+        reading it.
+        """
+        if self.select_over == "subtoken" or data.word_ids is None:
+            return selection
+        word_ids = data.word_ids
+        index = word_ids.clamp_min(0)
+        spread = selection.gather(1, index)
+        special = (word_ids < 0) & data.attention().bool()
+        return th.where(special, th.ones_like(spread), spread * (word_ids >= 0))
 
     def load_embeddings(self, matrix: th.Tensor) -> None:
         """Hand the same pretrained table to every backbone.
@@ -179,10 +276,10 @@ class SPP(Model[SPPOutput]):
         selector: SPPSelector,
         backbone: SPPBackbone,
     ) -> Tuple[th.Tensor, th.Tensor]:
-        states = backbone.encode(data.features, data.mask)
+        states = self.to_words(backbone.encode(data.features, data.attention()), data)
         highlight_logits = selector(states)
         highlight_mask = self.select_activation(highlight_logits)
-        valid = data.mask.bool()
+        valid = self.selection_valid(data).bool()
         highlight_mask = highlight_mask * valid.to(highlight_mask.dtype)
 
         # A sample whose selector marks no valid token would leave the
@@ -206,11 +303,15 @@ class SPP(Model[SPPOutput]):
         return highlight_logits, highlight_mask
 
     def predict(self, data: InputData, highlight_mask: th.Tensor) -> th.Tensor:
-        prediction_mask = data.mask.to(highlight_mask.dtype) * highlight_mask
+        selection = self.selection_valid(data).to(highlight_mask.dtype) * highlight_mask
+        # Onto the axis the encoder reads, where a special token is always
+        # attended and a dropped word is gone in every piece of itself.
+        prediction_mask = self.to_subtokens(selection, data)
+        attention = data.attention().to(prediction_mask.dtype)
         states = self.predictor_backbone.encode(
-            data.features, data.mask, selection_mask=prediction_mask
+            data.features, attention, selection_mask=prediction_mask
         )
-        pooled = self.predictor_backbone.pool(states, prediction_mask)
+        pooled = self.predictor_backbone.pool(states, attention * prediction_mask)
         return self.predictor(pooled)
 
     def predict_full(self, data: InputData) -> th.Tensor:
@@ -220,7 +321,9 @@ class SPP(Model[SPPOutput]):
         the highlight and only the highlight. MCD trains this pass on purpose,
         and the faithfulness terms need it as their reference point.
         """
-        return self.predict(data=data, highlight_mask=data.mask)
+        return self.predict(
+            data=data, highlight_mask=th.ones_like(self.selection_valid(data))
+        )
 
     def faithfulness(
         self, input_data: InputData, output_data: SPPOutput
@@ -240,7 +343,7 @@ class SPP(Model[SPPOutput]):
         everything, not a case to repair.
         """
         head = self.aggregator(output_data)
-        valid = input_data.mask.to(head.highlight_mask.dtype)
+        valid = self.selection_valid(input_data).to(head.highlight_mask.dtype)
         highlight = head.highlight_mask * valid
 
         def probability(logits: th.Tensor, of: th.Tensor) -> th.Tensor:

@@ -100,7 +100,22 @@ class VocabularyTokenizer:
 class HuggingFaceTokenizer:
     """Fast-tokenizer adapter preserving source-token alignment."""
 
-    def __init__(self, pretrained_model_card: str, **tokenizer_kwargs):
+    def __init__(
+        self,
+        pretrained_model_card: str,
+        add_special_tokens: bool = True,
+        **tokenizer_kwargs,
+    ):
+        """``add_special_tokens`` keeps ``[CLS]`` and ``[SEP]``, and it should.
+
+        A pretrained encoder was trained with them and reads worse without: on
+        legal text, dropping them moves Legal-BERT's token states to a cosine
+        of 0.83 against what it would otherwise produce. They carry no word,
+        so ``word_ids`` is ``None`` there and a selector never sees them --
+        removing them from the input was never what kept them unselectable.
+
+        ``False`` reproduces a run made before this was a choice.
+        """
         try:
             from transformers import AutoTokenizer
         except ImportError as error:
@@ -110,6 +125,7 @@ class HuggingFaceTokenizer:
 
         if tokenizer_kwargs.pop("use_fast", True) is not True:
             raise ValueError("HuggingFaceTokenizer requires a fast tokenizer")
+        self.add_special_tokens = add_special_tokens
         self.tokenizer = AutoTokenizer.from_pretrained(
             pretrained_model_card, use_fast=True, **tokenizer_kwargs
         )
@@ -124,7 +140,7 @@ class HuggingFaceTokenizer:
     ) -> TokenizedExample:
         kwargs = {
             "is_split_into_words": True,
-            "add_special_tokens": False,
+            "add_special_tokens": self.add_special_tokens,
             "return_attention_mask": False,
         }
         if max_length is not None:
@@ -184,8 +200,7 @@ class HighlightCollator:
         width = max(max(len(item.input_ids) for item in encoded), 1)
 
         features = []
-        masks = []
-        highlights = []
+        attention = []
         sources = []
         for example, item in zip(examples, encoded):
             input_ids = list(item.input_ids[:width])
@@ -196,24 +211,31 @@ class HighlightCollator:
 
             padding = width - len(input_ids)
             features.append(input_ids + [self.tokenizer.pad_token_id] * padding)
-            masks.append(
-                [word_id is not None for word_id in word_ids] + [False] * padding
-            )
-            highlights.append(
-                [
-                    -1
-                    if word_id is None or example.highlights is None
-                    else example.highlights[word_id]
-                    for word_id in word_ids
-                ]
-                + [-1] * padding
-            )
-            # Kept rather than discarded with the encoding: a selection is made
-            # over these positions, and only the word behind each one makes it
-            # readable once the run is over.
+            # Every encoded position, special tokens included: they carry no
+            # word, but the encoder was pretrained reading them.
+            attention.append([True] * len(input_ids) + [False] * padding)
             sources.append(
                 [-1 if word_id is None else word_id for word_id in word_ids]
                 + [-1] * padding
+            )
+
+        # The word axis is as wide as the longest *surviving* word count, not
+        # as the longest document: truncation cuts a clause off mid-way, and a
+        # word past the cut was never encoded and cannot be selected.
+        words = [
+            max((word_id + 1 for word_id in row if word_id >= 0), default=0)
+            for row in sources
+        ]
+        span = max(max(words), 1)
+
+        masks = []
+        highlights = []
+        for example, kept in zip(examples, words):
+            masks.append([True] * kept + [False] * (span - kept))
+            highlights.append(
+                [-1] * span
+                if example.highlights is None
+                else list(example.highlights[:kept]) + [-1] * (span - kept)
             )
 
         return InputData(
@@ -223,4 +245,5 @@ class HighlightCollator:
             y_true=th.tensor([example.label for example in examples]),
             highlight_true=th.tensor(highlights, dtype=th.long),
             word_ids=th.tensor(sources, dtype=th.long),
+            attention_mask=th.tensor(attention, dtype=th.float32),
         )
