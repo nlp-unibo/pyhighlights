@@ -15,12 +15,14 @@ from pyhighlights.components.models.spp import (
     MCD,
     MGR,
     GenSPP,
+    StackedBackbone,
     TransformerBackbone,
 )
 from pyhighlights.components.tasks import SPPTask
 from pyhighlights.configurations.keys import (
     FROZEN_TRANSFORMER_BACKBONE,
     GRU_FR,
+    STACKED_BACKBONE,
     TOY,
     TRANSFORMER_BACKBONE,
     TRANSFORMER_FR,
@@ -183,3 +185,50 @@ def test_a_frozen_transformer_backbone_is_a_key_of_its_own(monkeypatch):
     states = frozen.encode(data.features, data.mask)
     assert states.shape == (1, 3, frozen.output_size)
     assert not states.requires_grad
+
+
+def test_a_stacked_backbone_trains_a_gru_over_a_frozen_transformer(monkeypatch):
+    """The architecture the papers use, with a transformer where GloVe was.
+
+    Every released select-then-predict implementation encodes with a
+    bidirectional GRU over a frozen embedding table, so nothing pretrained is
+    fine-tuned and everything trained starts from scratch at one learning
+    rate. This keeps that shape.
+    """
+    transformers = ModuleType("transformers")
+    transformers.AutoModel = FakeAutoModel
+    monkeypatch.setitem(sys.modules, "transformers", transformers)
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+
+    backbone = Registry.from_key(STACKED_BACKBONE, hidden_size=4)
+    assert isinstance(backbone, StackedBackbone)
+    # Bidirectional by default, so the states are twice the hidden size --
+    # and nothing downstream reads the transformer's width.
+    assert backbone.output_size == 8
+
+    # Frozen underneath, trainable on top: one learning rate is correct for
+    # every parameter that has a gradient.
+    assert not any(
+        parameter.requires_grad
+        for parameter in backbone.transformer.transformer.parameters()
+    )
+    assert all(parameter.requires_grad for parameter in backbone.encoder.parameters())
+
+    features = th.tensor([[1, 2, 3, 0], [4, 5, 0, 0]])
+    mask = th.tensor([[1.0, 1.0, 1.0, 0.0], [1.0, 1.0, 0.0, 0.0]])
+    states = backbone.encode(features, mask)
+    assert states.shape == (2, 4, 8)
+    # Padding carries nothing, and a gradient reaches the GRU.
+    assert not states[~mask.bool()].any()
+    states.sum().backward()
+    assert any(
+        parameter.grad is not None for parameter in backbone.encoder.parameters()
+    )
+
+    pooled = backbone.pool(states.detach(), mask)
+    assert pooled.shape == (2, 8)
+
+    # A selection reaches the transformer rather than the GRU's input: the
+    # predictor has to read the highlight and nothing else.
+    selected = backbone.encode(features, mask, selection_mask=mask * 0)
+    assert not th.equal(selected, states.detach())
