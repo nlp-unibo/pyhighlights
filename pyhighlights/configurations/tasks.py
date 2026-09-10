@@ -70,6 +70,16 @@ class TaskConfig(Configuration):
     monitor: str = Param("val_loss")
     patience: int = Param(5, ge=0)
     store_predictions: bool = Param(False)
+    #: Whether the weights survive the run. A checkpoint holds the whole
+    #: model, and nothing downstream reads one -- the task restores the best
+    #: one itself before scoring, and an analyzer reads ``results.json`` and
+    #: the stored predictions. On a grid of transformer cells that is hundreds
+    #: of gigabytes; turning this off trades the ability to re-score without
+    #: retraining for the ability to fit on a filesystem.
+    keep_checkpoints: bool = Param(True)
+    #: Weights without the optimizer state: most of a fine-tuned encoder's
+    #: file, and only needed to resume training, which no task does.
+    save_weights_only: bool = Param(False)
     faithfulness: bool = Param(False)
     highlight_supervision: bool = Param(False)
     highlight_loss: RegistrationKey[Loss] = Param(HIGHLIGHT_LOSS)
