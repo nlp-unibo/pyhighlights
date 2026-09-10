@@ -84,11 +84,17 @@ class GenSPP(SPP):
         selector: SPPSelector,
         backbone: SPPBackbone,
     ) -> tuple[th.Tensor, th.Tensor]:
-        states = backbone.encode(data.features, data.mask)
+        # The encoder reads its own subtokens and the selection is made over
+        # words, exactly as `SPP.select` does it. What this override leaves out
+        # is the empty-selection fallback: a search scores an empty selection
+        # rather than repairing it.
+        states = self.to_words(
+            backbone.encode(data.features, self.encoder_mask(data)), data
+        )
         highlight_logits = selector(states)
         highlight_mask = highlight_logits.argmax(dim=-1).to(highlight_logits.dtype)
-        highlight_mask = highlight_mask * data.mask.to(highlight_mask.dtype)
-        return highlight_logits, highlight_mask
+        valid = self.selection_valid(data).to(highlight_mask.dtype)
+        return highlight_logits, highlight_mask * valid
 
     def generator_parameters(self) -> list[th.nn.Parameter]:
         return [

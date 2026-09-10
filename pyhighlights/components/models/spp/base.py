@@ -173,6 +173,17 @@ class SPP(Model[SPPOutput]):
             return data.mask
         return (data.word_ids >= 0).to(data.mask.dtype)
 
+    def encoder_mask(self, data: InputData) -> th.Tensor:
+        """What the encoder attends over.
+
+        ``attention()`` says so on the subtoken axis, specials included. A
+        batch that carries no word ids has one axis rather than two -- a
+        vocabulary tokenizer, or a batch assembled by hand -- and there
+        ``mask`` is what the encoder reads, since the fallback cannot tell
+        padding from content.
+        """
+        return data.mask if data.word_ids is None else data.attention()
+
     def selection_truth(self, data: InputData) -> th.Tensor:
         """The annotation on the selection axis, ``-1`` where there is none."""
         if self.select_over == "word" or data.word_ids is None:
@@ -198,8 +209,10 @@ class SPP(Model[SPPOutput]):
             values["highlight_true"] = self.selection_truth(input_data)
         return values
 
-    def to_words(self, states: th.Tensor, data: InputData) -> th.Tensor:
-        """Average each word's subtoken states into one state for the word.
+    def to_words(
+        self, states: th.Tensor, data: InputData, reduce: str = "mean"
+    ) -> th.Tensor:
+        """Fold each word's subtoken states into one state for the word.
 
         A selection is made over these, so it is made over the unit a person
         reads and the corpus annotates. Selecting over subtokens instead lets
@@ -211,6 +224,11 @@ class SPP(Model[SPPOutput]):
         attends over its own subtokens and stays on the distribution it was
         pretrained on. For a vocabulary tokenizer the axes coincide and this
         is the identity.
+
+        ``reduce`` is ``"mean"`` for states, which is an average of vectors.
+        A distribution over subtokens is summed instead: a word's share of the
+        attention is what its subtokens hold together, and averaging would
+        report a long word as less attended than the short one beside it.
         """
         # No word ids means the axes already coincide -- a vocabulary
         # tokenizer, or a batch assembled by hand in a test.
@@ -226,7 +244,7 @@ class SPP(Model[SPPOutput]):
             dim=1,
             index=index.unsqueeze(-1).expand_as(states),
             src=states,
-            reduce="mean",
+            reduce=reduce,
             include_self=False,
         )
         return pooled[:, :width]
@@ -276,7 +294,9 @@ class SPP(Model[SPPOutput]):
         selector: SPPSelector,
         backbone: SPPBackbone,
     ) -> Tuple[th.Tensor, th.Tensor]:
-        states = self.to_words(backbone.encode(data.features, data.attention()), data)
+        states = self.to_words(
+            backbone.encode(data.features, self.encoder_mask(data)), data
+        )
         highlight_logits = selector(states)
         highlight_mask = self.select_activation(highlight_logits)
         valid = self.selection_valid(data).bool()

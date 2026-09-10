@@ -427,6 +427,12 @@ class SPPTask(Task):
             # over the split rather than another binding inside a test step.
             # Test only -- a validation faithfulness number selects nothing.
             if self.faithfulness:
+                # Lightning moves the model back to the CPU when it tears a
+                # loop down, and this stage runs outside every loop: without
+                # this the terms are three CPU passes over the test split at
+                # the end of a GPU run, which on a transformer is most of the
+                # run's wall clock.
+                model.to(trainer.strategy.root_device)
                 results.update(
                     {
                         f"test_{name}": value
