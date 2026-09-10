@@ -71,6 +71,16 @@ the others and a batch of one class is unaffected by it.
 .. automodule:: pyhighlights.configurations.backbones
    :members:
 
+Every model configuration takes ``encoder_lr``, and it is ``None`` by default:
+one optimizer at one rate over the whole model, which is what every published
+implementation of these architectures does. Set it only when a pretrained
+encoder is being fine-tuned -- 1e-3 destroys one and 2e-5 barely moves a
+selector initialized from scratch, so one rate cannot serve both. Parameters
+inside a backbone train at ``encoder_lr`` -- G-RAT's guider has an encoder of
+its own and it counts as one -- and selectors, predictors and guider heads
+train at the optimizer's own rate. MGR's per-generator scaling survives the
+split: both halves of one of its groups keep that group's scale.
+
 .. automodule:: pyhighlights.configurations.losses
    :members:
 
