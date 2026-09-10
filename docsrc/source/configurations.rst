@@ -19,6 +19,28 @@ inheriting a registration.
 ``pyhighlights.configurations.backbones``, ``losses`` and ``optimizers``
 register the pieces the models are assembled from.
 
+A transformer backbone is registered twice: fine-tuned under
+``backbone`` / ``{transformer}``, and with its weights held under
+``backbone`` / ``{transformer, frozen}``. Trainability needs a key of its own
+because a model names its backbone by key, and build arguments reach the
+component a caller builds rather than the ones built underneath it:
+
+.. code-block:: python
+
+   from pyhighlights.configurations.keys import FROZEN_TRANSFORMER_BACKBONE
+
+   class MyFRConfig(TransformerFRConfig):
+       # No gradient, no gradient buffer and no optimizer state for the
+       # encoder -- which is most of what a transformer arm costs.
+       selector_backbones: RegistrationKey[SPPBackbone] = Param(
+           FROZEN_TRANSFORMER_BACKBONE
+       )
+
+A frozen encoder is a different experiment rather than a cheaper version of
+the same one: the selector reads representations nothing adapted to its task.
+Two places it is the right one anyway -- an ablation, where a fine-tuned
+encoder absorbs the difference being measured, and a run bounded by memory.
+
 The classification criterion takes per-class ``weight`` values, which a
 class-imbalanced corpus needs: 106 positives in 20,417 sentences is a corpus
 answered correctly by a model that never predicts one. The weights are
