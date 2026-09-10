@@ -46,6 +46,8 @@ class MetricsAnalyzerConfig(Configuration):
     metrics: Sequence[str] = Param([])
     split: str = Param("test")
     pairs: bool = Param(False)
+    #: The most recent run of each task, or every run a task has ever done.
+    latest: bool = Param(True)
 
 
 @register_class(
@@ -92,6 +94,8 @@ class LabelStudioExporterConfig(PredictionAnalyzerConfig):
     model_version: str = Param("pyhighlights")
     labels: Sequence[str] = Param(["highlight"])
     only: int | None = Param(None)
+    #: Which class ``only`` names: the annotated one, or the predicted one.
+    column: str = Param("label")
     stem: str = Param("label-studio")
 
 

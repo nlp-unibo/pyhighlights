@@ -499,6 +499,49 @@ def test_the_exporter_can_narrow_to_one_gold_label(tmp_path):
     assert LabelStudioExporter(directory=tmp_path, only=1 - label).export() == {}
 
 
+def test_the_exporter_can_narrow_to_what_the_model_predicted(tmp_path):
+    """The other question, and the only one an unannotated corpus can ask.
+
+    Narrowing by ``label`` asks whether the model found the right words in the
+    clauses that carry the class. Narrowing by ``predicted`` asks whether the
+    words it kept justify the call it made -- which is what is left when there
+    is no annotation to select by, and what surfaces a confident mistake.
+    """
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+    corpus = Registry.from_key(TOY).load()["test"]
+    sample_id = int(corpus["sample_id"].iloc[0])
+    label = int(corpus["label"].iloc[0])
+    # Logits that predict class 1, whatever the gold label happens to be.
+    write_run(
+        tmp_path,
+        {
+            "word_ids": [[0, 1]],
+            "mask": [[1.0, 1.0]],
+            "highlight_mask": [[1.0, 0.0]],
+            "class_logits": [[0.1, 0.9]],
+            "sample_ids": [sample_id],
+        },
+    )
+
+    by_prediction = LabelStudioExporter(directory=tmp_path, only=1, column="predicted")
+    assert not by_prediction.analyze().empty
+    assert (
+        LabelStudioExporter(directory=tmp_path, only=0, column="predicted")
+        .analyze()
+        .empty
+    )
+
+    # The two columns disagree wherever the model is wrong, which is the case
+    # worth reading: narrowing by the gold label would hide it.
+    if label != 1:
+        assert LabelStudioExporter(directory=tmp_path, only=1).analyze().empty
+
+    with pytest.raises(KeyError, match="highlight_mask"):
+        LabelStudioExporter(
+            directory=tmp_path, only=1, column="highlight_mask"
+        ).analyze()
+
+
 def test_absolute_positions_answer_a_different_question(tmp_path):
     """A model keying on the first word does so at any document length."""
     run = tmp_path / "2026-01-01T00-00-00"

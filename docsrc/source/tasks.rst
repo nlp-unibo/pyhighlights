@@ -481,9 +481,15 @@ analyzer serves a notebook, a test and a LaTeX table.
    F1 to report, and what the highlights are worth is a question for somebody
    who knows the domain.
 
-   ``only`` narrows the export to samples of one gold label, which a corpus
-   annotated for a rare class needs: the negatives are most of it and the
-   interesting highlights are all on the positives. ``labels`` names the span
+   ``only`` narrows the export to samples of one class, which a corpus
+   annotated for a rare one needs: the negatives are most of it and the
+   interesting highlights are all on the positives. ``column`` decides which
+   class that is, and the two answers ask different questions — ``"label"``
+   takes the samples that *carry* the class and asks whether the model found
+   the right words in them; ``"predicted"`` takes the samples the model
+   *called* that class and asks whether the words it kept justify the call.
+   The second is the one available on a corpus with no annotation to select
+   by, and the one that surfaces a confident mistake. ``labels`` names the span
    label the file carries, and
    :func:`~pyhighlights.components.analyzers.label_studio` does the conversion
    on any frame carrying the columns
