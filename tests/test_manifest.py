@@ -194,6 +194,11 @@ class FrozenClock:
 
 def test_two_runs_inside_one_second_still_get_a_directory_each(tmp_path, monkeypatch):
     """The stamp is one second wide; the guarantee is not."""
+    # Built here rather than borrowed from whichever test ran first: every
+    # other test in this module builds its own, and this one only passed
+    # because it followed them. Run it on a worker of its own -- which is
+    # what `pytest -n` does -- and the registry it reads was never built.
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
     # The clock is pinned because a real one produces this collision only by
     # luck: two runs that straddle a second boundary get two different stamps,
     # which is correct behaviour and a failing assertion below.
