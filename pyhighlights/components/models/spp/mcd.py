@@ -1,7 +1,7 @@
 from typing import Dict, List, Tuple
 
 import torch as th
-from cinnamon.registry import RegistrationKey, Registry
+from cinnamon.registry import RegistrationKey
 
 from pyhighlights.components.models.base import InputData
 from pyhighlights.components.models.spp.base import (
@@ -143,9 +143,12 @@ class MCD(SPP):
             *self.predictor_backbone.parameters(),
             *self.predictor.parameters(),
         ]
+        # Two optimizers, one per training phase, as MCD alternates between
+        # them. Built through `build_optimizer` so `encoder_lr` reaches the
+        # encoder inside each phase's own group.
         return [
-            Registry.from_key(self.optimizer, params=generator_parameters),
-            Registry.from_key(self.optimizer, params=predictor_parameters),
+            self.build_optimizer([(generator_parameters, 1.0)]),
+            self.build_optimizer([(predictor_parameters, 1.0)]),
         ]
 
     def training_step(self, batch: InputData, batch_idx: int):

@@ -70,6 +70,13 @@ class GRUGRATConfig(Configuration):
     aggregator: RegistrationKey[SPPAggregator] | None = Param(None)
     temperature: float = Param(1.0, gt=0.0)
     select_over: str = Param("word")
+    #: One rate for the encoders, another for everything above them. ``None``
+    #: trains the whole model at the optimizer's own rate, which is what every
+    #: published implementation of these architectures does -- they encode
+    #: with a GRU over a frozen table, so nothing pretrained is fine-tuned.
+    #: Set it when a pretrained encoder *is* being fine-tuned: one rate cannot
+    #: serve both a transformer and a selector initialized from scratch.
+    encoder_lr: float | None = Param(None, gt=0.0)
     losses: List[RegistrationKey[Loss]] = Param(
         [CLASSIFICATION_LOSS, SPARSITY_LOSS, CONTIGUITY_LOSS, GUIDE_LOSS, JSD_LOSS]
     )

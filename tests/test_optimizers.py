@@ -14,7 +14,7 @@ import pytest
 from cinnamon.registry import Registry
 
 import pyhighlights
-from pyhighlights.configurations.keys import GRU_FR, GRU_GRAT, GRU_MGR
+from pyhighlights.configurations.keys import GRU_FR, GRU_GRAT, GRU_MCD, GRU_MGR
 
 BASE_LR = 1e-3
 ENCODER_LR = 2e-5
@@ -112,3 +112,26 @@ def test_grat_spares_the_guiders_encoder_too():
 def test_a_rate_that_cannot_train_anything_is_refused():
     with pytest.raises(ValueError, match="encoder_lr"):
         Registry.from_key(GRU_FR, encoder_lr=0.0)
+
+
+@pytest.mark.parametrize("key", [GRU_FR, GRU_MCD, GRU_MGR, GRU_GRAT])
+def test_every_architecture_accepts_an_encoder_rate(key):
+    """MCD and G-RAT declare the shared field set instead of inheriting it.
+
+    So a parameter added to ``SPPModelConfig`` reaches FR and GenSPP and
+    misses those two, and asking for it raises rather than being ignored --
+    which is the trap this test exists to catch next time.
+    """
+    model = Registry.from_key(key, encoder_lr=ENCODER_LR)
+    optimizer = model.configure_optimizers()
+    optimizers = optimizer if isinstance(optimizer, list) else [optimizer]
+
+    for one in optimizers:
+        encoders = model.encoder_ids()
+        rates = {
+            ({id(p) for p in group["params"]} <= encoders): group["lr"]
+            for group in one.param_groups
+        }
+        # Both halves are present and the encoder half is the slower one.
+        assert set(rates) == {True, False}
+        assert rates[True] < rates[False]
