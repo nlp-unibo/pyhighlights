@@ -470,9 +470,18 @@ class LabelStudioExporter(PredictionAnalyzer):
     per run, pre-annotated with what the model selected, so the reading is a
     review rather than a fresh annotation.
 
-    ``only`` narrows the export to samples of one gold label, which is what a
-    corpus annotated for a rare class needs: the negatives are 97% of it and
-    the interesting highlights are all on the positives.
+    ``only`` narrows the export to samples of one class, which is what a corpus
+    annotated for a rare one needs: the negatives are 97% of it and the
+    interesting highlights are all on the positives.
+
+    ``column`` decides *which* class that is, and the two answers are different
+    questions. ``"label"`` selects the samples that carry the class, and asks
+    whether the model found the right words in them. ``"predicted"`` selects
+    the samples the model *called* that class, and asks whether the words it
+    kept justify the call -- which is the only one of the two available on a
+    corpus with no annotation to select by, and the one that surfaces a
+    confident mistake. Any column
+    :class:`PredictionAnalyzer` reports may be named.
 
     One file per seed, beside the predictions it came from. A run's seeds are
     separate predictions of the same samples, so merging them would show the
@@ -488,19 +497,26 @@ class LabelStudioExporter(PredictionAnalyzer):
         model_version: str = "pyhighlights",
         labels: Sequence[str] = ("highlight",),
         only: int | None = None,
+        column: str = "label",
         stem: str = "label-studio",
     ):
         super().__init__(directory=directory, pattern=pattern, split=split)
         self.model_version = model_version
         self.labels = list(labels)
         self.only = only
+        self.column = column
         self.stem = stem
 
     def selected(self, frame: pd.DataFrame) -> pd.DataFrame:
         """The rows this export is about."""
         if self.only is None or frame.empty:
             return frame
-        return frame[frame["label"] == self.only].reset_index(drop=True)
+        if self.column not in frame.columns:
+            raise KeyError(
+                f"cannot narrow the export by {self.column!r}: a prediction row "
+                f"carries {sorted(frame.columns)}"
+            )
+        return frame[frame[self.column] == self.only].reset_index(drop=True)
 
     def analyze(self) -> pd.DataFrame:
         return self.selected(super().analyze())
