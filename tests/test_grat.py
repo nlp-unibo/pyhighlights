@@ -88,3 +88,55 @@ def test_registered_gru_grat_guidance_and_staged_training():
         not th.equal(before, after)
         for before, after in zip(guider_before, model.guider.parameters())
     )
+
+
+def subword_batch() -> InputData:
+    """Five subtokens spelling three words, the way a subword tokenizer pads.
+
+    ``[CLS] un ##fair terms [SEP]``: the encoder reads five positions, the
+    selection is made over three words, and ``word_ids`` is the map. The two
+    widths differ, which is what a vocabulary tokenizer never shows.
+    """
+    return InputData(
+        features=th.tensor([[101, 1, 2, 3, 102], [101, 4, 5, 102, 0]]),
+        mask=th.tensor([[1.0, 1.0, 1.0], [1.0, 1.0, 0.0]]),
+        sample_ids=th.arange(2),
+        y_true=th.tensor([0, 1]),
+        highlight_true=th.full((2, 3), -1),
+        word_ids=th.tensor([[-1, 0, 0, 1, -1], [-1, 0, 1, -1, -1]]),
+        attention_mask=th.tensor(
+            [[1.0, 1.0, 1.0, 1.0, 1.0], [1.0, 1.0, 1.0, 1.0, 0.0]]
+        ),
+    )
+
+
+def test_grat_guides_a_selection_over_words_from_attention_over_subtokens():
+    """The guider encodes subtokens; the target it produces is per word.
+
+    Encoding against ``mask`` instead is what broke every G-RAT run over a
+    subword backbone: the attention mask was the word axis and the encoder
+    wanted the subtoken one, so the run died inside attention rather than
+    reporting a number.
+    """
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+    data = subword_batch()
+    model = Registry.from_key(GRU_GRAT, pretrain_epochs=0)
+
+    guider_output = model.guider(data, model.encoder_mask(data))
+    # The guider's own axis: one score per subtoken, nothing on padding.
+    assert guider_output.attention.shape == (2, 5)
+    assert not guider_output.attention[~data.attention().bool()].any()
+
+    # A word takes what its subtokens hold together, so `unfair` keeps the
+    # mass of both halves rather than the average of them.
+    folded = model.to_selection_axis(guider_output.attention, data)
+    assert folded.shape == (2, 3)
+    assert th.allclose(
+        folded[0, 0], guider_output.attention[0, 1] + guider_output.attention[0, 2]
+    )
+
+    output = model(data)
+    assert output.highlight_logits.shape == (2, 1, 3, 2)
+    total, losses = model.model_loss(data, output, guider_output)
+    assert set(losses) == {"classification", "sparsity", "contiguity", "guide", "jsd"}
+    total.backward()
