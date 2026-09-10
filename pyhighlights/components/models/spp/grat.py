@@ -200,6 +200,18 @@ class GRAT(SPP):
             guider_output = self.guider(input_data, self.encoder_mask(input_data))
         return self.model_loss(input_data, output_data, guider_output)
 
+    def guider_encoder_ids(self) -> set:
+        """The guider's own encoder, which is pretrained when the model's is.
+
+        `encoder_ids` covers the backbones a rationalizer reads with; the
+        guider holds a third, and a rate meant for pretrained encoders that
+        skipped it would fine-tune one of the three at the selector's rate.
+        """
+        return {id(parameter) for parameter in self.guider.backbone.parameters()}
+
+    def encoder_ids(self) -> set:
+        return super().encoder_ids() | self.guider_encoder_ids()
+
     def configure_optimizers(self):
         model_parameters = [
             *self.selector_backbones.parameters(),
@@ -207,9 +219,13 @@ class GRAT(SPP):
             *self.predictor_backbone.parameters(),
             *self.predictor.parameters(),
         ]
+        # Two optimizers, as the reference implementation has: the guider is
+        # stepped before the rationalizer and on its own loss. Both are built
+        # through `build_optimizer`, so `encoder_lr` reaches the guider's
+        # encoder as well as the model's.
         return [
-            Registry.from_key(self.optimizer, params=self.guider.parameters()),
-            Registry.from_key(self.optimizer, params=model_parameters),
+            self.build_optimizer([(self.guider.parameters(), 1.0)]),
+            self.build_optimizer([(model_parameters, 1.0)]),
         ]
 
     def training_step(self, batch: InputData, batch_idx: int):

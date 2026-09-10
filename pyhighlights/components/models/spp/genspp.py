@@ -126,7 +126,7 @@ class GenSPP(SPP):
         # Gradient descent only ever reaches the predictor: the generator is
         # searched, not trained, so training this model on its own fits a
         # predictor to whatever selection its untrained generator makes.
-        return Registry.from_key(self.optimizer, params=self.predictor_parameters())
+        return self.build_optimizer([(self.predictor_parameters(), 1.0)])
 
 
 class _Batches:

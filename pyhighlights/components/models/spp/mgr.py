@@ -1,7 +1,7 @@
 from typing import Dict, Literal, Tuple
 
 import torch as th
-from cinnamon.registry import RegistrationKey, Registry
+from cinnamon.registry import RegistrationKey
 
 from pyhighlights.components.models.base import InputData, Split
 from pyhighlights.components.models.spp.base import SPP, SPPBackbone
@@ -49,22 +49,19 @@ class MGR(SPP):
             [*backbone.parameters(), *selector.parameters()]
             for backbone, selector in zip(self.selector_backbones, self.selectors)
         ]
-        optimizer = Registry.from_key(
-            self.optimizer,
-            params=[
-                {
-                    "params": [
-                        *self.predictor_backbone.parameters(),
-                        *self.predictor.parameters(),
-                    ]
-                },
-                *({"params": parameters} for parameters in generators),
-            ],
-        )
+        predictor = [
+            *self.predictor_backbone.parameters(),
+            *self.predictor.parameters(),
+        ]
+        # The paper's rates: the predictor slower than the generators by the
+        # number of them, and each generator faster than the last. Handed to
+        # `build_optimizer` as scales rather than applied here, so a model
+        # given an `encoder_lr` splits each of these groups in two and keeps
+        # its own scale on both halves.
         scales = [1 / len(generators), *range(1, len(generators) + 1)]
-        for group, scale in zip(optimizer.param_groups, scales):
-            group["lr"] *= scale
-        return optimizer
+        return self.build_optimizer(
+            list(zip([predictor, *generators], scales, strict=True))
+        )
 
     def forward_one_head(
         self, data: InputData, selector_idx: int | None = None
