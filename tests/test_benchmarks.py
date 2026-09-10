@@ -597,3 +597,34 @@ def test_a_run_is_named_by_where_it_sits_not_by_its_stamp(tmp_path):
         tmp_path / task / "2026-01-01T00-00-00" / "label-studio-seed=7.json"
         for task in ("fr", "mgr")
     ]
+
+
+def test_a_benchmark_can_override_what_its_tasks_are_built_with(tmp_path):
+    """One batch and one seed, without registering a second grid.
+
+    A registered benchmark names registered tasks, and their settings are the
+    experiment. Checking that every cell of a grid holds together is not that
+    experiment, and it should not need twenty more keys to ask for.
+    """
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+
+    benchmark = Registry.from_key(
+        TOY_BENCHMARK,
+        expected_type=Benchmark,
+        save_path=str(tmp_path),
+        task_args={
+            "seeds": (0,),
+            "trainer_args": {"accelerator": "cpu", "max_epochs": 1},
+        },
+    )
+    report = benchmark.run()
+
+    assert not report["failed"]
+    assert [entry["seeds"] for entry in report["tasks"]] == [[0]]
+
+    # And the manifest says the run was overridden rather than reporting the
+    # registered configuration.
+    manifest = json.loads(
+        next(iter(sorted(tmp_path.rglob("manifest.json")))).read_text()
+    )
+    assert manifest["build_args"]["seeds"] == [0]

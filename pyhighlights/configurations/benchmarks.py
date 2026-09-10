@@ -1,6 +1,6 @@
 """Benchmark and analyzer registrations."""
 
-from typing import List, Sequence
+from typing import Any, Dict, List, Sequence
 
 from cinnamon.configuration import Configuration, Param
 from cinnamon.registry import RegistrationKey, register_class
@@ -17,6 +17,12 @@ class BenchmarkConfig(Configuration):
     name: str = Param("benchmark")
     save_path: str | None = Param(None)
     strict: bool = Param(False)
+    #: Passed to every task this benchmark builds, so a registered grid can be
+    #: run differently without registering a second one -- one batch and one
+    #: seed to check that every cell holds together, or a smaller batch for a
+    #: card that cannot fit the registered one. Each task's manifest records
+    #: what it was built with, so an overridden run says so.
+    task_args: Dict[str, Any] = Param({})
 
 
 @register_class(

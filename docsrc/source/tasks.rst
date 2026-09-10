@@ -426,6 +426,21 @@ recorded against that task and the run carries on, since an afternoon of
 training should not be lost to one bad configuration. ``strict=True`` turns
 that off where a run must be all-or-nothing.
 
+``task_args`` is handed to every task the benchmark builds, which is how a
+registered grid is run differently without registering a second one:
+
+.. code-block:: python
+
+   Registry.from_key(
+       TOY_BENCHMARK,
+       task_args={"seeds": (0,), "trainer_args": {"max_epochs": 1}},
+   ).run()
+
+One batch and one seed to check that every cell of a grid holds together, or a
+smaller batch for a card that cannot fit the registered one. A task's manifest
+records the arguments it was built with, so a run overridden this way says so
+rather than reading like the registered configuration.
+
 Analyzers
 ---------
 
