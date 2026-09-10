@@ -5,6 +5,7 @@ from typing import List, Mapping, Sequence
 import torch as th
 from cinnamon.registry import RegistrationKey, Registry
 from torchmetrics import Metric
+from torchmetrics.classification import MulticlassF1Score
 
 
 class BoundMetric(th.nn.Module):
@@ -44,6 +45,31 @@ def build_metrics(
     keys: List[RegistrationKey[BoundMetric]] | None,
 ) -> th.nn.ModuleList:
     return th.nn.ModuleList(Registry.from_keys(keys or [], expected_type=BoundMetric))
+
+
+class ClassF1Score(MulticlassF1Score):
+    """F1 of one class rather than an average over all of them.
+
+    Macro F1 over two classes is half the majority class, and on a corpus
+    where one class is 99.5% of the rows that half carries the score: a model
+    that answers "negative" to everything reports 0.50 while finding nothing.
+    Averaging is the wrong summary there -- what the run is about is the rare
+    class, so this reports it alone.
+
+    ``pos_label`` names that class. The predictor emits one logit per class,
+    which is why this is a multiclass metric restricted to one class rather
+    than ``task="binary"``: binary wants one score per sample.
+    """
+
+    def __init__(self, pos_label: int = 1, num_classes: int = 2, **kwargs):
+        kwargs.pop("average", None)
+        super().__init__(num_classes=num_classes, average="none", **kwargs)
+        if not 0 <= pos_label < num_classes:
+            raise ValueError(f"pos_label {pos_label} is not a class of {num_classes}")
+        self.pos_label = pos_label
+
+    def compute(self) -> th.Tensor:
+        return super().compute()[self.pos_label]
 
 
 class HighlightMetric(Metric):

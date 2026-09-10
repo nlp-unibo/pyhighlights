@@ -22,6 +22,7 @@ from torchmetrics import Metric
 
 from pyhighlights.configurations.keys import (
     ACCURACY,
+    CLASS_F1,
     F1,
     HIGHLIGHT_F1,
     HIGHLIGHT_IOU,
@@ -81,6 +82,23 @@ class F1Config(Configuration):
 )
 class MulticlassF1Config(F1Config):
     num_classes: int = Param(MULTICLASS_CLASSES, ge=2)
+
+
+@register_class(
+    name="torchmetric",
+    tags={"f1", "class"},
+    namespace=NAMESPACE,
+    component="pyhighlights.utility.metrics.ClassF1Score",
+)
+class ClassF1Config(Configuration):
+    """F1 of one class, for a corpus an average would flatter.
+
+    ``pos_label`` is the class the run is about -- the rare one, on a corpus
+    skewed enough for macro F1 to be mostly the majority class.
+    """
+
+    pos_label: int = Param(1, ge=0)
+    num_classes: int = Param(2, ge=2)
 
 
 class HighlightMetricConfig(Configuration):
@@ -181,6 +199,18 @@ class MulticlassF1MetricConfig(F1MetricConfig):
 
 @register_class(
     name="metric",
+    tags={"f1", "class"},
+    namespace=NAMESPACE,
+    component=BOUND_METRIC_COMPONENT,
+)
+class ClassF1MetricConfig(F1MetricConfig):
+    """Still reported as ``f1``: which F1 it is, the manifest's key says."""
+
+    metric: RegistrationKey[Metric] = Param(CLASS_F1)
+
+
+@register_class(
+    name="metric",
     tags={"f1", "highlight"},
     namespace=NAMESPACE,
     component=BOUND_METRIC_COMPONENT,
@@ -231,6 +261,8 @@ class SelectionSizeMetricConfig(SelectionRateMetricConfig):
 
 __all__: List[str] = [
     "AccuracyConfig",
+    "ClassF1Config",
+    "ClassF1MetricConfig",
     "F1Config",
     "F1MetricConfig",
     "HighlightF1Config",
