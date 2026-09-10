@@ -19,8 +19,10 @@ from pyhighlights.components.models.spp import (
 )
 from pyhighlights.components.tasks import SPPTask
 from pyhighlights.configurations.keys import (
+    FROZEN_TRANSFORMER_BACKBONE,
     GRU_FR,
     TOY,
+    TRANSFORMER_BACKBONE,
     TRANSFORMER_FR,
     TRANSFORMER_GENSPP,
     TRANSFORMER_GRAT,
@@ -143,3 +145,41 @@ def test_transformer_registrations_are_algorithm_interchangeable(monkeypatch):
     assert selector_gradient.abs().sum() > 0
     assert fr.selector_backbone.transformer.embedding.weight.grad is not None
     assert fr.predictor.predictor[-1].weight.grad is not None
+
+
+def test_a_frozen_transformer_backbone_is_a_key_of_its_own(monkeypatch):
+    """Trainability is addressable, so a study need not re-register the encoder.
+
+    ``freeze_transformer`` was always a parameter, but a parameter behind a key
+    cannot be reached from outside: build arguments reach the component a
+    caller builds, not the ones built underneath it.
+    """
+    transformers = ModuleType("transformers")
+    transformers.AutoModel = FakeAutoModel
+    monkeypatch.setitem(sys.modules, "transformers", transformers)
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+
+    frozen = Registry.from_key(FROZEN_TRANSFORMER_BACKBONE)
+    assert isinstance(frozen, TransformerBackbone)
+    assert not any(
+        parameter.requires_grad for parameter in frozen.transformer.parameters()
+    )
+
+    # The default is unchanged: fine-tuning is what a transformer arm is for.
+    trainable = Registry.from_key(TRANSFORMER_BACKBONE)
+    assert all(
+        parameter.requires_grad for parameter in trainable.transformer.parameters()
+    )
+
+    # Frozen or not, it is the same encoder: an algorithm reads it through the
+    # backbone contract and cannot tell.
+    data = InputData(
+        features=th.tensor([[1, 2, 3]]),
+        mask=th.tensor([[1.0, 1.0, 1.0]]),
+        sample_ids=th.arange(1),
+        y_true=th.tensor([0]),
+        highlight_true=th.full((1, 3), -1),
+    )
+    states = frozen.encode(data.features, data.mask)
+    assert states.shape == (1, 3, frozen.output_size)
+    assert not states.requires_grad
