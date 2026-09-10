@@ -42,7 +42,7 @@ class GRUMCDConfig(Configuration):
     predictor_backbone: RegistrationKey[SPPBackbone] = Param(GRU_BACKBONE)
     aggregator: RegistrationKey[SPPAggregator] | None = Param(None)
     temperature: float = Param(1.0, gt=0.0)
-    select_over: str = Param("word", variants=["subtoken"])
+    select_over: str = Param("word")
     rationale_losses: List[RegistrationKey[Loss]] = Param(
         [SPARSITY_LOSS, CONTIGUITY_LOSS]
     )

@@ -43,9 +43,11 @@ class SPPModelConfig(Configuration):
     temperature: float = Param(1.0, gt=0.0)
     #: A selection is made over words: the unit the corpus annotates, that a
     #: sparsity target is a fraction of, and that an export shows -- the same
-    #: unit whichever backbone read the text. ``subtoken`` is what the library
-    #: did before, kept so the two can be compared.
-    select_over: str = Param("word", variants=["subtoken"])
+    #: unit whichever backbone read the text. ``"subtoken"`` is what the
+    #: library did before, kept so the two can be compared. No ``variants``:
+    #: that would expand every model into two keys for a switch almost nobody
+    #: sweeps, and a study comparing them says so itself.
+    select_over: str = Param("word")
     losses: List[RegistrationKey[Loss]] = Param(
         [CLASSIFICATION_LOSS, SPARSITY_LOSS, CONTIGUITY_LOSS]
     )

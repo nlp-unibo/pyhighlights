@@ -69,7 +69,7 @@ class GRUGRATConfig(Configuration):
     guider: RegistrationKey[GRATGuider] = Param(GRU_GUIDER)
     aggregator: RegistrationKey[SPPAggregator] | None = Param(None)
     temperature: float = Param(1.0, gt=0.0)
-    select_over: str = Param("word", variants=["subtoken"])
+    select_over: str = Param("word")
     losses: List[RegistrationKey[Loss]] = Param(
         [CLASSIFICATION_LOSS, SPARSITY_LOSS, CONTIGUITY_LOSS, GUIDE_LOSS, JSD_LOSS]
     )
