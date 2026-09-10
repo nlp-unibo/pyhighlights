@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import abc
 import math
-from typing import Dict, List, Literal, Tuple, Union
+from typing import Any, Dict, List, Literal, Sequence, Tuple, Union
 
 import torch as th
 from cinnamon.registry import RegistrationKey, Registry
@@ -83,6 +83,7 @@ class SPP(Model[SPPOutput]):
         aggregator: RegistrationKey[SPPAggregator] | None = None,
         temperature: float = 1.0,
         select_over: Literal["word", "subtoken"] = "word",
+        encoder_lr: float | None = None,
         supervise_highlights: bool = False,
         highlight_loss: RegistrationKey[Loss] | None = None,
         highlight_coefficient: float = 1.0,
@@ -152,6 +153,16 @@ class SPP(Model[SPPOutput]):
         self.temperature = temperature
         if select_over not in ("word", "subtoken"):
             raise ValueError("select_over must be 'word' or 'subtoken'")
+        if encoder_lr is not None and not encoder_lr > 0:
+            raise ValueError("encoder_lr must be positive")
+        # One rate for the encoders and another for everything above them.
+        # Left unset a model trains as it always has: one optimizer, one rate,
+        # which is what every published implementation of these architectures
+        # does -- they encode with a GRU over a frozen table, so nothing
+        # pretrained is fine-tuned. A fine-tuned transformer is the case that
+        # needs two rates, since 1e-3 destroys a pretrained encoder and 2e-5
+        # barely moves a selector initialized from scratch.
+        self.encoder_lr = encoder_lr
         # A word is what the corpus annotates, what a sparsity target is a
         # fraction of, and what an export shows -- and it is the same unit
         # whichever backbone read the text. `subtoken` is the older behaviour,
@@ -268,6 +279,59 @@ class SPP(Model[SPPOutput]):
         spread = selection.gather(1, index)
         special = (word_ids < 0) & data.attention().bool()
         return th.where(special, th.ones_like(spread), spread * (word_ids >= 0))
+
+    def encoder_ids(self) -> set:
+        """Which parameters live inside a backbone.
+
+        ``encoder_lr`` is defined by where a parameter sits rather than by
+        whether it arrived pretrained: a backbone is the encoder, a selector,
+        predictor or guider head is not. A model encoding with a GRU has no
+        reason to set the rate at all, and if it does, it means the GRU.
+        """
+        backbones = [*self.selector_backbones, self.predictor_backbone]
+        return {
+            id(parameter)
+            for backbone in backbones
+            if backbone is not None
+            for parameter in backbone.parameters()
+        }
+
+    def build_optimizer(
+        self, groups: Sequence[Tuple[Sequence[th.nn.Parameter], float]]
+    ):
+        """The optimizer this model's key names, over the groups it asks for.
+
+        Each entry is a list of parameters and the factor its learning rate is
+        multiplied by -- MGR trains its generators at rates that differ by
+        design, and that scale is the only reason this takes one. When
+        ``encoder_lr`` is set every group is split in two: what sits inside a
+        backbone trains at that rate, everything above it at the optimizer's
+        own. Empty halves are dropped rather than passed on, since a torch
+        optimizer refuses an empty group.
+        """
+        spec: List[Tuple[Dict[str, Any], float, float | None]] = []
+        encoders = self.encoder_ids() if self.encoder_lr is not None else set()
+        for parameters, scale in groups:
+            members = list(parameters)
+            inside = [p for p in members if id(p) in encoders]
+            above = [p for p in members if id(p) not in encoders]
+            for half, rate in ((inside, self.encoder_lr), (above, None)):
+                if half:
+                    spec.append(({"params": half}, scale, rate))
+        if not spec:
+            raise ValueError(f"{self.name}: no parameter to optimize")
+
+        optimizer = Registry.from_key(
+            self.optimizer, params=[group for group, _, _ in spec]
+        )
+        # After construction, because the registration owns the base rate: a
+        # group can only be scaled once it has one.
+        for group, (_, scale, rate) in zip(optimizer.param_groups, spec):
+            group["lr"] = (group["lr"] if rate is None else rate) * scale
+        return optimizer
+
+    def configure_optimizers(self):
+        return self.build_optimizer([(self.parameters(), 1.0)])
 
     def load_embeddings(self, matrix: th.Tensor) -> None:
         """Hand the same pretrained table to every backbone.

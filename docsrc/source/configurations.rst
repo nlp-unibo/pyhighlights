@@ -41,6 +41,14 @@ the same one: the selector reads representations nothing adapted to its task.
 Two places it is the right one anyway -- an ablation, where a fine-tuned
 encoder absorbs the difference being measured, and a run bounded by memory.
 
+``backbone`` / ``{transformer, gru}`` is the third option and the one closest
+to the published architectures. FR, MCD, MGR and G-RAT all encode with a
+bidirectional GRU over a **frozen** embedding table -- GloVe in every released
+implementation -- so nothing pretrained is fine-tuned and everything trained
+starts from scratch at one learning rate. ``StackedBackbone`` keeps that shape
+with a transformer in place of the table: frozen underneath, a GRU on top.
+Between the three, what differs is where the trainable capacity sits.
+
 The classification criterion takes per-class ``weight`` values, which a
 class-imbalanced corpus needs: 106 positives in 20,417 sentences is a corpus
 answered correctly by a model that never predicts one. The weights are
@@ -70,6 +78,16 @@ the others and a batch of one class is unaffected by it.
 
 .. automodule:: pyhighlights.configurations.backbones
    :members:
+
+Every model configuration takes ``encoder_lr``, and it is ``None`` by default:
+one optimizer at one rate over the whole model, which is what every published
+implementation of these architectures does. Set it only when a pretrained
+encoder is being fine-tuned -- 1e-3 destroys one and 2e-5 barely moves a
+selector initialized from scratch, so one rate cannot serve both. Parameters
+inside a backbone train at ``encoder_lr`` -- G-RAT's guider has an encoder of
+its own and it counts as one -- and selectors, predictors and guider heads
+train at the optimizer's own rate. MGR's per-generator scaling survives the
+split: both halves of one of its groups keep that group's scale.
 
 .. automodule:: pyhighlights.configurations.losses
    :members:
