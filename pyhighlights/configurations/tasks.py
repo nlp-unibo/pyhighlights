@@ -62,6 +62,9 @@ class TaskConfig(Configuration):
     max_length: int | None = Param(None)
     vocabulary_size: int = Param(10_000, ge=2)
     pretrained_model_card: str | None = Param(None)
+    #: Keep ``[CLS]`` and ``[SEP]``. A pretrained encoder was trained reading
+    #: them; they carry no word, so a selector never sees them either way.
+    add_special_tokens: bool = Param(True)
     embeddings: str | None = Param(None)
     pretrained_tokens_only: bool = Param(True)
     monitor: str = Param("val_loss")
