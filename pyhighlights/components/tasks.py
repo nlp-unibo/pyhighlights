@@ -206,6 +206,8 @@ class SPPTask(Task):
         monitor: str = "val_loss",
         patience: int = 5,
         store_predictions: bool = False,
+        keep_checkpoints: bool = True,
+        save_weights_only: bool = False,
         faithfulness: bool = False,
         highlight_supervision: bool = False,
         highlight_loss: RegistrationKey[Loss] | None = None,
@@ -240,6 +242,17 @@ class SPPTask(Task):
         self.monitor = monitor
         self.patience = patience
         self.store_predictions = store_predictions
+        # A checkpoint holds the whole model. On a transformer grid that is
+        # hundreds of gigabytes of files nothing downstream reads: the task
+        # restores the best one itself before scoring, and an analyzer reads
+        # `results.json` and the stored predictions. Deleted after scoring
+        # rather than never written -- scoring the weights training happened
+        # to end on is a different experiment from scoring the best epoch.
+        self.keep_checkpoints = keep_checkpoints
+        # Weights without the optimizer state, which is most of a file for a
+        # fine-tuned encoder. Enough to restore and score; not enough to
+        # resume training, which nothing here does.
+        self.save_weights_only = save_weights_only
         self.faithfulness = faithfulness
         self._embedding_matrix: th.Tensor | None = None
         self.highlight_supervision = highlight_supervision
@@ -355,7 +368,10 @@ class SPPTask(Task):
         checkpoints = self.directory / f"seed={seed}"
         checkpoints.mkdir(parents=True, exist_ok=True)
         checkpoint = ModelCheckpoint(
-            monitor=self.monitor, mode="min", dirpath=checkpoints
+            monitor=self.monitor,
+            mode="min",
+            dirpath=checkpoints,
+            save_weights_only=self.save_weights_only,
         )
         trainer = L.Trainer(
             **{"default_root_dir": checkpoints, **self.trainer_args},
@@ -393,9 +409,24 @@ class SPPTask(Task):
                 state = th.load(checkpoint.best_model_path, map_location="cpu")
             model.load_state_dict(state["state_dict"])
 
-        return self.score(
+        scores = self.score(
             trainer, model, loaders, self.directory / f"predictions-seed={seed}.pkl"
         )
+        if not self.keep_checkpoints:
+            self.discard_checkpoints(checkpoints)
+        return scores
+
+    def discard_checkpoints(self, directory: Path) -> None:
+        """Delete this seed's checkpoints, now that they have been scored.
+
+        What a run is read from survives: the metrics, the manifest, the
+        stored predictions and, for a search, ``search.json``. The weights do
+        not, so a number cannot be re-derived without training again -- which
+        is the trade a grid of transformer cells makes to fit on a filesystem,
+        and why this is off by default.
+        """
+        for checkpoint in sorted(directory.glob("*.ckpt")):
+            checkpoint.unlink()
 
     def score(
         self,
@@ -514,9 +545,14 @@ class GenSPPTask(SPPTask):
             json.dumps({"training_progress": search.training_progress}, indent=2)
         )
         trainer = L.Trainer(**{"default_root_dir": directory, **self.trainer_args})
-        return self.score(
+        scores = self.score(
             trainer, model, loaders, self.directory / f"predictions-seed={seed}.pkl"
         )
+        if not self.keep_checkpoints:
+            # `search.json` stays: it is the record of how the search went,
+            # not a copy of the weights.
+            self.discard_checkpoints(directory)
+        return scores
 
 
 class ClassWeightsTask(Task):

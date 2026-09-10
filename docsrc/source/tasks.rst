@@ -70,6 +70,16 @@ What lands on disk
    │   └── epoch=3-step=128.ckpt
    └── seed=1337/…
 
+The weights are the one part of that tree nothing downstream reads: the task
+restores the best checkpoint itself before scoring, and an analyzer reads
+``results.json`` and the stored predictions. On a grid of fine-tuned
+transformer cells they are also most of the bytes -- a Legal-BERT MGR cell is
+over a gigabyte per seed. ``keep_checkpoints=False`` writes the checkpoint,
+restores it, scores, and then deletes it; ``save_weights_only`` keeps it but
+drops the optimizer state, which is only needed to resume training and no task
+resumes. Both are off by default, and the trade the first one makes is that a
+number cannot be re-scored without training again.
+
 ``<started>`` is the moment the run began, ``2026-09-09T16-13-00``. A run never
 overwrites an earlier one: two runs of the same task are two results to
 compare, and the second quietly replacing the first is a measurement lost to a
