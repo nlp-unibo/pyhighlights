@@ -10,6 +10,7 @@ from cinnamon.registry import RegistrationKey, Registry
 import pyhighlights
 from pyhighlights.configurations.keys import (
     ACCURACY_METRIC,
+    CLASS_F1_METRIC,
     F1_METRIC,
     HIGHLIGHT_F1_METRIC,
     HIGHLIGHT_IOU_METRIC,
@@ -22,6 +23,7 @@ from pyhighlights.utility.metrics import (
     BinaryHighlightF1Score,
     BinaryHighlightIoU,
     BoundMetric,
+    ClassF1Score,
     SelectionRate,
     SelectionSize,
     build_metrics,
@@ -183,3 +185,42 @@ def test_each_build_gets_its_own_metric_state():
 
     assert first.metric is not second.metric
     assert second.metric.compute().item() == pytest.approx(0.0)
+
+
+def test_class_f1_reports_the_rare_class_where_macro_reports_the_other_one():
+    """Nineteen negatives and one positive, all called negative.
+
+    Macro F1 answers 0.49 -- half of a perfect score on the class that is 95%
+    of the rows -- and the model found nothing. The class metric answers 0.0,
+    which is the number a skewed corpus is read with.
+    """
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+
+    values = {
+        "class_logits": th.tensor([[2.0, 0.0]] * 20),
+        "y_true": th.tensor([0] * 19 + [1]),
+    }
+
+    macro = Registry.from_key(F1_METRIC, expected_type=BoundMetric)
+    macro.update(values)
+    assert macro.compute().item() == pytest.approx(0.4872, abs=1e-4)
+
+    unfair = Registry.from_key(CLASS_F1_METRIC, expected_type=BoundMetric)
+    unfair.update(values)
+    # Reported under the same name: which F1 it is, the manifest's key says.
+    assert unfair.name == "f1"
+    assert unfair.compute().item() == pytest.approx(0.0)
+
+    found = Registry.from_key(CLASS_F1_METRIC, expected_type=BoundMetric)
+    found.update(
+        {
+            "class_logits": th.tensor([[2.0, 0.0]] * 19 + [[0.0, 2.0]]),
+            "y_true": th.tensor([0] * 19 + [1]),
+        }
+    )
+    assert found.compute().item() == pytest.approx(1.0)
+
+
+def test_class_f1_refuses_a_class_it_cannot_score():
+    with pytest.raises(ValueError, match="pos_label"):
+        ClassF1Score(pos_label=2, num_classes=2)
