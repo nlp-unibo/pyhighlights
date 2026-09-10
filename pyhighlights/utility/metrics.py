@@ -62,10 +62,12 @@ class ClassF1Score(MulticlassF1Score):
     """
 
     def __init__(self, pos_label: int = 1, num_classes: int = 2, **kwargs):
-        kwargs.pop("average", None)
-        super().__init__(num_classes=num_classes, average="none", **kwargs)
         if not 0 <= pos_label < num_classes:
             raise ValueError(f"pos_label {pos_label} is not a class of {num_classes}")
+        # `average` is not forwarded: passing one raises rather than being
+        # ignored, since a caller who asks for an average is asking for the
+        # metric this one exists to replace.
+        super().__init__(num_classes=num_classes, average="none", **kwargs)
         self.pos_label = pos_label
 
     def compute(self) -> th.Tensor:
