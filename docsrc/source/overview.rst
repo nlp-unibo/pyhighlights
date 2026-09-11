@@ -33,7 +33,7 @@ which is what every architecture below is a different answer to.
 The architectures
 -----------------
 
-All six are registered for both a GRU and a Transformer backbone. The
+All seven are registered for both a GRU and a Transformer backbone. The
 algorithms never mention either: a backbone is anything implementing
 ``encode`` / ``pool`` / ``output_size``, and swapping one for the other is a
 key, not a code change.
@@ -60,6 +60,15 @@ ratio restrains the predictor's Lipschitz constant, so it cannot overfit the
 uninformative text an untrained selector hands it, and the restraint relaxes on
 its own as the selection settles. Liu et al., KDD 2023.
 
+**MRD** — maximizing the remaining discrepancy. Rather than asking the
+highlight to predict the label, which a spurious feature answers just as well,
+it asks what is left once the highlight is removed to stop looking like the
+whole input: removing plain noise or a spurious feature leaves the remainder's
+conditional distribution unchanged, and only the causal features move it. The
+predictor is therefore trained on the complement and on the full input, never
+on the highlight, and the generator maximizes the divergence between those two
+predictions. Liu et al., NeurIPS 2024.
+
 **G-RAT** — guider-regularized, staged. A soft attention classifier over the
 full input is pretrained and keeps training alongside the rationalizer; its
 attention supervises the selection and its predictions are matched in
@@ -70,7 +79,7 @@ search over generator parameters scores each candidate by training a fresh
 predictor on it, which removes the cooperative equilibrium the others have to
 fight. Ruggeri and Signorelli, ACL 2025.
 
-The interlocking problem those six circle around is this: the selector and the
+The interlocking problem those seven circle around is this: the selector and the
 predictor are trained together, so a selector that has settled on the wrong
 words trains a predictor to read the wrong words, which then reports that the
 wrong words were the right ones. Every architecture above is a different way of

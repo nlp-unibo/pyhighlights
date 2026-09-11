@@ -105,7 +105,7 @@ def test_transformer_registrations_are_algorithm_interchangeable(monkeypatch):
         Registry.from_key(TRANSFORMER_MRD),
         Registry.from_key(TRANSFORMER_GRAT),
     ]
-    fr, dr, genspp, mgr, mcd, grat = models
+    fr, dr, genspp, mgr, mcd, mrd, grat = models
     assert isinstance(fr, FR)
     assert isinstance(dr, DR)
     assert isinstance(genspp, GenSPP)
@@ -142,7 +142,7 @@ def test_transformer_registrations_are_algorithm_interchangeable(monkeypatch):
         y_true=th.tensor([0, 1]),
         highlight_true=th.full((2, 4), -1),
     )
-    expected_heads = (1, 1, 1, 3, 1, 1)
+    expected_heads = (1, 1, 1, 3, 1, 1, 1)
     for model, heads in zip(models, expected_heads):
         output = model(batch)
         assert output.class_logits.shape == (2, heads, 2)
