@@ -140,6 +140,12 @@ class DAR(SPP):
         for epoch in range(self.pretrain_epochs):
             total = 0.0
             batches = 0
+            # A distributed sampler shards by epoch and is told which one by
+            # the loop that owns it. This loop owns these epochs, so without
+            # this every one of them is the same shard in the same order.
+            sampler = getattr(loader, "sampler", None)
+            if hasattr(sampler, "set_epoch"):
+                sampler.set_epoch(epoch)
             for batch in loader:
                 batch = self.transfer_batch_to_device(batch, self.device, 0)
                 optimizer.zero_grad()

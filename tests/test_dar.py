@@ -21,6 +21,7 @@ from pyhighlights.components.tasks import SPPTask
 from pyhighlights.configurations.keys import (
     ALIGNMENT_CLASSIFICATION_LOSS,
     GRU_DAR,
+    HIGHLIGHT_LOSS,
     TOY,
 )
 
@@ -200,3 +201,22 @@ def test_the_aligner_reads_the_highlight_and_not_the_rest(tmp_path):
         assert th.allclose(
             model.align_full(batch), model.align(batch, th.ones_like(keep_first))
         )
+
+
+def test_supervision_reaches_a_model_that_appends_a_term_of_its_own():
+    """DAR adds the alignment term to `losses` after the base class is done.
+
+    Highlight supervision appends to the same list and remembers where it put
+    it, so the two appends have to coexist: the guided run is the ceiling the
+    unsupervised one is measured against, and a model that quietly dropped
+    either term would report a number nobody can read as wrong.
+    """
+    model = Registry.from_key(
+        GRU_DAR, supervise_highlights=True, highlight_loss=HIGHLIGHT_LOSS
+    )
+    names = [loss.name for loss in model.losses]
+
+    assert "highlight" in names and "alignment_classification" in names
+    assert model.losses[model.supervised].name == "highlight"
+    total, losses = model.compute_loss(batch_of(), model(batch_of()))
+    assert "alignment_classification" in losses and "highlight" in losses
