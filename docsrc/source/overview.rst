@@ -33,7 +33,7 @@ which is what every architecture below is a different answer to.
 The architectures
 -----------------
 
-All five are registered for both a GRU and a Transformer backbone. The
+All six are registered for both a GRU and a Transformer backbone. The
 algorithms never mention either: a backbone is anything implementing
 ``encode`` / ``pool`` / ``output_size``, and swapping one for the other is a
 key, not a code change.
@@ -53,6 +53,13 @@ predictor reading everything guides the generator: a highlight that
 d-separates the label from the rest of the input makes the two predictions
 agree. Liu et al., NeurIPS 2023.
 
+**DR** — decoupled rationalization. The two halves train at rates that differ
+by design: the selector at the optimizer's own, the predictor at that rate
+times the fraction of the input the selection kept, rewritten every batch. That
+ratio restrains the predictor's Lipschitz constant, so it cannot overfit the
+uninformative text an untrained selector hands it, and the restraint relaxes on
+its own as the selection settles. Liu et al., KDD 2023.
+
 **G-RAT** — guider-regularized, staged. A soft attention classifier over the
 full input is pretrained and keeps training alongside the rationalizer; its
 attention supervises the selection and its predictions are matched in
@@ -63,7 +70,7 @@ search over generator parameters scores each candidate by training a fresh
 predictor on it, which removes the cooperative equilibrium the others have to
 fight. Ruggeri and Signorelli, ACL 2025.
 
-The interlocking problem those five circle around is this: the selector and the
+The interlocking problem those six circle around is this: the selector and the
 predictor are trained together, so a selector that has settled on the wrong
 words trains a predictor to read the wrong words, which then reports that the
 wrong words were the right ones. Every architecture above is a different way of
