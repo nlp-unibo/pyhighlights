@@ -23,6 +23,7 @@ from pyhighlights.components.models.spp.implementations import (
 )
 from pyhighlights.components.models.spp.mcd import MCD
 from pyhighlights.components.models.spp.mgr import MGR
+from pyhighlights.components.models.spp.mrd import MRD
 
 __all__ = [
     "AttentionGuider",
@@ -36,6 +37,7 @@ __all__ = [
     "StackedBackbone",
     "MCD",
     "MGR",
+    "MRD",
     "MLPPredictor",
     "MLPSelector",
     "SPPAggregator",

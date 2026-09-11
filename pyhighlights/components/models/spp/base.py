@@ -409,6 +409,18 @@ class SPP(Model[SPPOutput]):
             data=data, highlight_mask=th.ones_like(self.selection_valid(data))
         )
 
+    def predict_complement(
+        self, data: InputData, highlight_mask: th.Tensor
+    ) -> th.Tensor:
+        """Class logits from everything the selection left behind.
+
+        The other half of what a select-then-predict model reads. A highlight
+        covering every valid token leaves nothing here, which the backbones
+        pool to zeros -- an honest reading of a model that kept everything.
+        """
+        valid = self.selection_valid(data).to(highlight_mask.dtype)
+        return self.predict(data=data, highlight_mask=valid * (1 - highlight_mask))
+
     def faithfulness(
         self, input_data: InputData, output_data: SPPOutput
     ) -> Dict[str, th.Tensor]:
@@ -437,8 +449,7 @@ class SPP(Model[SPPOutput]):
         on_highlight = probability(head.class_logits, predicted)
         on_full = probability(self.predict_full(input_data), predicted)
         on_complement = probability(
-            self.predict(data=input_data, highlight_mask=valid * (1 - highlight)),
-            predicted,
+            self.predict_complement(input_data, highlight), predicted
         )
         return {
             "sufficiency": on_full - on_highlight,
