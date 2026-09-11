@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 import torch as th
 from cinnamon.registry import RegistrationKey, Registry
+from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 
 import pyhighlights
 from pyhighlights.components.tasks import (
@@ -16,9 +17,12 @@ from pyhighlights.components.tasks import (
 )
 from pyhighlights.configurations.keys import (
     CLASS_WEIGHTS,
+    GENERALIZATION_LOSS_SCORE,
     GRU_FR,
     GRU_GENSPP,
     LEAKAGE_REMOVER,
+    SCORE_CHECKPOINT,
+    SCORE_EARLY_STOPPING,
     TOY,
     TOY_GENSPP_TASK,
     TOY_GENSPP_TRAINER,
@@ -114,7 +118,7 @@ def test_a_task_runs_without_a_validation_split(tmp_path):
         name="no-val",
         save_path=str(tmp_path),
         batch_size=8,
-        monitor="train_loss",
+        callbacks=[],
         trainer_args={"accelerator": "cpu", "max_epochs": 1},
     )
     # A corpus split in two: nothing monitors validation, and the last epoch
@@ -373,3 +377,40 @@ def test_weights_only_checkpoints_still_restore_the_best_epoch(tmp_path):
     assert "state_dict" in state
     assert "optimizer_states" not in state
     assert results["summary"]
+
+
+def test_a_run_can_be_monitored_by_a_combined_score(tmp_path):
+    """End to end: the criterion logs, and both callbacks read what it wrote.
+
+    The point of one quantity is that the epoch which stops a run is the epoch
+    the run is scored on. Two quantities cannot promise that.
+    """
+    build_registry()
+    task = SPPTask(
+        loader=TOY,
+        model=GRU_FR,
+        val_metrics=BINARY_METRICS,
+        test_metrics=BINARY_METRICS,
+        name="scored",
+        save_path=str(tmp_path),
+        batch_size=8,
+        callbacks=[
+            GENERALIZATION_LOSS_SCORE,
+            SCORE_EARLY_STOPPING,
+            SCORE_CHECKPOINT,
+        ],
+        trainer_args={"accelerator": "cpu", "max_epochs": 2},
+    )
+
+    built = task.build_callbacks(tmp_path)
+    stopping = next(item for item in built if isinstance(item, EarlyStopping))
+    checkpoint = next(item for item in built if isinstance(item, ModelCheckpoint))
+    assert stopping.monitor == checkpoint.monitor == "val_score"
+    assert stopping.mode == checkpoint.mode == "max"
+
+    results = task.fit(seed=0, loaders=task.loaders(task.splits()))
+
+    assert "test_f1" in results
+    # The criterion has to have logged, or the callbacks monitored nothing and
+    # the run was silently scored on its last epoch.
+    assert list(tmp_path.glob("*.ckpt")) or list(tmp_path.rglob("*.ckpt"))

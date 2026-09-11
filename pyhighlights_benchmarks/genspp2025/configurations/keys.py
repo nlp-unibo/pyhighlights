@@ -57,3 +57,8 @@ HATEXPLAIN_MCD_TASK = key("task", "mcd", "hatexplain")
 HATEXPLAIN_GRAT_TASK = key("task", "grat", "hatexplain")
 HATEXPLAIN_GENSPP_TASK = key("task", "genspp", "hatexplain")
 HATEXPLAIN_BENCHMARK = key("benchmark", "hatexplain")
+
+#: The paper waits thirty epochs before giving up on a five-hundred-epoch
+#: budget, which is the reproduction's policy rather than the library's.
+PAPER_EARLY_STOPPING = key("callback", "early_stopping")
+PAPER_CHECKPOINT = key("callback", "checkpoint")

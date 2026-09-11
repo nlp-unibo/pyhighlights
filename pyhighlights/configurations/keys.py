@@ -95,3 +95,12 @@ TRANSFORMER_MGR = key("model", "mgr", "transformer")
 TRANSFORMER_MRD = key("model", "mrd", "transformer")
 TRANSFORMER_MCD = key("model", "mcd", "transformer")
 TRANSFORMER_GRAT = key("model", "grat", "transformer")
+
+#: What a run is monitored by. A study configures these the way it configures
+#: its losses: early stopping and checkpointing on the same quantity, and a
+#: criterion that turns two quantities into the one they have to agree on.
+LOSS_EARLY_STOPPING = key("callback", "early_stopping", "loss")
+LOSS_CHECKPOINT = key("callback", "checkpoint", "loss")
+SCORE_EARLY_STOPPING = key("callback", "early_stopping", "score")
+SCORE_CHECKPOINT = key("callback", "checkpoint", "score")
+GENERALIZATION_LOSS_SCORE = key("callback", "score", "generalization_loss")

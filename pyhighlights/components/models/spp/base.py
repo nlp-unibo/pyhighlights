@@ -70,6 +70,16 @@ class SPPFirstAggregator(SPPAggregator):
 
 
 class SPP(Model[SPPOutput]):
+    #: Training epochs this model spends before the monitored model learns.
+    #:
+    #: Zero for every architecture whose first optimizer step happens in the
+    #: first epoch. G-RAT overrides it: it gates the rationalizer on
+    #: ``current_epoch >= pretrain_epochs``, so its early epochs train a guider
+    #: and leave the thing a monitor watches untouched. Read by the monitoring
+    #: callbacks, which is why it lives on the model -- a task repeating the
+    #: number is a second place for it to disagree.
+    warmup_epochs: int = 0
+
     def __init__(
         self,
         selector_backbones: Union[

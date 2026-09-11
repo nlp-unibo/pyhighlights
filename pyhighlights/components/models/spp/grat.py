@@ -138,6 +138,18 @@ class GRAT(SPP):
         self.automatic_optimization = False
 
     @property
+    def warmup_epochs(self) -> int:
+        """The guider's pretraining, which the rationalizer sits out.
+
+        ``training_step`` gates the model's optimizer on
+        ``current_epoch >= pretrain_epochs``, so until then the monitored
+        quantities describe a model that has taken no step. Monitoring from
+        epoch zero stopped two of five seeds of the legal study's frozen arm
+        inside this window.
+        """
+        return int(self.pretrain_epochs)
+
+    @property
     def guide_factor(self) -> float:
         completed_decay_steps = max(self._model_steps.item() - 1, 0)
         return max(1.0 - completed_decay_steps * self.guide_decay, 0.0)

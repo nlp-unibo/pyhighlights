@@ -20,9 +20,8 @@ Registered with ``run_method="run"``, so ``cmn-run`` drives the same task from
 the command line.
 
 Anything decided before a run is a parameter of
-:class:`~pyhighlights.configurations.tasks.TaskConfig` — the monitored metric,
-the patience, the vector file, whether predictions and faithfulness are
-reported — so a key records what was asked for rather than the part of it
+:class:`~pyhighlights.configurations.tasks.TaskConfig` — what monitors the run,
+the vector file, whether predictions and faithfulness are reported — so a key records what was asked for rather than the part of it
 somebody remembered to register. The kwargs above override a key at build time;
 they are not the only way to set a value. A value a run *computes* cannot be a
 parameter at all: the embedding matrix is fitted against the training split and
@@ -44,8 +43,8 @@ For each seed, in order:
    a select-then-predict model trained through a discrete choice lands
    somewhere different every time, and the spread across seeds is part of the
    result.
-2. Train with early stopping on ``monitor`` (``val_loss`` by default) and a
-   checkpoint of the best epoch.
+2. Train under the ``callbacks`` the task names — early stopping and a
+   checkpoint of the best epoch, both on ``val_loss`` by default.
 3. **Restore that checkpoint before scoring.** Early stopping returns after
    ``patience`` worse epochs, so the weights still in memory are not the ones
    anybody would keep.
@@ -105,9 +104,10 @@ used:
                   "cinnamon-core": "2.0.3", "torch": "2.14.0",
                   "lightning": "2.6.5"},
      "settings": {
-       "patience": 5,
+       "callbacks": [{"@key": "name=callback--tags=['early_stopping','loss']--namespace=pyhighlights",
+                      "monitor": "val_loss", "patience": 5}],
        "model": {
-         "key": "name=model--tags=['fr', 'gru']--namespace=pyhighlights",
+         "@key": "name=model--tags=['fr', 'gru']--namespace=pyhighlights",
          "selector_backbones": {"hidden_size": 128, "bidirectional": true},
          "losses": [{"name": "sparsity", "loss": {"threshold": 0.15}}],
          "optimizer": {"lr": 0.001}
@@ -539,6 +539,9 @@ belongs to whoever is writing the paper.
 API
 ---
 
+.. automodule:: pyhighlights.components.callbacks
+   :members:
+
 .. automodule:: pyhighlights.components.tasks
    :members:
    :show-inheritance:
@@ -559,6 +562,9 @@ API
    :show-inheritance:
 
 .. automodule:: pyhighlights.configurations.benchmarks
+   :members:
+
+.. automodule:: pyhighlights.configurations.callbacks
    :members:
 
 .. automodule:: pyhighlights.configurations.tasks

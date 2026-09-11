@@ -67,7 +67,14 @@ def test_the_released_hyperparameters_are_what_is_registered():
     task = Registry.from_key(TOY_FR_TASK)
     assert task.seeds == SEEDS == [2023, 15451, 1337, 2001, 2080]
     assert task.batch_size == 64
-    assert task.patience == 30
+    # The paper's patience is the reproduction's own registration, not the
+    # library's default of five.
+    (stopping,) = [
+        Registry.retrieve_configuration(registration_key=key)
+        for key in task.callbacks
+        if "early_stopping" in key.tags
+    ]
+    assert stopping.patience == 30
     assert task.trainer_args["max_epochs"] == 500
 
     # Three generators, and the baselines' hidden sizes: 8 for toy, 16 for
