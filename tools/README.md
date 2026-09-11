@@ -32,7 +32,7 @@ manifest reconstructs its own splits.
 | `pyhighlights-r2a-beer-splits-v1.zip` | split manifests for `beer0/1/2` | CC-BY-4.0 — no review text |
 | `pyhighlights-r2a-hotel-splits-v1.zip` | split manifests for the three Hotel aspects | CC-BY-4.0 — no review text |
 | `pyhighlights-eraser-movies-splits-v1.zip` | split manifest for ERASER `movies` | CC-BY-4.0 — no document text |
-| `pyhighlights-genspp-toy-v1.zip` + `toy_dataset.pkl` | the complete released toy corpus | CC-BY-4.0, set by both GenSPP authors |
+| `pyhighlights-genspp-toy-v1.zip` | the complete released toy corpus | CC-BY-4.0, set by both GenSPP authors |
 
 A manifest holds the upstream row indices each split retains after the
 zero-leakage repair, the source URL and SHA-256, distributed and retained
@@ -58,5 +58,5 @@ is what a reviewer checks a run against.
 
 ## `ZENODO.md`
 
-Paste-ready metadata for the four Zenodo records — title, licence, keywords,
+The published metadata for the four Zenodo records, and their DOIs — title, licence, keywords,
 related identifiers, description — and the loader defaults the DOIs unlock.

@@ -7,11 +7,13 @@ import pyhighlights
 from pyhighlights.components.leakage import LeakageDetector, duplicates, leakage
 from pyhighlights.components.loaders import HotelLoader
 from pyhighlights.configurations.keys import LEAKAGE_DETECTOR
-from tests.corpora import r2a
+from tests.corpora import UNPINNED, r2a
 
 
 def hotel_splits(tmp_path: Path):
-    return HotelLoader(url=r2a(tmp_path), directory=tmp_path / "cache").load()
+    return HotelLoader(
+        url=r2a(tmp_path), directory=tmp_path / "cache", **UNPINNED
+    ).load()
 
 
 def test_report_gives_the_share_of_each_split_already_seen(tmp_path):

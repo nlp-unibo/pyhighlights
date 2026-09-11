@@ -17,6 +17,9 @@ from pyhighlights.components.data import (
 from pyhighlights.utility.io import cache_directory, download, extract
 
 R2A_URL = "https://people.csail.mit.edu/yujia/files/r2a/data.zip"
+#: The release the split manifests on Zenodo were built against. Pinned so a
+#: reproduction fails loudly on a changed upstream rather than training on it.
+R2A_SHA256 = "23fcb4cac883ec1de86d83a7747294d7fdae10061d3803fd4c34c930e66f25de"
 BEER_TASKS = ("beer0", "beer1", "beer2")
 HOTEL_TASKS = ("hotel_Location", "hotel_Service", "hotel_Cleanliness")
 R2A_TASKS = BEER_TASKS + HOTEL_TASKS
@@ -109,6 +112,15 @@ class R2ALoader(HighlightLoader):
     default ``remove_leakage=True`` drops the offending training and
     validation rows, keeping the annotated split whole; ``False`` reproduces
     the release as distributed, leakage included.
+
+    The repaired splits are published as manifests, so a reader can check a run
+    against the rows it should have seen rather than take the repair on trust:
+    Beer at `10.5281/zenodo.22703544
+    <https://doi.org/10.5281/zenodo.22703544>`_ and Hotel at
+    `10.5281/zenodo.22711382 <https://doi.org/10.5281/zenodo.22711382>`_. They
+    are a receipt rather than an input -- ``sha256`` pins the upstream archive
+    and the repair is deterministic, so the splits come out the same without
+    fetching either.
     """
 
     TASKS = R2A_TASKS
@@ -118,7 +130,7 @@ class R2ALoader(HighlightLoader):
         task: str = "hotel_Location",
         splits: Mapping[str, str] | None = None,
         url: str = R2A_URL,
-        sha256: str | None = None,
+        sha256: str | None = R2A_SHA256,
         archive_name: str = "r2a.zip",
         **kwargs,
     ):
@@ -365,6 +377,10 @@ class ERASERLoader(HighlightLoader):
 
     URL = "https://www.eraserbenchmark.com/zipped/{task}.tar.gz"
     TASKS = ("movies",)
+    #: The archive the ``movies`` split manifest was built against. The
+    #: benchmark publishes no digest of its own. One constant serves because
+    #: :attr:`TASKS` is one task; a second would want this keyed by task.
+    SHA256 = "66e18d4e6c9df9e9f5544572b0bfe92a39673f74ecbfc3859b46cedb2f5b2dee"
     QUERY_TASKS = (
         "boolq",
         "esnli",
@@ -380,7 +396,7 @@ class ERASERLoader(HighlightLoader):
         task: str = "movies",
         splits: Mapping[str, str] | None = None,
         url: str = URL,
-        sha256: str | None = None,
+        sha256: str | None = SHA256,
         **kwargs,
     ):
         super().__init__(**kwargs)

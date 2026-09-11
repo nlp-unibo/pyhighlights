@@ -16,11 +16,13 @@ from pyhighlights.components.loaders import (
     to_examples,
 )
 from pyhighlights.configurations.keys import BEER, HATEXPLAIN, HOTEL, MOVIES, TOY
-from tests.corpora import eraser, hatexplain, r2a
+from tests.corpora import UNPINNED, eraser, hatexplain, r2a
 
 
 def hotel(tmp_path: Path, **kwargs) -> HotelLoader:
-    return HotelLoader(url=r2a(tmp_path), directory=tmp_path / "cache", **kwargs)
+    return HotelLoader(
+        url=r2a(tmp_path), directory=tmp_path / "cache", **UNPINNED, **kwargs
+    )
 
 
 def test_r2a_downloads_once_and_parses_the_standard_columns(tmp_path):
@@ -51,7 +53,10 @@ def test_r2a_downloads_once_and_parses_the_standard_columns(tmp_path):
 
 
 def test_beer_and_hotel_accept_only_their_own_aspects(tmp_path):
-    assert BeerLoader(url=r2a(tmp_path), directory=tmp_path / "b").task == "beer0"
+    assert (
+        BeerLoader(url=r2a(tmp_path), directory=tmp_path / "b", **UNPINNED).task
+        == "beer0"
+    )
     assert hotel(tmp_path).task == "hotel_Location"
 
     with pytest.raises(ValueError, match="task must be one of"):

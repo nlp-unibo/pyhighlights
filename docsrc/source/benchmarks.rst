@@ -86,11 +86,15 @@ yourself, so the task takes a path rather than a URL::
 
     Registry.from_key(HATEXPLAIN_FR_TASK, embeddings="glove.twitter.27B.25d.txt")
 
-**The toy corpus.** ``GenSPPToyLoader`` has no download URL yet — the artifact
-is built but not published — so pass ``url=`` with a local
-``toy_dataset.pkl``. Without one it refuses rather than synthesising a corpus
-of the same shape but different content, which
-:class:`~pyhighlights.components.loaders.ToyLoader` would happily do.
+**The toy corpus.** ``GenSPPToyLoader`` fetches the published artifact,
+`10.5281/zenodo.22711449 <https://doi.org/10.5281/zenodo.22711449>`_, released
+under CC-BY-4.0 by both authors of the paper, and verifies its digest before
+reading. The record holds the artifact rather than a loose pickle, since the
+artifact is what carries the manifest, the licence and the citation alongside
+the data; the loader unpacks it. Pass ``url=`` to read a local copy of the
+archive or a local ``toy_dataset.pkl`` instead. With ``url=None`` it refuses
+rather than synthesising a corpus of the same shape but different content,
+which :class:`~pyhighlights.components.loaders.ToyLoader` would happily do.
 
 Where this is not the paper
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -1,12 +1,24 @@
-# Zenodo upload — paste-ready
+# Zenodo upload — published
 
-Four artifacts, **all four ready to publish**. Everything below is meant
-to be pasted into <https://zenodo.org/uploads/new>. Files are in `dist/`.
+**All four records are live**, published 2026-09-11. Each published file is
+byte-identical to `dist/`, checked against the md5 Zenodo reports.
 
-Reserve a DOI on each record before publishing (Zenodo's *Reserve DOI* button):
-the reserved DOI can go into the pyhighlights docs in the same pass, and a
-Zenodo record is versioned, so `v2` of an artifact keeps a concept DOI that
-points at the newest.
+| artifact | version DOI | concept DOI |
+|---|---|---|
+| Beer | [10.5281/zenodo.22703544](https://doi.org/10.5281/zenodo.22703544) | `10.5281/zenodo.22703543` |
+| Hotel | [10.5281/zenodo.22711382](https://doi.org/10.5281/zenodo.22711382) | `10.5281/zenodo.22711381` |
+| Movies | [10.5281/zenodo.22711411](https://doi.org/10.5281/zenodo.22711411) | `10.5281/zenodo.22711410` |
+| GenSPP toy | [10.5281/zenodo.22711449](https://doi.org/10.5281/zenodo.22711449) | `10.5281/zenodo.22711448` |
+
+**Cite the version DOI in code, the concept DOI in prose.** A default URL baked
+into a loader has to name the version record, because the digest beside it pins
+those exact bytes and the concept DOI resolves to whatever is newest. A paper
+that means "this dataset" wants the concept DOI.
+
+The metadata below is what was published, kept as the record of it and as the
+starting point for any `v2`. Zenodo cannot edit the files of a published
+record: adding or replacing one means a new version, which gets its own version
+DOI under the same concept DOI.
 
 Shared fields for all four:
 
@@ -53,7 +65,7 @@ not who made the corpus it is about.
 
 ---
 
-## 1. `pyhighlights-r2a-beer-splits-v1.zip` — publish now
+## 1. `pyhighlights-r2a-beer-splits-v1.zip` — [10.5281/zenodo.22703544](https://doi.org/10.5281/zenodo.22703544)
 
 **Title**
 
@@ -104,7 +116,7 @@ leakage, reproducibility, BeerAdvocate, R2A, pyhighlights
 
 ---
 
-## 2. `pyhighlights-r2a-hotel-splits-v1.zip` — publish now
+## 2. `pyhighlights-r2a-hotel-splits-v1.zip` — [10.5281/zenodo.22711382](https://doi.org/10.5281/zenodo.22711382)
 
 **Title**
 
@@ -150,7 +162,7 @@ leakage, reproducibility, TripAdvisor, R2A, pyhighlights
 
 ---
 
-## 3. `pyhighlights-eraser-movies-splits-v1.zip` — publish now
+## 3. `pyhighlights-eraser-movies-splits-v1.zip` — [10.5281/zenodo.22711411](https://doi.org/10.5281/zenodo.22711411)
 
 **Title**
 
@@ -198,15 +210,19 @@ spans, data leakage, reproducibility, ERASER, pyhighlights
 
 ---
 
-## 4. `pyhighlights-genspp-toy-v1.zip` + `toy_dataset.pkl` — publish now
+## 4. `pyhighlights-genspp-toy-v1.zip` — [10.5281/zenodo.22711449](https://doi.org/10.5281/zenodo.22711449)
 
 The one artifact that redistributes a dataset rather than indexing one, so it
 is the one whose licence is the authors' to set. Both have agreed.
 
-**Upload both files to this one record.** Zenodo serves each file of a record
-at its own URL, and `GenSPPToyLoader` reads a pickle rather than an archive, so
-the loader's default URL has to name `toy_dataset.pkl` directly; the zip is
-there for a human who wants the README and manifest beside it.
+**This record holds the archive alone.** The plan had been to upload the loose
+`toy_dataset.pkl` beside it, because `GenSPPToyLoader` read a pickle rather
+than an archive and Zenodo serves each file of a record at its own URL. It was
+published with the zip only, and the loader was taught to unpack instead —
+which is the better end anyway: the artifact carries the manifest, the licence
+and the citation alongside the data, and a loose pickle carries none of them.
+`dist/toy_dataset.pkl` is therefore not uploaded, and is kept only as the
+verified input to the build.
 
 **Title**
 
@@ -273,22 +289,22 @@ synthetic corpus, reproducibility, GenSPP, pyhighlights
 
 ---
 
-## After the DOIs exist
+## What the library does with them — done
 
-Two one-line library changes, and no new machinery:
+1. `R2ALoader.__init__` defaults `sha256` to `R2A_SHA256`,
+   `23fcb4cac883ec1de86d83a7747294d7fdae10061d3803fd4c34c930e66f25de`.
+2. `ERASERLoader.SHA256` is
+   `66e18d4e6c9df9e9f5544572b0bfe92a39673f74ecbfc3859b46cedb2f5b2dee` and is
+   the `sha256` default. One constant serves because `TASKS` is one task; a
+   second would want it keyed by task.
+3. `GenSPPToyLoader.URL` names the toy record's archive and `SHA256` pins it.
+   `download()` unpacks a zip and returns the member; a local archive or a
+   local `toy_dataset.pkl` still works, and `url=None` still refuses rather
+   than synthesising a different corpus.
 
-1. `R2ALoader.__init__` — `sha256: str | None = R2A_SHA256` with
-   `R2A_SHA256 = "23fcb4cac883ec1de86d83a7747294d7fdae10061d3803fd4c34c930e66f25de"`.
-2. `ERASERLoader.__init__` — `sha256: str | None = MOVIES_SHA256` with
-   `66e18d4e6c9df9e9f5544572b0bfe92a39673f74ecbfc3859b46cedb2f5b2dee`. Note
-   this is per-task, so it belongs beside `TASKS` rather than as one constant
-   if a second task is ever supported.
-3. Once the toy record is published: `GenSPPToyLoader.URL` becomes
-   `https://zenodo.org/records/<id>/files/toy_dataset.pkl?download=1` and
-   `sha256` defaults to
-   `2ee223d8aecd6ee9a585aa695a6fd5fd6f4c10c39fe6046ffb833d7ab44fb064`. The
-   `url is None` refusal in `download()` stays — a user pointing at a local
-   pickle is still supported.
+Both pins are opt-out: pass `sha256=None` to skip verification, which is what
+the test fixtures do, since they build stand-in corpora rather than the pinned
+releases.
 
 **No loader reads a manifest, and none needs to.** Pinning the upstream digest
 plus a deterministic `remove_leakage` already yields the same splits on any
@@ -296,6 +312,5 @@ machine; the manifests are the published receipt that says which rows those
 are, and what a reviewer checks a run against. A manifest-fetching code path
 would be machinery for a guarantee the pin already gives.
 
-Then update `docsrc/source/datasets.rst` and `docsrc/source/benchmarks.rst`
-with the DOIs — `benchmarks.rst:89` currently says the toy loader has no
-download URL yet.
+`docsrc/source/datasets.rst` and `docsrc/source/benchmarks.rst` carry the DOIs
+and the pinned digests.

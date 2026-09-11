@@ -23,13 +23,15 @@ from pyhighlights.configurations.keys import (
     LEAKAGE_REMOVER,
     PIPELINE,
 )
-from tests.corpora import hatexplain, r2a
+from tests.corpora import UNPINNED, hatexplain, r2a
 
 HATEXPLAIN_LABELS = ("hatespeech", "normal", "offensive")
 
 
 def hotel_splits(tmp_path: Path):
-    return HotelLoader(url=r2a(tmp_path), directory=tmp_path / "cache").load()
+    return HotelLoader(
+        url=r2a(tmp_path), directory=tmp_path / "cache", **UNPINNED
+    ).load()
 
 
 def aggregator(**kwargs) -> AnnotationAggregator:
