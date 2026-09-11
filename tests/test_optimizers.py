@@ -15,6 +15,7 @@ from cinnamon.registry import Registry
 
 import pyhighlights
 from pyhighlights.configurations.keys import (
+    GRU_DAR,
     GRU_DR,
     GRU_FR,
     GRU_GRAT,
@@ -121,7 +122,9 @@ def test_a_rate_that_cannot_train_anything_is_refused():
         Registry.from_key(GRU_FR, encoder_lr=0.0)
 
 
-@pytest.mark.parametrize("key", [GRU_DR, GRU_FR, GRU_MCD, GRU_MGR, GRU_MRD, GRU_GRAT])
+@pytest.mark.parametrize(
+    "key", [GRU_DAR, GRU_DR, GRU_FR, GRU_MCD, GRU_MGR, GRU_MRD, GRU_GRAT]
+)
 def test_every_architecture_accepts_an_encoder_rate(key):
     """MCD and G-RAT declare the shared field set instead of inheriting it.
 

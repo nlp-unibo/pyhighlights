@@ -386,17 +386,31 @@ class SPP(Model[SPPOutput]):
 
         return highlight_logits, highlight_mask
 
-    def predict(self, data: InputData, highlight_mask: th.Tensor) -> th.Tensor:
+    def predict(
+        self,
+        data: InputData,
+        highlight_mask: th.Tensor,
+        backbone: SPPBackbone | None = None,
+        predictor: SPPPredictor | None = None,
+    ) -> th.Tensor:
+        """Class logits from the selection, read by the model's predictor.
+
+        ``backbone`` and ``predictor`` name a different pair to read it with.
+        DAR has a second one beside the predictor, and reading a selection is
+        the same operation whichever pair does it.
+        """
+        backbone = self.predictor_backbone if backbone is None else backbone
+        predictor = self.predictor if predictor is None else predictor
         selection = self.selection_valid(data).to(highlight_mask.dtype) * highlight_mask
         # Onto the axis the encoder reads, where a special token is always
         # attended and a dropped word is gone in every piece of itself.
         prediction_mask = self.to_subtokens(selection, data)
         attention = data.attention().to(prediction_mask.dtype)
-        states = self.predictor_backbone.encode(
+        states = backbone.encode(
             data.features, attention, selection_mask=prediction_mask
         )
-        pooled = self.predictor_backbone.pool(states, attention * prediction_mask)
-        return self.predictor(pooled)
+        pooled = backbone.pool(states, attention * prediction_mask)
+        return predictor(pooled)
 
     def predict_full(self, data: InputData) -> th.Tensor:
         """Class logits from the whole input, with nothing selected away.
