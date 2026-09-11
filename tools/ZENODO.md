@@ -12,9 +12,10 @@ Shared fields for all four:
 
 - **Resource type:** Dataset
 - **Version:** `v1`
-- **Licence:** CC0-1.0 for the three manifest artifacts, CC-BY-4.0 for the toy
-  corpus. Each artifact states its own terms in its `README.md` and in a
-  `license` field of its manifest, so a zip that travels does not lose them.
+- **Licence:** CC-BY-4.0 on all four, which is also Zenodo's default. Each
+  artifact states its terms in its own `README.md` and in a `license` field of
+  its manifest, so a zip that travels away from the record does not lose them —
+  keep the two in step if the licence ever changes.
 - **Language:** English
 - **Related identifiers:**
   - `https://github.com/nlp-unibo/pyhighlights` — *is supplement to* —
@@ -58,10 +59,11 @@ not who made the corpus it is about.
 
 > Zero-leakage split manifests for the R2A Beer aspects (pyhighlights)
 
-**Licence:** CC0-1.0. The artifact is index data, counts and checksums
-authored here, not the corpus — CC0 keeps a reproduction from stacking a second
-attribution requirement on top of Bao et al.'s. Use CC-BY-4.0 instead if you
-would rather be cited for the splits themselves.
+**Licence:** CC-BY-4.0. These terms cover the manifest — the retained row
+indices, the counts and the repair policy — and not the corpus, which carries
+whatever its own release carries. CC0-1.0 was the alternative and would have
+spared a reproduction from stacking attribution on top of Bao et al.'s; one
+licence across all four records is worth more than that one saved line.
 
 **Keywords:** select-then-predict, rationalization, explainability, data
 leakage, reproducibility, BeerAdvocate, R2A, pyhighlights
@@ -108,7 +110,7 @@ leakage, reproducibility, BeerAdvocate, R2A, pyhighlights
 
 > Zero-leakage split manifests for the R2A Hotel aspects (pyhighlights)
 
-**Licence:** CC0-1.0, as above.
+**Licence:** CC-BY-4.0, as above.
 
 **Keywords:** select-then-predict, rationalization, explainability, data
 leakage, reproducibility, TripAdvisor, R2A, pyhighlights
@@ -154,7 +156,7 @@ leakage, reproducibility, TripAdvisor, R2A, pyhighlights
 
 > Zero-leakage split manifest for ERASER movies (pyhighlights)
 
-**Licence:** CC0-1.0, as above.
+**Licence:** CC-BY-4.0, as above.
 
 **Keywords:** select-then-predict, rationalization, explainability, evidence
 spans, data leakage, reproducibility, ERASER, pyhighlights
@@ -215,7 +217,8 @@ Signorelli** (ORCID `0009-0005-5221-0717`) — this record redistributes the
 corpus their paper released, so both authors of that paper author the deposit.
 Federico goes in **Contributors** as well, role *Data curator*.
 
-**Licence:** CC-BY-4.0, agreed by both authors.
+**Licence:** CC-BY-4.0, agreed by both authors — the same terms as the other
+three records.
 
 Not CC-BY-SA. ShareAlike would add a copyleft obligation this artifact does not
 need and cannot cleanly carry: whether a model trained on a corpus is an
@@ -227,7 +230,8 @@ incompatible with most other terms, which would keep the corpus out of any
 aggregated benchmark. What it would defend is a closed redistribution of a
 modified corpus of 10,000 synthetic strings over the lowercase alphabet, which
 is thin on copyright to begin with. CC0-1.0 remains the alternative if the
-authors ever prefer citation as a norm rather than a condition.
+authors ever prefer citation as a norm rather than a condition, and it would
+then be the right choice for all four rather than this one.
 
 **Keywords:** select-then-predict, rationalization, genetic algorithm,
 synthetic corpus, reproducibility, GenSPP, pyhighlights
