@@ -153,7 +153,18 @@ class GeneralizationLossScore(MonitoredScore):
         # learning curve can be drawn from it afterwards.
         trainer.callback_metrics[self.name] = th.tensor(score)
         if trainer.logger is not None:
-            trainer.logger.log_metrics({self.name: score}, step=trainer.current_epoch)
+            # `epoch` goes in the payload and not only in `step`. A
+            # `LightningModule` logging with `on_epoch=True` adds that column
+            # itself; a callback reaching the logger directly does not, and
+            # `CSVLogger` then writes the score on a row whose `epoch` is
+            # blank. Anything grouping `metrics.csv` by epoch -- which is what
+            # drawing a learning curve is -- drops that row, so the quantity
+            # the run was stopped and scored on is the one quantity missing
+            # from its own curves.
+            trainer.logger.log_metrics(
+                {self.name: score, "epoch": trainer.current_epoch},
+                step=trainer.current_epoch,
+            )
 
 
 class WarmupEarlyStopping(EarlyStopping):
