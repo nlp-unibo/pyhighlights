@@ -84,6 +84,14 @@ GENSPP_CITATION = (
     "Reference implementation: https://github.com/nlp-unibo/gen-spp"
 )
 
+# A manifest is index data, counts and checksums authored here rather than any
+# part of the corpus it points at, so it carries no conditions of its own and
+# does not stack a second attribution requirement on the upstream one. The toy
+# corpus is the exception: it is the dataset, licensed by both authors of the
+# paper that released it.
+MANIFEST_LICENSE = "CC0-1.0"
+GENSPP_TOY_LICENSE = "CC-BY-4.0"
+
 REPAIR = {
     "policy": "pyhighlights.components.preprocessors.remove_leakage",
     "priority": list(PRIORITY),
@@ -193,6 +201,7 @@ def r2a_artifact(
             },
             "repair": REPAIR,
             "citation": R2A_CITATION,
+            "license": MANIFEST_LICENSE,
             "contents": "split manifest only -- no review text is redistributed",
             **split_manifest(loader.load()),
         }
@@ -228,6 +237,7 @@ def movies_artifact() -> Tuple[str, List[Tuple[str, bytes]]]:
         },
         "repair": REPAIR,
         "citation": ERASER_CITATION,
+        "license": MANIFEST_LICENSE,
         "contents": "split manifest only -- no document text is redistributed",
         **split_manifest(loader.load()),
     }
@@ -280,6 +290,7 @@ def genspp_toy_artifact() -> Tuple[str, List[Tuple[str, bytes]]]:
             "split_seed": 15000,
         },
         "citation": GENSPP_CITATION,
+        "license": GENSPP_TOY_LICENSE,
     }
     entries = [
         ("toy_dataset.pkl", payload),
@@ -300,6 +311,7 @@ def genspp_toy_artifact() -> Tuple[str, List[Tuple[str, bytes]]]:
 
 def readme(name, url, sha256, citation, summary) -> bytes:
     manifest_only = "genspp-toy" not in name
+    license_name = MANIFEST_LICENSE if manifest_only else GENSPP_TOY_LICENSE
     body = [
         f"# {name}",
         "",
@@ -324,6 +336,27 @@ def readme(name, url, sha256, citation, summary) -> bytes:
             "`manifest.json` recording its checksum, row count and the split",
             "scheme the loader derives.",
         ]
+    body += [
+        "",
+        "## Licence",
+        "",
+        f"This artifact is licensed **{license_name}**.",
+        "",
+    ]
+    body += (
+        [
+            "It holds no part of the corpus it indexes, so it adds no",
+            "conditions of its own. The corpus you fetch from the source below",
+            "carries whatever terms its own release carries; cite it as given",
+            "under Citation.",
+        ]
+        if manifest_only
+        else [
+            "The corpus is released under these terms by both authors of the",
+            "paper that produced it. Attribution means the citation given",
+            "below.",
+        ]
+    )
     body += [
         "",
         "## Source",

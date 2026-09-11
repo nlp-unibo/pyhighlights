@@ -1,6 +1,6 @@
 # Zenodo upload — paste-ready
 
-Four artifacts, **three published now** and one held. Everything below is meant
+Four artifacts, **all four ready to publish**. Everything below is meant
 to be pasted into <https://zenodo.org/uploads/new>. Files are in `dist/`.
 
 Reserve a DOI on each record before publishing (Zenodo's *Reserve DOI* button):
@@ -12,6 +12,9 @@ Shared fields for all four:
 
 - **Resource type:** Dataset
 - **Version:** `v1`
+- **Licence:** CC0-1.0 for the three manifest artifacts, CC-BY-4.0 for the toy
+  corpus. Each artifact states its own terms in its `README.md` and in a
+  `license` field of its manifest, so a zip that travels does not lose them.
 - **Language:** English
 - **Related identifiers:**
   - `https://github.com/nlp-unibo/pyhighlights` — *is supplement to* —
@@ -193,11 +196,10 @@ spans, data leakage, reproducibility, ERASER, pyhighlights
 
 ---
 
-## 4. `pyhighlights-genspp-toy-v1.zip` + `toy_dataset.pkl` — **hold as draft**
+## 4. `pyhighlights-genspp-toy-v1.zip` + `toy_dataset.pkl` — publish now
 
-Save this record as a draft and do **not** publish until both GenSPP authors
-confirm the data licence. It is the one artifact that redistributes a dataset
-rather than indexing one.
+The one artifact that redistributes a dataset rather than indexing one, so it
+is the one whose licence is the authors' to set. Both have agreed.
 
 **Upload both files to this one record.** Zenodo serves each file of a record
 at its own URL, and `GenSPPToyLoader` reads a pickle rather than an archive, so
@@ -213,10 +215,19 @@ Signorelli** (ORCID `0009-0005-5221-0717`) — this record redistributes the
 corpus their paper released, so both authors of that paper author the deposit.
 Federico goes in **Contributors** as well, role *Data curator*.
 
-**Licence:** *pending the authors' answer.* CC-BY-4.0 is the natural choice for
-a synthetic corpus with a paper behind it; CC0-1.0 if they would rather it
-carry no conditions. Do not set this field before they answer. One message to
-Gaetano settles the licence and the creator listing together.
+**Licence:** CC-BY-4.0, agreed by both authors.
+
+Not CC-BY-SA. ShareAlike would add a copyleft obligation this artifact does not
+need and cannot cleanly carry: whether a model trained on a corpus is an
+*adapted work* is unsettled, and handing that question to someone whose only
+goal is repeating a benchmark is friction rather than protection. CC 4.0 also
+licenses *sui generis* database rights, which exist in the EU, so ShareAlike
+would bite harder here than the same choice would elsewhere — and it is one-way
+incompatible with most other terms, which would keep the corpus out of any
+aggregated benchmark. What it would defend is a closed redistribution of a
+modified corpus of 10,000 synthetic strings over the lowercase alphabet, which
+is thin on copyright to begin with. CC0-1.0 remains the alternative if the
+authors ever prefer citation as a norm rather than a condition.
 
 **Keywords:** select-then-predict, rationalization, genetic algorithm,
 synthetic corpus, reproducibility, GenSPP, pyhighlights
