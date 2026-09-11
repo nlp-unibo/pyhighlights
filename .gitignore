@@ -224,3 +224,6 @@ lightning_logs/
 # Task output.
 results/
 uv.lock
+
+# tools/build_datasets.py writes these into whatever directory it runs from
+sources/
