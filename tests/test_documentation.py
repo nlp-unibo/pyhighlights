@@ -69,3 +69,30 @@ def test_every_page_the_index_lists_is_there():
 
     assert len(listed) >= 8, listed
     assert not [page for page in listed if not (source / f"{page}.rst").exists()]
+
+
+def test_every_spp_model_has_an_api_page():
+    """A merged architecture nobody can look up is half-delivered.
+
+    The checks above resolve what the docs *name*, so a model the docs never
+    mention passes them silently -- which is how DR, MRD and DAR reached
+    ``main`` with no page. This asks the question the other way round: every
+    algorithm module under ``spp`` has to appear in an ``automodule``
+    directive somewhere.
+    """
+    modules = {
+        path.stem
+        for path in (ROOT / "pyhighlights" / "components" / "models" / "spp").glob(
+            "*.py"
+        )
+        if path.stem not in {"__init__", "base", "data", "implementations"}
+    }
+    documented_modules = set(
+        re.findall(
+            r"automodule:: pyhighlights\.components\.models\.spp\.(\w+)",
+            (ROOT / "docsrc" / "source").joinpath("models.rst").read_text(),
+        )
+    )
+
+    assert modules, "no algorithm modules found; has the package moved?"
+    assert not modules - documented_modules, sorted(modules - documented_modules)
