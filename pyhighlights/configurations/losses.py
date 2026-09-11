@@ -121,6 +121,19 @@ class FullClassificationLossConfig(LossConfig):
 
 
 @register_class(
+    name="loss",
+    tags={"classification", "complement"},
+    namespace=NAMESPACE,
+    component=LOSS_COMPONENT,
+)
+class ComplementClassificationLossConfig(LossConfig):
+    """What the label looks like from everything the highlight left behind."""
+
+    name: str = Param("complement_classification")
+    inputs: List[str] = Param(["complement_class_logits", "y_true"])
+
+
+@register_class(
     name="loss", tags={"highlight"}, namespace=NAMESPACE, component=LOSS_COMPONENT
 )
 class HighlightLossConfig(LossConfig):
@@ -155,6 +168,27 @@ class DiscrepancyLossConfig(LossConfig):
     name: str = Param("discrepancy")
     loss: RegistrationKey[th.nn.Module] = Param(KL_DIV)
     inputs: List[str] = Param(["class_logits", "full_class_logits"])
+
+
+@register_class(
+    name="loss",
+    tags={"discrepancy", "remaining"},
+    namespace=NAMESPACE,
+    component=LOSS_COMPONENT,
+)
+class RemainingDiscrepancyLossConfig(DiscrepancyLossConfig):
+    """MRD's criterion: the complement should stop looking like the whole input.
+
+    Scored between the complement and the full input rather than between the
+    highlight and the full input, and **maximized** -- the one term in the
+    library a model wants large, which is what the negative coefficient says.
+    A coefficient is otherwise non-negative, since a loss is otherwise
+    something to minimize.
+    """
+
+    name: str = Param("remaining_discrepancy")
+    inputs: List[str] = Param(["complement_class_logits", "full_class_logits"])
+    coefficient: float = Param(-1.0)
 
 
 @register_class(

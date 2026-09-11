@@ -15,6 +15,7 @@ from pyhighlights.components.models.spp import (
     GRAT,
     MCD,
     MGR,
+    MRD,
     GenSPP,
     StackedBackbone,
     TransformerBackbone,
@@ -32,6 +33,7 @@ from pyhighlights.configurations.keys import (
     TRANSFORMER_GRAT,
     TRANSFORMER_MCD,
     TRANSFORMER_MGR,
+    TRANSFORMER_MRD,
 )
 
 
@@ -100,14 +102,16 @@ def test_transformer_registrations_are_algorithm_interchangeable(monkeypatch):
         Registry.from_key(TRANSFORMER_GENSPP),
         Registry.from_key(TRANSFORMER_MGR),
         Registry.from_key(TRANSFORMER_MCD),
+        Registry.from_key(TRANSFORMER_MRD),
         Registry.from_key(TRANSFORMER_GRAT),
     ]
-    fr, dr, genspp, mgr, mcd, grat = models
+    fr, dr, genspp, mgr, mcd, mrd, grat = models
     assert isinstance(fr, FR)
     assert isinstance(dr, DR)
     assert isinstance(genspp, GenSPP)
     assert isinstance(mgr, MGR)
     assert isinstance(mcd, MCD)
+    assert isinstance(mrd, MRD)
     assert isinstance(grat, GRAT)
     assert all(
         isinstance(backbone, TransformerBackbone)
@@ -127,6 +131,7 @@ def test_transformer_registrations_are_algorithm_interchangeable(monkeypatch):
     )
     assert len(mgr.selector_backbones) == 3
     assert mcd.selector_backbone is not mcd.predictor_backbone
+    assert mrd.selector_backbone is not mrd.predictor_backbone
     assert grat.selector_backbone is not grat.predictor_backbone
     assert isinstance(grat.guider.backbone, TransformerBackbone)
 
@@ -137,7 +142,7 @@ def test_transformer_registrations_are_algorithm_interchangeable(monkeypatch):
         y_true=th.tensor([0, 1]),
         highlight_true=th.full((2, 4), -1),
     )
-    expected_heads = (1, 1, 1, 3, 1, 1)
+    expected_heads = (1, 1, 1, 3, 1, 1, 1)
     for model, heads in zip(models, expected_heads):
         output = model(batch)
         assert output.class_logits.shape == (2, heads, 2)
