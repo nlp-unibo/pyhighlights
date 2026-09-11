@@ -134,6 +134,24 @@ class ComplementClassificationLossConfig(LossConfig):
 
 
 @register_class(
+    name="loss",
+    tags={"classification", "alignment"},
+    namespace=NAMESPACE,
+    component=LOSS_COMPONENT,
+)
+class AlignmentClassificationLossConfig(LossConfig):
+    """What the label looks like to a module that only ever read full text.
+
+    DAR scores its aligner with this twice: while that module is pretrained on
+    the full input, and afterwards on the highlight, where the term is the
+    generator's alone.
+    """
+
+    name: str = Param("alignment_classification")
+    inputs: List[str] = Param(["aligner_class_logits", "y_true"])
+
+
+@register_class(
     name="loss", tags={"highlight"}, namespace=NAMESPACE, component=LOSS_COMPONENT
 )
 class HighlightLossConfig(LossConfig):

@@ -33,7 +33,7 @@ which is what every architecture below is a different answer to.
 The architectures
 -----------------
 
-All seven are registered for both a GRU and a Transformer backbone. The
+All eight are registered for both a GRU and a Transformer backbone. The
 algorithms never mention either: a backbone is anything implementing
 ``encode`` / ``pool`` / ``output_size``, and swapping one for the other is a
 key, not a code change.
@@ -60,6 +60,14 @@ ratio restrains the predictor's Lipschitz constant, so it cannot overfit the
 uninformative text an untrained selector hands it, and the restraint relaxes on
 its own as the selection settles. Liu et al., KDD 2023.
 
+**DAR** — discriminatively aligned rationalization. A cooperative pair can
+agree on a private code: the highlight drifts away from the semantics of the
+input, the predictor learns to read the drift, and accuracy stays high while
+the selection stops meaning anything to a reader. DAR pretrains a second
+predictor on the full input alone, freezes it, and asks it to predict the label
+from the highlight. That module never learned to read a code, so the term costs
+the generator anything it selected in one. Liu et al., ICDE 2024.
+
 **MRD** — maximizing the remaining discrepancy. Rather than asking the
 highlight to predict the label, which a spurious feature answers just as well,
 it asks what is left once the highlight is removed to stop looking like the
@@ -79,7 +87,7 @@ search over generator parameters scores each candidate by training a fresh
 predictor on it, which removes the cooperative equilibrium the others have to
 fight. Ruggeri and Signorelli, ACL 2025.
 
-The interlocking problem those seven circle around is this: the selector and the
+The interlocking problem those eight circle around is this: the selector and the
 predictor are trained together, so a selector that has settled on the wrong
 words trains a predictor to read the wrong words, which then reports that the
 wrong words were the right ones. Every architecture above is a different way of

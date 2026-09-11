@@ -104,7 +104,7 @@ PredictionAnalyzer(directory="results").analyze()[
 ## What is in it
 
 **Architectures**, each a different answer to selection being a discrete
-choice inside a differentiable model. All seven are registered for both a GRU
+choice inside a differentiable model. All eight are registered for both a GRU
 and a Transformer backbone; the algorithms never mention either, because a
 backbone is anything implementing `encode` / `pool` / `output_size`.
 
@@ -114,6 +114,7 @@ backbone is anything implementing `encode` / `pool` / `output_size`.
 | **MGR** | Several generators, one shared predictor, so no single degenerate generator sets the equilibrium. Liu et al., ACL 2023 |
 | **MCD** | Trained against selected-input and full-input predictions; agreement means the highlight d-separates the label. Liu et al., NeurIPS 2023 |
 | **MRD** | The predictor reads the complement and the full input, and the generator maximizes the discrepancy between them, so a spurious feature degenerates to noise. Liu et al., NeurIPS 2024 |
+| **DAR** | A second predictor, trained on the full input and then frozen, has to read the highlight too, so a selection drifting from the input costs the generator. Liu et al., ICDE 2024 |
 | **DR** | The predictor trains at the selector's rate scaled by how much of the input the selection kept, which restrains its Lipschitz constant. Liu et al., KDD 2023 |
 | **G-RAT** | A pretrained attention classifier guides the selection and matches its distribution. Hu and Yu, AAAI 2024 |
 | **GenSPP** | No gradient reaches the generator — a genetic search scores each candidate by training a fresh predictor. Ruggeri and Signorelli, ACL 2025 |

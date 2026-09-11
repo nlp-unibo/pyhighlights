@@ -10,6 +10,7 @@ import pyhighlights
 from pyhighlights.components.data import HuggingFaceTokenizer
 from pyhighlights.components.models import InputData
 from pyhighlights.components.models.spp import (
+    DAR,
     DR,
     FR,
     GRAT,
@@ -27,6 +28,7 @@ from pyhighlights.configurations.keys import (
     STACKED_BACKBONE,
     TOY,
     TRANSFORMER_BACKBONE,
+    TRANSFORMER_DAR,
     TRANSFORMER_DR,
     TRANSFORMER_FR,
     TRANSFORMER_GENSPP,
@@ -98,6 +100,7 @@ def test_transformer_registrations_are_algorithm_interchangeable(monkeypatch):
 
     models = [
         Registry.from_key(TRANSFORMER_FR),
+        Registry.from_key(TRANSFORMER_DAR),
         Registry.from_key(TRANSFORMER_DR),
         Registry.from_key(TRANSFORMER_GENSPP),
         Registry.from_key(TRANSFORMER_MGR),
@@ -105,8 +108,9 @@ def test_transformer_registrations_are_algorithm_interchangeable(monkeypatch):
         Registry.from_key(TRANSFORMER_MRD),
         Registry.from_key(TRANSFORMER_GRAT),
     ]
-    fr, dr, genspp, mgr, mcd, mrd, grat = models
+    fr, dar, dr, genspp, mgr, mcd, mrd, grat = models
     assert isinstance(fr, FR)
+    assert isinstance(dar, DAR)
     assert isinstance(dr, DR)
     assert isinstance(genspp, GenSPP)
     assert isinstance(mgr, MGR)
@@ -120,6 +124,8 @@ def test_transformer_registrations_are_algorithm_interchangeable(monkeypatch):
     )
     assert fr.selector_backbone is fr.predictor_backbone
     assert dr.selector_backbone is not dr.predictor_backbone
+    assert dar.selector_backbone is not dar.predictor_backbone
+    assert isinstance(dar.aligner_backbone, TransformerBackbone)
     assert genspp.selector_backbone is not genspp.predictor_backbone
     assert not any(
         parameter.requires_grad
@@ -142,7 +148,7 @@ def test_transformer_registrations_are_algorithm_interchangeable(monkeypatch):
         y_true=th.tensor([0, 1]),
         highlight_true=th.full((2, 4), -1),
     )
-    expected_heads = (1, 1, 1, 3, 1, 1, 1)
+    expected_heads = (1, 1, 1, 1, 3, 1, 1, 1)
     for model, heads in zip(models, expected_heads):
         output = model(batch)
         assert output.class_logits.shape == (2, heads, 2)

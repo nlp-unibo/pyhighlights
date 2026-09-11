@@ -42,8 +42,8 @@ Two places it is the right one anyway -- an ablation, where a fine-tuned
 encoder absorbs the difference being measured, and a run bounded by memory.
 
 ``backbone`` / ``{transformer, gru}`` is the third option and the one closest
-to the published architectures. FR, DR, MCD, MRD, MGR and G-RAT all encode with a
-bidirectional GRU over a **frozen** embedding table -- GloVe in every released
+to the published architectures. FR, DAR, DR, MCD, MRD, MGR and G-RAT all
+encode with a bidirectional GRU over a **frozen** embedding table -- GloVe in every released
 implementation -- so nothing pretrained is fine-tuned and everything trained
 starts from scratch at one learning rate. ``StackedBackbone`` keeps that shape
 with a transformer in place of the table: frozen underneath, a GRU on top.
