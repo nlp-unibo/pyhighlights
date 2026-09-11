@@ -339,6 +339,29 @@ class SPPTask(Task):
                 callback.dirpath = str(checkpoints)
                 callback.save_weights_only = self.save_weights_only
             built.append(callback)
+        # Everything that monitors has to monitor the same thing. Early
+        # stopping decides when a run ends and the checkpoint decides which
+        # epoch it is scored on, so two quantities mean the reported model is
+        # not the one the stopping rule chose -- and nothing downstream says
+        # so, because `results.json` records the scores and not the argument
+        # behind them. Refused here rather than left to a reader of a table.
+        monitored = {
+            (callback.monitor, callback.mode)
+            for callback in built
+            if getattr(callback, "monitor", None) is not None
+            and getattr(callback, "mode", None) is not None
+        }
+        if len(monitored) > 1:
+            raise ValueError(
+                "callbacks monitoring different quantities: "
+                + ", ".join(
+                    f"{monitor} ({mode})" for monitor, mode in sorted(monitored)
+                )
+                + ". Early stopping ends the run and the checkpoint chooses "
+                "the epoch it is scored on, so they have to agree; combine "
+                "two quantities with a MonitoredScore instead."
+            )
+
         # A criterion that writes the monitored quantity has to run before the
         # callbacks that read it: they share the `on_validation_end` hook and
         # Lightning calls them in order. Sorted here rather than documented as
