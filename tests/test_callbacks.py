@@ -41,6 +41,16 @@ class Recorder(L.LightningModule):
         self.logged[name] = float(value)
 
 
+class Logger:
+    """Records what reached `log_metrics`, payload and step."""
+
+    def __init__(self):
+        self.calls = []
+
+    def log_metrics(self, metrics, step=None):
+        self.calls.append((dict(metrics), step))
+
+
 class Fake:
     """Enough of a trainer for a callback that only reads metrics."""
 
@@ -75,6 +85,27 @@ def test_the_score_charges_only_for_loss_above_its_own_best():
     assert score(callback, module, val_f1=0.50, val_loss=0.30) == pytest.approx(
         0.50 - 2.0 * 0.5
     )
+
+
+def test_the_score_logs_the_epoch_it_belongs_to():
+    """Without it the quantity a run was scored on has no learning curve.
+
+    A `LightningModule` logging with `on_epoch=True` gets an `epoch` column
+    for free; a callback reaching the logger directly does not, and `CSVLogger`
+    then writes the score on a row whose `epoch` is blank. Grouping
+    `metrics.csv` by epoch -- which is what drawing a curve is -- drops exactly
+    that row.
+    """
+    callback = GeneralizationLossScore(coefficient=2.0)
+    trainer = Fake({"val_f1": 0.30, "val_loss": 0.40}, epoch=3)
+    trainer.logger = Logger()
+
+    callback.on_validation_end(trainer, Recorder())
+
+    (payload, step) = trainer.logger.calls[-1]
+    assert payload[callback.name] == pytest.approx(0.30)
+    assert payload["epoch"] == 3
+    assert step == 3
 
 
 def test_the_coefficient_spans_the_two_criteria_it_replaces():
