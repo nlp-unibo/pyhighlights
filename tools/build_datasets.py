@@ -76,8 +76,12 @@ ERASER_CITATION = (
     "NLP Models. ACL 2020."
 )
 GENSPP_CITATION = (
-    "Ruggeri, F., et al. (2025). GenSPP. ACL 2025. Reference implementation: "
-    "https://github.com/nlp-unibo/gen-spp"
+    "Ruggeri, F., & Signorelli, G. (2025). Interlocking-free Selective "
+    "Rationalization Through Genetic-based Learning. Proceedings of the 63rd "
+    "Annual Meeting of the Association for Computational Linguistics "
+    "(Volume 1: Long Papers), 1175-1191. "
+    "https://doi.org/10.18653/v1/2025.acl-long.59 "
+    "Reference implementation: https://github.com/nlp-unibo/gen-spp"
 )
 
 REPAIR = {
