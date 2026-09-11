@@ -9,6 +9,12 @@ LABELLED = "task\tlabel\ttext\n"
 ANNOTATED = "task\tlabel\ttext\trationale\tpred_att\n"
 
 
+#: The fixtures below build stand-in corpora rather than the pinned upstream
+#: releases, so a loader reading one has to opt out of the digest its defaults
+#: now carry.
+UNPINNED = {"sha256": None}
+
+
 def r2a(directory: Path) -> str:
     """A miniature R2A archive: the test split leaks fully into train."""
     leaked = "the location is central but noisy"
@@ -155,4 +161,4 @@ def eraser(directory: Path) -> dict:
     archive = directory / "movies.tar.gz"
     with tarfile.open(archive, "w:gz") as target:
         target.add(staging, arcname="movies")
-    return {"url": archive.as_uri(), "directory": directory / "cache"}
+    return {"url": archive.as_uri(), "directory": directory / "cache", **UNPINNED}

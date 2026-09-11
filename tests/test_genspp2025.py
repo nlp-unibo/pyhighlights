@@ -1,5 +1,6 @@
 """The GenSPP 2025 reproduction: its keys, its values, and its corpora."""
 
+import zipfile
 from pathlib import Path
 
 import pandas as pd
@@ -131,11 +132,39 @@ def test_the_toy_corpus_is_read_as_characters(tmp_path):
     assert splits["val"]["text"].tolist() == again["val"]["text"].tolist()
 
 
-def test_the_toy_corpus_says_it_has_nowhere_to_download_from():
-    # The artifact is built but not yet published; a clear refusal beats
-    # silently synthesising a different corpus.
-    with pytest.raises(ValueError, match="no download URL yet"):
-        GenSPPToyLoader().load()
+def test_the_toy_corpus_reads_the_published_artifact(tmp_path):
+    # The Zenodo record holds the artifact, not a loose pickle, because the
+    # artifact is what carries the manifest, the licence and the citation. A
+    # local copy of it has to read the same as the published one.
+    archive = tmp_path / "pyhighlights-genspp-toy-v1.zip"
+    with zipfile.ZipFile(archive, "w") as target:
+        target.write(toy_pickle(tmp_path), "toy_dataset.pkl")
+        target.writestr("README.md", "# artifact")
+
+    splits = GenSPPToyLoader(
+        url=str(archive), sha256=None, directory=tmp_path / "cache"
+    ).load()
+
+    assert list(splits) == ["train", "val", "test"]
+    assert sum(len(frame) for frame in splits.values()) == 10
+
+
+def test_the_toy_corpus_defaults_to_the_published_artifact():
+    loader = GenSPPToyLoader()
+
+    # The version record rather than the concept one: the digest pins these
+    # exact bytes, and a concept DOI resolves to whatever is newest.
+    assert loader.url.endswith("pyhighlights-genspp-toy-v1.zip/content")
+    assert "22711449" in loader.url
+    assert loader.sha256 == (
+        "5b0886163b215b932b242ce4910cd8d60b46fa79cfdfdde41e9646d99d9ebc92"
+    )
+
+
+def test_the_toy_corpus_refuses_when_it_is_given_nowhere_to_look():
+    # A clear refusal beats silently synthesising a different corpus.
+    with pytest.raises(ValueError, match="no download URL"):
+        GenSPPToyLoader(url=None).load()
 
 
 def test_the_hatexplain_pipeline_folds_classes_before_it_counts_votes(tmp_path):

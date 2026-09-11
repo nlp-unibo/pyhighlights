@@ -127,7 +127,17 @@ release of Bao et al., 2018, *Deriving Machine Attention from Human
 Rationales* — the archive the selective-rationalization literature (RNP, FR,
 MGR, MCD, G-RAT) draws both corpora from.
 
-:Download: ``https://people.csail.mit.edu/yujia/files/r2a/data.zip`` (162 MB)
+:Download: ``https://people.csail.mit.edu/yujia/files/r2a/data.zip`` (162 MB),
+           pinned by default at
+           ``23fcb4cac883ec1de86d83a7747294d7fdae10061d3803fd4c34c930e66f25de``
+           so a changed upstream fails loudly rather than being trained on.
+           Pass ``sha256=None`` to skip the check
+:Splits: the zero-leakage partition is published as manifests — Beer at
+         `10.5281/zenodo.22703544 <https://doi.org/10.5281/zenodo.22703544>`_,
+         Hotel at
+         `10.5281/zenodo.22711382 <https://doi.org/10.5281/zenodo.22711382>`_.
+         They are a receipt rather than an input: the digest above plus a
+         deterministic repair already give the same rows
 :Tasks: ``beer0``, ``beer1``, ``beer2`` (appearance, aroma, palate);
         ``hotel_Location``, ``hotel_Service``, ``hotel_Cleanliness``
 :Labels: binary
@@ -335,7 +345,13 @@ Document classification with human evidence spans, from DeYoung et al., 2020,
 split whose rows carry a ``classification`` and ``evidences`` — groups of
 ``[start_token, end_token)`` spans that become the highlights.
 
-:Download: ``https://www.eraserbenchmark.com/zipped/<task>.tar.gz``
+:Download: ``https://www.eraserbenchmark.com/zipped/<task>.tar.gz``, pinned by
+           default at
+           ``66e18d4e6c9df9e9f5544572b0bfe92a39673f74ecbfc3859b46cedb2f5b2dee``
+           — the benchmark publishes no digest of its own. Pass ``sha256=None``
+           to skip the check
+:Splits: the zero-leakage partition is published as a manifest,
+         `10.5281/zenodo.22711411 <https://doi.org/10.5281/zenodo.22711411>`_
 :Tasks: ``movies`` (1600 / 200 / 199 rows, 3.9 MB)
 :Labels: binary (``NEG`` / ``POS``)
 :Loader: :class:`pyhighlights.components.loaders.MoviesLoader`, over the

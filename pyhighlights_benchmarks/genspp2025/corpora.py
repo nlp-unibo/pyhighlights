@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import zipfile
 from pathlib import Path
 from typing import Dict
 
@@ -10,7 +11,7 @@ import pandas as pd
 
 from pyhighlights.components.data import COLUMNS
 from pyhighlights.components.loaders import HighlightLoader
-from pyhighlights.utility.io import download
+from pyhighlights.utility.io import download, extract
 
 __all__ = ["GenSPPToyLoader"]
 
@@ -27,19 +28,34 @@ class GenSPPToyLoader(HighlightLoader):
     the same shape but not this one, and a reproduction needs this one: the
     numbers in the paper are for these ten thousand sequences.
 
+    Published at `10.5281/zenodo.22711449
+    <https://doi.org/10.5281/zenodo.22711449>`_ under CC-BY-4.0 by both authors
+    of the paper, so the loader fetches it rather than being handed it.
+
     Splits follow the released baselines -- the first 80% train, the rest
     test, and a fifth of train sampled off for validation, drawn from
     ``split_seed`` because the released script seeds everything at 15000
     before sampling.
     """
 
-    #: Where the corpus will be published. Until it is, ``url`` has to be given.
-    URL: str | None = None
+    #: The published artifact, `10.5281/zenodo.22711449
+    #: <https://doi.org/10.5281/zenodo.22711449>`_. The version record rather
+    #: than the concept one, because :attr:`SHA256` pins these exact bytes.
+    URL: str | None = (
+        "https://zenodo.org/api/records/22711449/files/"
+        "pyhighlights-genspp-toy-v1.zip/content"
+    )
+    #: Digest of the artifact :attr:`URL` names.
+    SHA256 = "5b0886163b215b932b242ce4910cd8d60b46fa79cfdfdde41e9646d99d9ebc92"
+    #: The corpus inside that archive.
+    MEMBER = "toy_dataset.pkl"
 
     def __init__(
         self,
         url: str | None = URL,
-        sha256: str | None = None,
+        sha256: str | None = SHA256,
+        member: str = MEMBER,
+        archive_name: str = "pyhighlights-genspp-toy-v1.zip",
         train_ratio: float = 0.8,
         val_ratio: float = 0.2,
         split_seed: int = 15000,
@@ -52,24 +68,32 @@ class GenSPPToyLoader(HighlightLoader):
             raise ValueError("val_ratio must be between zero and one")
         self.url = url
         self.sha256 = sha256
+        self.member = member
+        self.archive_name = archive_name
         self.train_ratio = train_ratio
         self.val_ratio = val_ratio
         self.split_seed = split_seed
 
     def download(self) -> Path:
+        """The corpus pickle, fetching and unpacking the artifact if needed.
+
+        ``url`` may be the published archive, a local copy of it, or a local
+        ``toy_dataset.pkl`` -- the Zenodo record holds the artifact rather than
+        a loose pickle, and the artifact is what carries the manifest, the
+        licence and the citation alongside the data.
+        """
         if self.url is None:
             raise ValueError(
-                "the GenSPP toy corpus has no download URL yet: pass url= with "
-                "the published artifact, or point it at a local toy_dataset.pkl"
+                "the GenSPP toy corpus has no download URL: pass url= with the "
+                "published artifact, or point it at a local toy_dataset.pkl"
             )
+        root = self.directory / "genspp2025"
         source = Path(self.url)
-        if source.is_file():
+        if not source.is_file():
+            source = download(self.url, root / self.archive_name, sha256=self.sha256)
+        if not zipfile.is_zipfile(source):
             return source
-        return download(
-            self.url,
-            self.directory / "genspp2025" / "toy_dataset.pkl",
-            sha256=self.sha256,
-        )
+        return extract(source, root / "toy") / self.member
 
     def read(self) -> Dict[str, pd.DataFrame]:
         frame = pd.read_pickle(self.download())
