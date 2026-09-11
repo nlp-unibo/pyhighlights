@@ -53,14 +53,12 @@ predictor reading everything guides the generator: a highlight that
 d-separates the label from the rest of the input makes the two predictions
 agree. Liu et al., NeurIPS 2023.
 
-**MRD** — maximizing the remaining discrepancy. Rather than asking the
-highlight to predict the label, which a spurious feature answers just as well,
-it asks what is left once the highlight is removed to stop looking like the
-whole input: removing plain noise or a spurious feature leaves the remainder's
-conditional distribution unchanged, and only the causal features move it. The
-predictor is therefore trained on the complement and on the full input, never
-on the highlight, and the generator maximizes the divergence between those two
-predictions. Liu et al., NeurIPS 2024.
+**DR** — decoupled rationalization. The two halves train at rates that differ
+by design: the selector at the optimizer's own, the predictor at that rate
+times the fraction of the input the selection kept, rewritten every batch. That
+ratio restrains the predictor's Lipschitz constant, so it cannot overfit the
+uninformative text an untrained selector hands it, and the restraint relaxes on
+its own as the selection settles. Liu et al., KDD 2023.
 
 **G-RAT** — guider-regularized, staged. A soft attention classifier over the
 full input is pretrained and keeps training alongside the rationalizer; its

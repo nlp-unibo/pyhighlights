@@ -10,6 +10,7 @@ import pyhighlights
 from pyhighlights.components.data import HuggingFaceTokenizer
 from pyhighlights.components.models import InputData
 from pyhighlights.components.models.spp import (
+    DR,
     FR,
     GRAT,
     MCD,
@@ -26,6 +27,7 @@ from pyhighlights.configurations.keys import (
     STACKED_BACKBONE,
     TOY,
     TRANSFORMER_BACKBONE,
+    TRANSFORMER_DR,
     TRANSFORMER_FR,
     TRANSFORMER_GENSPP,
     TRANSFORMER_GRAT,
@@ -96,14 +98,16 @@ def test_transformer_registrations_are_algorithm_interchangeable(monkeypatch):
 
     models = [
         Registry.from_key(TRANSFORMER_FR),
+        Registry.from_key(TRANSFORMER_DR),
         Registry.from_key(TRANSFORMER_GENSPP),
         Registry.from_key(TRANSFORMER_MGR),
         Registry.from_key(TRANSFORMER_MCD),
         Registry.from_key(TRANSFORMER_MRD),
         Registry.from_key(TRANSFORMER_GRAT),
     ]
-    fr, genspp, mgr, mcd, mrd, grat = models
+    fr, dr, genspp, mgr, mcd, grat = models
     assert isinstance(fr, FR)
+    assert isinstance(dr, DR)
     assert isinstance(genspp, GenSPP)
     assert isinstance(mgr, MGR)
     assert isinstance(mcd, MCD)
@@ -115,6 +119,7 @@ def test_transformer_registrations_are_algorithm_interchangeable(monkeypatch):
         for backbone in model.selector_backbones
     )
     assert fr.selector_backbone is fr.predictor_backbone
+    assert dr.selector_backbone is not dr.predictor_backbone
     assert genspp.selector_backbone is not genspp.predictor_backbone
     assert not any(
         parameter.requires_grad
@@ -137,7 +142,7 @@ def test_transformer_registrations_are_algorithm_interchangeable(monkeypatch):
         y_true=th.tensor([0, 1]),
         highlight_true=th.full((2, 4), -1),
     )
-    expected_heads = (1, 1, 3, 1, 1, 1)
+    expected_heads = (1, 1, 1, 3, 1, 1)
     for model, heads in zip(models, expected_heads):
         output = model(batch)
         assert output.class_logits.shape == (2, heads, 2)

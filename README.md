@@ -113,7 +113,7 @@ backbone is anything implementing `encode` / `pool` / `output_size`.
 | **FR** | Selector and predictor fold onto one encoder, so they cannot drift apart. Liu et al., NeurIPS 2022 |
 | **MGR** | Several generators, one shared predictor, so no single degenerate generator sets the equilibrium. Liu et al., ACL 2023 |
 | **MCD** | Trained against selected-input and full-input predictions; agreement means the highlight d-separates the label. Liu et al., NeurIPS 2023 |
-| **MRD** | The predictor reads the complement and the full input, and the generator maximizes the discrepancy between them, so a spurious feature degenerates to noise. Liu et al., NeurIPS 2024 |
+| **DR** | The predictor trains at the selector's rate scaled by how much of the input the selection kept, which restrains its Lipschitz constant. Liu et al., KDD 2023 |
 | **G-RAT** | A pretrained attention classifier guides the selection and matches its distribution. Hu and Yu, AAAI 2024 |
 | **GenSPP** | No gradient reaches the generator — a genetic search scores each candidate by training a fresh predictor. Ruggeri and Signorelli, ACL 2025 |
 
