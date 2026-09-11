@@ -140,9 +140,12 @@ class HighlightIoUConfig(HighlightMetricConfig):
     component="pyhighlights.utility.metrics.SelectionRate",
 )
 class SelectionRateConfig(Configuration):
-    """Share of a document the selector kept, averaged over samples."""
+    """Share of a document the selector kept, averaged over samples.
 
-    ignore_index: int = Param(-1)
+    No ``ignore_index``: the metric is bound to ``mask``, so what it has to
+    exclude is padding rather than an unannotated position, and a mask says
+    that with a zero.
+    """
 
 
 @register_class(
@@ -241,7 +244,12 @@ class HighlightIoUMetricConfig(HighlightF1MetricConfig):
     component=BOUND_METRIC_COMPONENT,
 )
 class SelectionRateMetricConfig(HighlightF1MetricConfig):
-    """Reports what the selector kept, whether or not the corpus is annotated."""
+    """Reports what the selector kept, whether or not the corpus is annotated.
+
+    ``mask`` and not ``highlight_true``, so the denominator is the document's
+    own length: the statistic is about the selection, and a corpus with no
+    annotation still has one.
+    """
 
     name: str = Param("selection_rate")
     metric: RegistrationKey[Metric] = Param(SELECTION_RATE)
