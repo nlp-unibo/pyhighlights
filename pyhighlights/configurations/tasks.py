@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Sequence
 
 from cinnamon.configuration import Configuration, Param
 from cinnamon.registry import RegistrationKey, register_class
+from lightning.pytorch.callbacks import Callback
 
 from pyhighlights.components.loaders import HighlightLoader
 from pyhighlights.components.models.base import Model
@@ -23,6 +24,8 @@ from pyhighlights.configurations.keys import (
     HIGHLIGHT_F1_METRIC,
     HIGHLIGHT_IOU_METRIC,
     HIGHLIGHT_LOSS,
+    LOSS_CHECKPOINT,
+    LOSS_EARLY_STOPPING,
     NAMESPACE,
     SELECTION_RATE_METRIC,
     SELECTION_SIZE_METRIC,
@@ -67,8 +70,18 @@ class TaskConfig(Configuration):
     add_special_tokens: bool = Param(True)
     embeddings: str | None = Param(None)
     pretrained_tokens_only: bool = Param(True)
-    monitor: str = Param("val_loss")
-    patience: int = Param(5, ge=0)
+    #: What monitors the run: early stopping, checkpointing, and any criterion
+    #: they read. The pair here is what the task used to build for itself, so
+    #: a run that names nothing behaves as before.
+    #:
+    #: **The stopping callback and the checkpoint callback have to monitor the
+    #: same quantity.** Mix two and a run reports a model its own stopping rule
+    #: did not choose, silently. ``SCORE_*`` monitors the combination
+    #: :class:`~pyhighlights.components.callbacks.GeneralizationLossScore`
+    #: writes, and wants that criterion in this list too.
+    callbacks: List[RegistrationKey[Callback]] = Param(
+        [LOSS_EARLY_STOPPING, LOSS_CHECKPOINT]
+    )
     store_predictions: bool = Param(False)
     #: Whether the weights survive the run. A checkpoint holds the whole
     #: model, and nothing downstream reads one -- the task restores the best

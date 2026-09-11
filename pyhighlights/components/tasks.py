@@ -28,10 +28,11 @@ import pandas as pd
 import torch as th
 from cinnamon.registry import RegistrationKey, Registry
 from lightning.pytorch import seed_everything
-from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
+from lightning.pytorch.callbacks import Callback, ModelCheckpoint
 from torch.utils.data import DataLoader
 
 from pyhighlights.components import faithfulness
+from pyhighlights.components.callbacks import MonitoredScore
 from pyhighlights.components.data import (
     HighlightCollator,
     HighlightDataset,
@@ -203,8 +204,7 @@ class SPPTask(Task):
         add_special_tokens: bool = True,
         embeddings: str | Path | None = None,
         pretrained_tokens_only: bool = True,
-        monitor: str = "val_loss",
-        patience: int = 5,
+        callbacks: List[RegistrationKey[Callback]] | None = None,
         store_predictions: bool = False,
         keep_checkpoints: bool = True,
         save_weights_only: bool = False,
@@ -239,8 +239,7 @@ class SPPTask(Task):
                 "a task embeds its tokens either with a pretrained model card "
                 "or with a vector file, not both"
             )
-        self.monitor = monitor
-        self.patience = patience
+        self.callbacks = list(callbacks) if callbacks is not None else None
         self.store_predictions = store_predictions
         # A checkpoint holds the whole model. On a transformer grid that is
         # hundreds of gigabytes of files nothing downstream reads: the task
@@ -318,6 +317,35 @@ class SPPTask(Task):
             for name, frame in splits.items()
         }
 
+    def build_callbacks(self, checkpoints: Path) -> List[Callback]:
+        """What monitors this run, built from the keys the task was given.
+
+        A checkpoint callback is told where to write and whether to store
+        weights only, because those are the task's business rather than the
+        study's -- the run deletes them again once it has scored the epoch
+        they hold.
+
+        Nothing is monitored when no keys are given, and the run is scored on
+        the weights it ended on. The registered configuration names the pair
+        the task used to build for itself -- early stopping and checkpointing
+        on ``val_loss`` -- rather than this class naming it, so that which
+        callbacks are the default is a decision of the configuration layer and
+        is stated once.
+        """
+        built: List[Callback] = []
+        for key in self.callbacks or []:
+            callback = Registry.from_key(key, expected_type=Callback)
+            if isinstance(callback, ModelCheckpoint):
+                callback.dirpath = str(checkpoints)
+                callback.save_weights_only = self.save_weights_only
+            built.append(callback)
+        # A criterion that writes the monitored quantity has to run before the
+        # callbacks that read it: they share the `on_validation_end` hook and
+        # Lightning calls them in order. Sorted here rather than documented as
+        # a rule about list order, which is the kind of rule a study gets
+        # wrong once and then cannot see.
+        return sorted(built, key=lambda item: not isinstance(item, MonitoredScore))
+
     def build_model(self) -> Model:
         # Passed only when asked for, so an unsupervised run builds exactly the
         # model its key describes.
@@ -367,18 +395,13 @@ class SPPTask(Task):
 
         checkpoints = self.directory / f"seed={seed}"
         checkpoints.mkdir(parents=True, exist_ok=True)
-        checkpoint = ModelCheckpoint(
-            monitor=self.monitor,
-            mode="min",
-            dirpath=checkpoints,
-            save_weights_only=self.save_weights_only,
+        built = self.build_callbacks(checkpoints)
+        checkpoint = next(
+            (item for item in built if isinstance(item, ModelCheckpoint)), None
         )
         trainer = L.Trainer(
             **{"default_root_dir": checkpoints, **self.trainer_args},
-            callbacks=[
-                EarlyStopping(monitor=self.monitor, mode="min", patience=self.patience),
-                checkpoint,
-            ],
+            callbacks=built,
         )
         trainer.fit(
             model,
@@ -389,7 +412,17 @@ class SPPTask(Task):
         # The last epoch is not the best one: early stopping stops after
         # `patience` worse epochs, so scoring the weights still in memory
         # reports a model nobody would have kept.
-        if not checkpoint.best_model_path:
+        if checkpoint is None:
+            # No checkpoint callback was configured, so there is no best epoch
+            # to go back to and the run is scored on the weights it ended on.
+            # A deliberate configuration rather than an accident, so it is not
+            # a warning.
+            logger.info(
+                "%s: no checkpoint callback, so seed %s is scored on its last epoch",
+                self.name,
+                seed,
+            )
+        elif not checkpoint.best_model_path:
             # Nothing was ever checkpointed: `monitor` names a metric no split
             # logs. Scoring the weights training happened to end on is not the
             # same experiment, so say which metric is missing.
@@ -397,7 +430,7 @@ class SPPTask(Task):
                 "%s: nothing monitored %s, so seed %s is scored on its last "
                 "epoch rather than its best one",
                 self.name,
-                self.monitor,
+                checkpoint.monitor,
                 seed,
             )
         else:

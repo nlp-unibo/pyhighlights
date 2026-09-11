@@ -11,7 +11,13 @@ import pyhighlights
 from pyhighlights.components import tasks
 from pyhighlights.components.analyzers import MetricsAnalyzer
 from pyhighlights.components.tasks import SPPTask
-from pyhighlights.configurations.keys import GRU_FR, LEAKAGE_REMOVER, TOY, TOY_TASK
+from pyhighlights.configurations.keys import (
+    GRU_FR,
+    LEAKAGE_REMOVER,
+    LOSS_EARLY_STOPPING,
+    TOY,
+    TOY_TASK,
+)
 from pyhighlights.utility.manifest import (
     KEY_FIELD,
     PACKAGES,
@@ -145,14 +151,18 @@ def test_a_run_writes_down_the_settings_it_was_given(tmp_path):
         model=GRU_FR,
         name="recorded",
         save_path=str(tmp_path),
-        patience=3,
+        callbacks=[LOSS_EARLY_STOPPING],
     )
 
     directory = task.serialize({"runs": []})
     written = json.loads((directory / "manifest.json").read_text())
 
     assert written["started"] == directory.name
-    assert written["settings"]["patience"] == 3
+    # The callback's own settings are resolved like any other key, so the
+    # manifest records the patience a run was monitored with rather than a
+    # name to look it up under.
+    assert written["settings"]["callbacks"][0]["patience"] == 5
+    assert written["settings"]["callbacks"][0]["monitor"] == "val_loss"
     # The whole tree, so a reader has the numbers rather than the key names.
     assert written["settings"]["model"]["losses"][1]["loss"]["threshold"] == 0.15
     assert written["versions"]["pyhighlights"] == versions()["pyhighlights"]
