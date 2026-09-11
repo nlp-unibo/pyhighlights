@@ -114,16 +114,27 @@ class BinaryHighlightIoU(HighlightMetric):
 
 
 class SelectionMetric(Metric):
-    """Per-sample selection statistic averaged over the labelled positions."""
+    """Per-sample selection statistic over the tokens a document actually has.
+
+    ``target`` is the **padding mask** -- 1 for a real token, 0 for padding --
+    and not an annotation. A selection statistic is about the document, so it
+    is defined whether or not the corpus annotated anything, which is why the
+    registered binding names ``mask`` rather than ``highlight_true``.
+
+    The distinction is the whole metric. Counting padding makes a rate depend
+    on the widest row in the batch rather than on the document: a 6-token
+    selection out of a 34-token clause is 18%, and reads as 6% once 67 columns
+    of padding join the denominator. Sizes survive that -- padding adds zero to
+    a sum -- and rates do not.
+    """
 
     is_differentiable = False
     higher_is_better = False
     full_state_update = False
 
-    def __init__(self, ignore_index: int = -1, **kwargs):
+    def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-        self.ignore_index = ignore_index
         self.add_state(
             name="value", default=th.tensor(0, dtype=th.float), dist_reduce_fx="sum"
         )
@@ -136,7 +147,7 @@ class SelectionMetric(Metric):
 
     def update(self, preds: th.Tensor, target: th.Tensor) -> None:
         for sample_preds, sample_target in zip(preds, target):
-            selection = sample_preds[sample_target != self.ignore_index]
+            selection = sample_preds[sample_target > 0]
             if selection.numel():
                 self.value += self.reduce(selection).detach()
                 self.samples += 1

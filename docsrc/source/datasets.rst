@@ -421,7 +421,9 @@ splits are annotated at different densities — ERASER ``movies`` marks test at
 0.31 against training's 0.09 — cannot be served by a single target, and no
 choice of threshold fixes it. The mismatch is measured rather than hidden:
 ``selection_rate`` reports what the selector actually keeps at test, beside
-the highlight scores.
+the highlight scores — as a share of the document's own tokens, not of the
+padded batch, so it is comparable between a corpus of short clauses and one of
+long reviews.
 
 API
 ---

@@ -109,16 +109,48 @@ def test_highlight_metrics_ignore_unlabelled_positions():
 
 
 def test_selection_metrics_average_over_samples():
+    # `target` is the padding mask: 1 is a real token, 0 is padding.
     preds = th.tensor([[1.0, 1.0, 0.0], [1.0, 0.0, 0.0]])
-    target = th.tensor([[1, 0, -1], [1, 0, 0]])
+    target = th.tensor([[1.0, 1.0, 0.0], [1.0, 1.0, 1.0]])
 
     rate = SelectionRate()
     rate.update(preds, target)
     size = SelectionSize()
     size.update(preds, target)
 
+    # First sample keeps both of its two tokens, the second one of three.
     assert rate.compute() == pytest.approx((1.0 + 1 / 3) / 2)
     assert size.compute() == pytest.approx(1.5)
+
+
+def test_a_selection_rate_ignores_the_padding_it_could_not_have_kept():
+    """The denominator is the document, not the widest row in the batch.
+
+    This is the defect that made every reported ``selection_rate`` too low.
+    The metric excluded positions equal to an ``ignore_index`` of -1, but the
+    registered binding hands it ``mask``, which is 0 for padding and never -1,
+    so padding stayed in the denominator. A selector keeping a fifth of a
+    short clause reported a fifteenth of a padded batch.
+    """
+    # One four-token document in a batch padded to twelve, one token kept.
+    preds = th.tensor([[1.0] + [0.0] * 11])
+    target = th.tensor([[1.0] * 4 + [0.0] * 8])
+
+    rate = SelectionRate()
+    rate.update(preds, target)
+    size = SelectionSize()
+    size.update(preds, target)
+
+    assert rate.compute() == pytest.approx(0.25)
+    assert size.compute() == pytest.approx(1.0)
+
+    # Widening the batch must not move the rate: same document, more padding.
+    wider = SelectionRate()
+    wider.update(
+        th.tensor([[1.0] + [0.0] * 39]),
+        th.tensor([[1.0] * 4 + [0.0] * 36]),
+    )
+    assert wider.compute() == pytest.approx(rate.compute())
 
 
 def test_registered_metrics_score_the_fields_they_name():
