@@ -25,6 +25,7 @@ from pyhighlights.configurations.keys import (
     TOY_TASK,
 )
 from pyhighlights.configurations.tasks import BINARY_METRICS
+from pyhighlights.utility.manifest import KEY_FIELD
 
 
 def build_registry():
@@ -299,7 +300,7 @@ def test_a_class_weights_task_writes_down_what_it_read(tmp_path):
 
     # The same manifest every other task writes: which corpus, and which key.
     manifest = json.loads((task.directory / "manifest.json").read_text())
-    assert manifest["settings"]["loader"]["key"] == str(TOY)
+    assert manifest["settings"]["loader"][KEY_FIELD] == str(TOY)
     assert manifest["settings"]["weights"]["split"] == "train"
 
 

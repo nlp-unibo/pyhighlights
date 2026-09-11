@@ -56,6 +56,31 @@ def versions() -> Dict[str, str]:
     return found
 
 
+#: Where a resolved entry records the registration key it came from.
+#:
+#: Not ``"key"``. A resolved entry is the registration key beside the
+#: configuration's own parameters, flattened into one object, so any name a
+#: parameter can take is a name the key can lose -- and
+#: :class:`~pyhighlights.components.preprocessors.LeakageRemover` takes exactly
+#: this one, to name the column it deduplicates on. Its entry used to read
+#: ``"key": "text"`` with the registration key gone, which
+#: :meth:`~pyhighlights.components.analyzers.PredictionAnalyzer.corpus` then
+#: tried to parse as a key. ``@key`` is not a Python identifier, so no
+#: parameter can ever be called it.
+KEY_FIELD = "@key"
+
+
+def registration_key(entry: Mapping[str, Any]) -> str:
+    """The registration key of a resolved entry, old manifests included.
+
+    Manifests written before :data:`KEY_FIELD` existed record it as ``key``,
+    and a results tree outlives the release that wrote it.
+    """
+    if KEY_FIELD in entry:
+        return entry[KEY_FIELD]
+    return entry["key"]
+
+
 def resolve(value: Any) -> Any:
     """Replace every registration key with the values behind it.
 
@@ -63,11 +88,14 @@ def resolve(value: Any) -> Any:
     metric settings in the same order. A key that appears twice -- the same
     backbone under a selector and a predictor -- is written out twice, which
     reads better than a file of cross-references.
+
+    The key itself is recorded under :data:`KEY_FIELD` rather than ``key``, so
+    that a configuration with a parameter of that name keeps both.
     """
     if isinstance(value, RegistrationKey):
         configuration = Registry.retrieve_configuration(registration_key=value)
         return {
-            "key": str(value),
+            KEY_FIELD: str(value),
             **{name: resolve(item) for name, item in configuration.values.items()},
         }
     if isinstance(value, Mapping):

@@ -25,6 +25,7 @@ from cinnamon.registry import RegistrationKey, Registry
 
 from pyhighlights.components.loaders import HighlightLoader
 from pyhighlights.components.preprocessors import Preprocessor
+from pyhighlights.utility.manifest import registration_key
 
 #: The predictions one seed left behind. A glob rather than a name: a run
 #: stores one file per seed, and every analyzer here reads all of them.
@@ -306,22 +307,57 @@ class PredictionAnalyzer(Analyzer):
         directory: str | Path | None = None,
         pattern: str = PREDICTIONS,
         split: str = "test",
+        latest: bool = True,
     ):
         super().__init__(directory)
         self.pattern = pattern
         self.split = split
+        self.latest = latest
+
+    def runs(self) -> List[Path]:
+        """The run directories to read, newest per task when ``latest``.
+
+        A task keeps every run it has ever done, one timestamped directory
+        each, so without this a re-run or a requeued job reads as extra
+        samples: duplicate rows here, and duplicate files out of
+        :class:`LabelStudioExporter`, which a reviewer would then annotate
+        twice.
+
+        Grouped by the name the run's manifest reports rather than by its
+        directory, for the reason :meth:`MetricsAnalyzer.reports` groups that
+        way: the stamp is a path component, and a task that has been renamed or
+        moved is still the task its own record says it is.
+        """
+        candidates = sorted(
+            {path.parent for path in self.directory.rglob(self.pattern)}
+        )
+        if not self.latest:
+            return candidates
+        found: Dict[str, Path] = {}
+        for run in candidates:
+            manifest = run / "manifest.json"
+            name = run.parent.name
+            if manifest.exists():
+                settings = json.loads(manifest.read_text()).get("settings", {})
+                name = settings.get("name", name)
+            # `candidates` is sorted and a stamp sorts chronologically, so the
+            # last one written wins.
+            found[name] = run
+        return sorted(found.values())
 
     def corpus(self, run: Path) -> Dict[int, pd.Series]:
         """The split these predictions were made on, keyed by sample id."""
         settings = json.loads((run / "manifest.json").read_text())["settings"]
         splits = Registry.from_key(
-            RegistrationKey.parse(registration_key=settings["loader"]["key"]),
+            RegistrationKey.parse(
+                registration_key=registration_key(settings["loader"])
+            ),
             expected_type=HighlightLoader,
         ).load()
         preprocessor = settings.get("preprocessor")
         if preprocessor is not None:
             splits = Registry.from_key(
-                RegistrationKey.parse(registration_key=preprocessor["key"]),
+                RegistrationKey.parse(registration_key=registration_key(preprocessor)),
                 expected_type=Preprocessor,
             ).process(splits)
         frame = splits[self.split]
@@ -339,7 +375,8 @@ class PredictionAnalyzer(Analyzer):
         # trained on the same split, and loading it again per file is the whole
         # cost of the analysis repeated.
         corpora: Dict[Path, Dict[int, Any]] = {}
-        for path in sorted(self.directory.rglob(self.pattern)):
+        files = [path for run in self.runs() for path in sorted(run.glob(self.pattern))]
+        for path in files:
             rows: List[Dict[str, Any]] = []
             run = path.parent
             if run not in corpora:
@@ -508,13 +545,16 @@ class LabelStudioExporter(PredictionAnalyzer):
         directory: str | Path | None = None,
         pattern: str = PREDICTIONS,
         split: str = "test",
+        latest: bool = True,
         model_version: str = "pyhighlights",
         labels: Sequence[str] = ("highlight",),
         only: int | None = None,
         column: str = "label",
         stem: str = "label-studio",
     ):
-        super().__init__(directory=directory, pattern=pattern, split=split)
+        super().__init__(
+            directory=directory, pattern=pattern, split=split, latest=latest
+        )
         self.model_version = model_version
         self.labels = list(labels)
         self.only = only

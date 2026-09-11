@@ -287,13 +287,24 @@ def test_the_prediction_analyzer_reports_what_the_selector_kept(tmp_path):
         assert row.predicted in (0, 1)
 
 
-def write_run(directory: Path, batch: dict) -> Path:
-    """A run directory holding one seed's predictions and its manifest."""
-    run = directory / "2026-01-01T00-00-00"
+def write_run(
+    directory: Path,
+    batch: dict,
+    stamp: str = "2026-01-01T00-00-00",
+    name: str | None = None,
+) -> Path:
+    """A run directory holding one seed's predictions and its manifest.
+
+    The manifest names the loader under ``key`` rather than ``@key``, which is
+    what releases up to 0.7.1 wrote -- so these fixtures also pin that an older
+    results tree still reads.
+    """
+    run = directory / stamp
     run.mkdir(parents=True)
-    (run / "manifest.json").write_text(
-        json.dumps({"settings": {"loader": {"key": str(TOY)}, "preprocessor": None}})
-    )
+    settings = {"loader": {"key": str(TOY)}, "preprocessor": None}
+    if name is not None:
+        settings["name"] = name
+    (run / "manifest.json").write_text(json.dumps({"settings": settings}))
     pd.to_pickle([batch], run / "predictions-seed=7.pkl")
     return run
 
@@ -628,3 +639,40 @@ def test_a_benchmark_can_override_what_its_tasks_are_built_with(tmp_path):
         next(iter(sorted(tmp_path.rglob("manifest.json")))).read_text()
     )
     assert manifest["build_args"]["seeds"] == [0]
+
+
+def test_a_rerun_is_not_more_samples(tmp_path):
+    """The newest run of a task, not every run it has ever done.
+
+    A task keeps one timestamped directory per run, so reading all of them
+    reports a re-run or a requeued job as extra samples -- duplicate rows here,
+    and duplicate files out of the exporter, which a reviewer would annotate
+    twice. `MetricsAnalyzer` has taken the newest since PR #35; this is the
+    same rule for predictions.
+    """
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+    sample_id = int(Registry.from_key(TOY).load()["test"]["sample_id"].iloc[0])
+    batch = {
+        "word_ids": [[0, 1]],
+        "mask": [[1.0, 1.0]],
+        "highlight_mask": [[1.0, 0.0]],
+        "class_logits": [[0.1, 0.9]],
+        "sample_ids": [sample_id],
+    }
+    task = tmp_path / "fr"
+    write_run(task, batch, stamp="2026-01-01T00-00-00", name="fr")
+    write_run(task, batch, stamp="2026-02-02T00-00-00", name="fr")
+
+    report = PredictionAnalyzer(directory=tmp_path).analyze()
+
+    assert list(report["run"]) == ["fr/2026-02-02T00-00-00"]
+    # The history is still readable on request.
+    every = PredictionAnalyzer(directory=tmp_path, latest=False).analyze()
+    assert sorted(every["run"]) == [
+        "fr/2026-01-01T00-00-00",
+        "fr/2026-02-02T00-00-00",
+    ]
+    # And the exporter writes one file, not one per stale run.
+    assert sorted(LabelStudioExporter(directory=tmp_path).export()) == [
+        task / "2026-02-02T00-00-00" / "label-studio-seed=7.json"
+    ]

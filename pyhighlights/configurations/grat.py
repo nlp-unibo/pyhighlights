@@ -7,12 +7,11 @@ from cinnamon.configuration import Configuration, Param
 from cinnamon.registry import RegistrationKey, register_class
 
 from pyhighlights.components.models.spp.base import (
-    SPPAggregator,
     SPPBackbone,
     SPPPredictor,
-    SPPSelector,
 )
 from pyhighlights.components.models.spp.grat import GRATGuider
+from pyhighlights.configurations.base import SPPModelConfig
 from pyhighlights.configurations.keys import (
     ADAM,
     CLASSIFICATION_LOSS,
@@ -22,7 +21,6 @@ from pyhighlights.configurations.keys import (
     GUIDE_LOSS,
     JSD_LOSS,
     MLP_PREDICTOR,
-    MLP_SELECTOR,
     NAMESPACE,
     SPARSITY_LOSS,
     TRANSFORMER_BACKBONE,
@@ -60,23 +58,12 @@ class TransformerAttentionGuiderConfig(AttentionGuiderConfig):
 @register_class(
     name="model", tags={"grat", "gru"}, namespace=NAMESPACE, component=GRAT_COMPONENT
 )
-class GRUGRATConfig(Configuration):
+class GRUGRATConfig(SPPModelConfig):
     name: str = Param("grat")
-    selector_backbones: RegistrationKey[SPPBackbone] = Param(GRU_BACKBONE)
-    selectors: RegistrationKey[SPPSelector] = Param(MLP_SELECTOR)
-    predictor: RegistrationKey[SPPPredictor] = Param(MLP_PREDICTOR)
+    #: G-RAT encodes the highlight with its own backbone, so the predictor's
+    #: is required rather than optional.
     predictor_backbone: RegistrationKey[SPPBackbone] = Param(GRU_BACKBONE)
     guider: RegistrationKey[GRATGuider] = Param(GRU_GUIDER)
-    aggregator: RegistrationKey[SPPAggregator] | None = Param(None)
-    temperature: float = Param(1.0, gt=0.0)
-    select_over: str = Param("word")
-    #: One rate for the encoders, another for everything above them. ``None``
-    #: trains the whole model at the optimizer's own rate, which is what every
-    #: published implementation of these architectures does -- they encode
-    #: with a GRU over a frozen table, so nothing pretrained is fine-tuned.
-    #: Set it when a pretrained encoder *is* being fine-tuned: one rate cannot
-    #: serve both a transformer and a selector initialized from scratch.
-    encoder_lr: float | None = Param(None, gt=0.0)
     losses: List[RegistrationKey[Loss]] = Param(
         [CLASSIFICATION_LOSS, SPARSITY_LOSS, CONTIGUITY_LOSS, GUIDE_LOSS, JSD_LOSS]
     )
