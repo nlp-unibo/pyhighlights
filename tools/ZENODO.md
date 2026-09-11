@@ -1,6 +1,6 @@
 # Zenodo upload — paste-ready
 
-Four artifacts, **three published now** and one held. Everything below is meant
+Four artifacts, **all four ready to publish**. Everything below is meant
 to be pasted into <https://zenodo.org/uploads/new>. Files are in `dist/`.
 
 Reserve a DOI on each record before publishing (Zenodo's *Reserve DOI* button):
@@ -11,15 +11,44 @@ points at the newest.
 Shared fields for all four:
 
 - **Resource type:** Dataset
-- **Creators:** Federico Ruggeri (University of Bologna,
-  ORCID: *fill in*)
 - **Version:** `v1`
+- **Licence:** CC0-1.0 for the three manifest artifacts, CC-BY-4.0 for the toy
+  corpus. Each artifact states its own terms in its `README.md` and in a
+  `license` field of its manifest, so a zip that travels does not lose them.
 - **Language:** English
 - **Related identifiers:**
   - `https://github.com/nlp-unibo/pyhighlights` — *is supplement to* —
     Software
   - `https://pypi.org/project/pyhighlights/0.6.0/` — *is supplement to* —
     Software
+
+## Creators, and who is not one
+
+**Creators** claims authorship of *the deposit*. It generates the citation
+string and the DataCite attribution, so the question is who made this artifact,
+not who made the corpus it is about.
+
+- **Records 1-3 are authored here.** Creators: Federico Ruggeri, ORCID
+  `0000-0002-1697-8586`, affiliation `Language Technologies Lab, Department of
+  Computer Science and Engineering (DISI), University of Bologna`. The repair
+  policy, the manifests and the build are the work being deposited; the corpora
+  are only indexed. Add a co-creator only if someone else worked on the policy
+  or the build.
+- **Record 4 is authored by the paper's authors**, because the deposit is their
+  dataset rather than an index of it: Federico Ruggeri (ORCID
+  `0000-0002-1697-8586`) and Gaetano Signorelli (ORCID
+  `0009-0005-5221-0717`). List Federico again under **Contributors** with the
+  role *Data curator*, for the packaging.
+- **The upstream corpus authors are not creators.** Bao et al. and DeYoung et
+  al. belong in the description's citation and in the related identifiers.
+  Naming them as creators would say they deposited or endorsed these
+  manifests, and would make anyone citing the splits cite them as depositors.
+- **pyhighlights is not a creator** — it is software, and it is already a
+  related identifier.
+- **The lab is not a creator either.** Zenodo does support an organizational
+  creator, but using it here would drop personal citation credit from records
+  that are individually authored. The lab belongs in the affiliation field and
+  in a Zenodo **community**, which expresses it without distorting authorship.
 
 ---
 
@@ -134,9 +163,8 @@ spans, data leakage, reproducibility, ERASER, pyhighlights
 
 - `https://www.eraserbenchmark.com/zipped/movies.tar.gz` — *references* —
   Dataset
-- the ERASER ACL 2020 DOI — *is referenced by* — Publication. Candidate:
-  `10.18653/v1/2020.acl-main.408`; **check it resolves before pasting** — it
-  is from memory, not verified here.
+- `https://doi.org/10.18653/v1/2020.acl-main.408` — *is referenced by* —
+  Publication
 
 **Description**
 
@@ -168,11 +196,10 @@ spans, data leakage, reproducibility, ERASER, pyhighlights
 
 ---
 
-## 4. `pyhighlights-genspp-toy-v1.zip` + `toy_dataset.pkl` — **hold as draft**
+## 4. `pyhighlights-genspp-toy-v1.zip` + `toy_dataset.pkl` — publish now
 
-Save this record as a draft and do **not** publish until both GenSPP authors
-confirm the data licence. It is the one artifact that redistributes a dataset
-rather than indexing one.
+The one artifact that redistributes a dataset rather than indexing one, so it
+is the one whose licence is the authors' to set. Both have agreed.
 
 **Upload both files to this one record.** Zenodo serves each file of a record
 at its own URL, and `GenSPPToyLoader` reads a pickle rather than an archive, so
@@ -183,9 +210,24 @@ there for a human who wants the README and manifest beside it.
 
 > The GenSPP synthetic toy corpus (pyhighlights reproduction artifact)
 
-**Licence:** *pending the authors' answer.* CC-BY-4.0 is the natural choice for
-a synthetic corpus with a paper behind it; CC0-1.0 if they would rather it
-carry no conditions. Do not set this field before they answer.
+**Creators:** Federico Ruggeri (ORCID `0000-0002-1697-8586`) **and Gaetano
+Signorelli** (ORCID `0009-0005-5221-0717`) — this record redistributes the
+corpus their paper released, so both authors of that paper author the deposit.
+Federico goes in **Contributors** as well, role *Data curator*.
+
+**Licence:** CC-BY-4.0, agreed by both authors.
+
+Not CC-BY-SA. ShareAlike would add a copyleft obligation this artifact does not
+need and cannot cleanly carry: whether a model trained on a corpus is an
+*adapted work* is unsettled, and handing that question to someone whose only
+goal is repeating a benchmark is friction rather than protection. CC 4.0 also
+licenses *sui generis* database rights, which exist in the EU, so ShareAlike
+would bite harder here than the same choice would elsewhere — and it is one-way
+incompatible with most other terms, which would keep the corpus out of any
+aggregated benchmark. What it would defend is a closed redistribution of a
+modified corpus of 10,000 synthetic strings over the lowercase alphabet, which
+is thin on copyright to begin with. CC0-1.0 remains the alternative if the
+authors ever prefer citation as a norm rather than a condition.
 
 **Keywords:** select-then-predict, rationalization, genetic algorithm,
 synthetic corpus, reproducibility, GenSPP, pyhighlights
@@ -193,12 +235,14 @@ synthetic corpus, reproducibility, GenSPP, pyhighlights
 **Related identifiers, in addition to the shared ones**
 
 - `https://github.com/nlp-unibo/gen-spp` — *is derived from* — Software
-- the GenSPP ACL 2025 DOI — *is supplement to* — Publication *(fill in)*
+- `https://doi.org/10.18653/v1/2025.acl-long.59` — *is supplement to* —
+  Publication
 
 **Description**
 
-> The 10,000 synthetic sequences the GenSPP paper (ACL 2025) trains and
-> reports on, as released in `nlp-unibo/gen-spp` at
+> The 10,000 synthetic sequences GenSPP (Ruggeri & Signorelli, ACL 2025,
+> *Interlocking-free Selective Rationalization Through Genetic-based
+> Learning*) trains and reports on, as released in `nlp-unibo/gen-spp` at
 > `genetic/data/toy_dataset.pkl`, republished so a reproduction can fetch them
 > rather than be handed them.
 >
@@ -216,7 +260,11 @@ synthetic corpus, reproducibility, GenSPP, pyhighlights
 > `toy_dataset.pkl` directly. SHA-256:
 > `2ee223d8aecd6ee9a585aa695a6fd5fd6f4c10c39fe6046ffb833d7ab44fb064`.
 >
-> Citation: the GenSPP paper, ACL 2025. Reference implementation:
+> Citation: Ruggeri, F., & Signorelli, G. (2025). Interlocking-free Selective
+> Rationalization Through Genetic-based Learning. *Proceedings of the 63rd
+> Annual Meeting of the Association for Computational Linguistics (Volume 1:
+> Long Papers)*, 1175-1191.
+> <https://doi.org/10.18653/v1/2025.acl-long.59>. Reference implementation:
 > <https://github.com/nlp-unibo/gen-spp>.
 
 ---
