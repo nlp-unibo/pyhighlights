@@ -29,16 +29,16 @@ manifest reconstructs its own splits.
 
 | artifact | contents | licence |
 |---|---|---|
-| `pyhighlights-r2a-beer-splits-v1.zip` | split manifests for `beer0/1/2` | CC0-1.0 — no review text |
-| `pyhighlights-r2a-hotel-splits-v1.zip` | split manifests for the three Hotel aspects | CC0-1.0 — no review text |
-| `pyhighlights-eraser-movies-splits-v1.zip` | split manifest for ERASER `movies` | CC0-1.0 — no document text |
+| `pyhighlights-r2a-beer-splits-v1.zip` | split manifests for `beer0/1/2` | CC-BY-4.0 — no review text |
+| `pyhighlights-r2a-hotel-splits-v1.zip` | split manifests for the three Hotel aspects | CC-BY-4.0 — no review text |
+| `pyhighlights-eraser-movies-splits-v1.zip` | split manifest for ERASER `movies` | CC-BY-4.0 — no document text |
 | `pyhighlights-genspp-toy-v1.zip` + `toy_dataset.pkl` | the complete released toy corpus | CC-BY-4.0, set by both GenSPP authors |
 
 A manifest holds the upstream row indices each split retains after the
 zero-leakage repair, the source URL and SHA-256, distributed and retained
 counts, label counts, the repair policy, the licence and the citation. It holds
-no corpus text, which is why it carries no conditions of its own and stacks no
-second attribution requirement on the upstream one.
+no corpus text, so its terms cover the indices and the policy rather than the
+corpus, which carries whatever its own release carries.
 
 The manifests are a published receipt rather than a runtime input. No loader
 reads one and none needs to: pinning the upstream digest and running a

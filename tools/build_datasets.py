@@ -84,12 +84,12 @@ GENSPP_CITATION = (
     "Reference implementation: https://github.com/nlp-unibo/gen-spp"
 )
 
-# A manifest is index data, counts and checksums authored here rather than any
-# part of the corpus it points at, so it carries no conditions of its own and
-# does not stack a second attribution requirement on the upstream one. The toy
-# corpus is the exception: it is the dataset, licensed by both authors of the
-# paper that released it.
-MANIFEST_LICENSE = "CC0-1.0"
+# One licence across every record, which is also Zenodo's default. A manifest
+# holds no part of the corpus it points at, so CC0 was defensible for it, but
+# uniformity is worth more than the one attribution it would have saved: a
+# reader comparing four records sees one set of terms, and the repair policy
+# and the indices are authored work that attribution is a fair condition on.
+MANIFEST_LICENSE = "CC-BY-4.0"
 GENSPP_TOY_LICENSE = "CC-BY-4.0"
 
 REPAIR = {
@@ -345,10 +345,10 @@ def readme(name, url, sha256, citation, summary) -> bytes:
     ]
     body += (
         [
-            "It holds no part of the corpus it indexes, so it adds no",
-            "conditions of its own. The corpus you fetch from the source below",
-            "carries whatever terms its own release carries; cite it as given",
-            "under Citation.",
+            "These terms cover the manifest -- the retained row indices, the",
+            "counts and the repair policy -- and nothing else. The corpus you",
+            "fetch from the source below carries whatever terms its own",
+            "release carries; cite it as given under Citation.",
         ]
         if manifest_only
         else [
