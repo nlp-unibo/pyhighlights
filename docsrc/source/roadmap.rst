@@ -11,12 +11,72 @@ In progress
 annotation at all: the question is whether a legal expert judges the predicted
 highlights to be the right ones. It is the first use of the library from
 outside it, so it is also what says whether the library is usable —
-:class:`~pyhighlights.components.analyzers.PredictionAnalyzer` and the
-per-class ``weight`` on the classification criterion both exist because that
+:class:`~pyhighlights.components.analyzers.PredictionAnalyzer`, the per-class
+``weight`` on the classification criterion, ``encoder_lr``,
+:class:`~pyhighlights.components.models.spp.implementations.StackedBackbone`,
+``keep_checkpoints`` and the monitoring callbacks below all exist because that
 study needed them.
+
+Its first arm has run — four architectures over a held Legal-BERT, five
+categories, five seeds — and reading it back is what found the two reporting
+defects and the monitoring gap under *Done*. A study that only exercised the
+library would not have found them; one that reported numbers did.
 
 Done
 ----
+
+**What a run is monitored by is a configuration.** A task used to take
+``monitor`` and ``patience`` and build its own early stopping and checkpoint,
+with ``mode`` fixed at ``min`` — so stopping on a *maximized* metric was not
+expressible, and asking for it checkpointed the worst epoch. A task now takes
+``callbacks``, a list of registration keys like its metrics and its losses, and
+:mod:`pyhighlights.components.callbacks` registers what goes in it.
+
+:class:`~pyhighlights.components.callbacks.GeneralizationLossScore` is there
+because neither a loss nor a metric is the right thing to watch on its own.
+Monitoring the validation loss stops a run with its rare-class F1 still
+climbing; monitoring that F1 accepts a large loss regression, which on a
+validation split of a few dozen positives is overfitting. The callback
+combines them into one quantity,
+
+.. math::
+
+   \mathrm{score} = q - c \cdot \max\left(0, \frac{L}{L_{\mathrm{opt}}} - 1\right)
+
+the penalty being Prechelt's generalization loss (1998, *Early Stopping — But
+When?*) against the best validation loss so far. One quantity and not two
+conditions, because early stopping decides when a run ends and the checkpoint
+decides which epoch it is scored on: two quantities mean the reported model is
+not the one the stopping rule chose, and ``results.json`` records scores rather
+than the argument behind them. A task given callbacks that monitor different
+quantities refuses to build.
+
+:class:`~pyhighlights.components.callbacks.WarmupEarlyStopping` and
+:class:`~pyhighlights.components.callbacks.WarmupModelCheckpoint` read
+``warmup_epochs`` off the model and neither count nor checkpoint the epochs
+before it. G-RAT pretrains a guider for ten epochs while the rationalizer sits
+out, and a patience of five killed seeds before that pretraining finished —
+which read as a diverging model rather than as a monitoring artifact. Two-phase
+training, rather than a patience loose enough to cover both phases.
+
+**Two metrics that were reported wrong.** ``selection_rate`` divided by the
+padded batch width rather than by the document, so a corpus of short documents
+in a widely padded batch reported roughly a third of what its selector kept.
+The *training* objective was never affected — ``SparsityPenalty`` divides by
+the real token count — so it was a reporting defect and nothing had to be
+retrained. And a one-class F1 and a macro F1 were both registered under the
+column name ``f1``, so only the manifest said which a table held; the two are
+20 points apart on an imbalanced corpus, and a study read one against the
+other's published numbers. A metric's column name is its own parameter, and
+:class:`~pyhighlights.utility.metrics.ClassF1Score` says in its own docs which
+class it scores.
+
+**A manifest cannot shadow its own key.** ``manifest.resolve`` wrote
+``{"key": str(key), ...}`` over the resolved parameters, so a component with a
+parameter *named* ``key`` — ``LeakageRemover`` has one — overwrote its
+registration key with a column name. The field is ``@key``, which is not a
+Python identifier and so cannot collide with any parameter; a manifest written
+before the change is still read.
 
 **Zenodo dataset artifacts.** Every loader downloaded a corpus as its authors
 distributed it, so a reproduction depended on a URL somebody else controlled
