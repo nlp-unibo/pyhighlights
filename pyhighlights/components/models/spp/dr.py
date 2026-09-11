@@ -23,8 +23,8 @@ class DR(SPP):
 
     Liu, Wang, Wang, Li, Qiu, Zhang, Han and Zou, 2023, *Decoupled
     Rationalization with Asymmetric Learning Rates: A Flexible Lipschitz
-    Restraint*, KDD 2023.
-    Paper: <https://arxiv.org/abs/2305.13599>.
+    Restraint*, KDD 2023, pages 1535-1547.
+    Paper: <https://doi.org/10.1145/3580305.3599299>.
     Reference implementation:
     <https://github.com/jugechengzi/Rationalization-DR>.
 
