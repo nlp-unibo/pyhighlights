@@ -1,15 +1,16 @@
-"""DR: the predictor's rate is the selection rate, rewritten every batch.
+"""DR: the predictor's rate is the selection rate, rewritten every step.
 
 The paper restrains the predictor's Lipschitz constant by giving it the
 selector's rate scaled by what fraction of the input the selection kept. The
-scaling is dynamic, so the checks that matter are that it follows the mask,
-that it is floored, that it is written from the rate the group was built at
-rather than from the rate the last batch left behind, and that an evaluation
-pass does not move it.
+scaling is dynamic, so what has to hold is that it follows the mask, that it is
+floored, that it is written from the rate the group was built at rather than
+from what the last step left behind, that a step is the unit rather than a
+batch, and that an evaluation pass moves nothing.
 """
 
 from pathlib import Path
 
+import lightning as L
 import pytest
 import torch as th
 from cinnamon.registry import Registry
@@ -17,7 +18,8 @@ from cinnamon.registry import Registry
 import pyhighlights
 from pyhighlights.components.models import InputData
 from pyhighlights.components.models.spp import SPPOutput
-from pyhighlights.configurations.keys import GRU_DR
+from pyhighlights.components.tasks import SPPTask
+from pyhighlights.configurations.keys import GRU_DR, TOY
 
 BASE_LR = 1e-3
 
@@ -47,26 +49,45 @@ def output_keeping(kept: int, width: int = 4) -> SPPOutput:
     )
 
 
+def step_after(model, optimizer, *kept: int) -> None:
+    """One optimizer step, preceded by a training batch for each ``kept``."""
+    for one in kept:
+        model.record(
+            split="train",
+            batch=batch_of(),
+            output_data=output_keeping(one),
+            total_loss=th.zeros(()),
+            losses={},
+        )
+    model.on_before_optimizer_step(optimizer)
+
+
 def rates(model, optimizer):
-    predictor = {id(group) for group, _ in model.predictor_groups}
-    return (
-        [group["lr"] for group in optimizer.param_groups if id(group) in predictor],
-        [group["lr"] for group in optimizer.param_groups if id(group) not in predictor],
-    )
+    predictor = [
+        group["lr"]
+        for index, group in enumerate(optimizer.param_groups)
+        if index in model.predictor_rates
+    ]
+    selector = [
+        group["lr"]
+        for index, group in enumerate(optimizer.param_groups)
+        if index not in model.predictor_rates
+    ]
+    return predictor, selector
 
 
 def test_the_predictor_trains_at_the_rate_of_what_it_reads():
     model = Registry.from_key(GRU_DR)
     optimizer = model.configure_optimizers()
 
-    model.restrain_predictor(batch_of(), output_keeping(1))
+    step_after(model, optimizer, 1)
     predictor, selector = rates(model, optimizer)
     assert predictor == [BASE_LR * 0.25]
     assert selector == [BASE_LR]
 
-    # Half the input the next batch: read from the base rate, not from the
-    # quarter the last batch left, which would compound to a sixteenth.
-    model.restrain_predictor(batch_of(), output_keeping(2))
+    # Half the input the next step: read from the base rate, not from the
+    # quarter the last one left, which would compound to a sixteenth.
+    step_after(model, optimizer, 2)
     predictor, _ = rates(model, optimizer)
     assert predictor == [BASE_LR * 0.5]
 
@@ -75,27 +96,60 @@ def test_a_selection_that_keeps_almost_nothing_hits_the_floor():
     model = Registry.from_key(GRU_DR, scale_floor=0.5)
     optimizer = model.configure_optimizers()
 
-    model.restrain_predictor(batch_of(), output_keeping(1))
+    step_after(model, optimizer, 1)
     predictor, _ = rates(model, optimizer)
     assert predictor == [BASE_LR * 0.5]
+
+
+def test_accumulated_batches_are_one_rate_for_one_step():
+    """A step is the unit, not a batch: four batches, one rate, their mean."""
+    model = Registry.from_key(GRU_DR)
+    optimizer = model.configure_optimizers()
+
+    step_after(model, optimizer, 1, 1, 3, 3)
+    predictor, _ = rates(model, optimizer)
+    assert predictor == [pytest.approx(BASE_LR * 0.5)]
+    assert model.batch_rates == []
 
 
 def test_both_halves_of_a_split_predictor_group_are_scaled():
     """``encoder_lr`` splits the predictor in two; the scale applies to both."""
     model = Registry.from_key(GRU_DR, encoder_lr=2e-5)
     optimizer = model.configure_optimizers()
-    assert len(model.predictor_groups) == 2
+    assert len(model.predictor_rates) == 2
 
-    model.restrain_predictor(batch_of(), output_keeping(1))
+    step_after(model, optimizer, 1)
     predictor, selector = rates(model, optimizer)
     assert sorted(predictor) == [2e-5 * 0.25, BASE_LR * 0.25]
     assert sorted(selector) == [2e-5, BASE_LR]
 
 
+def test_a_restored_optimizer_is_scaled_from_the_built_rate():
+    """`load_state_dict` replaces `param_groups`, and restores a scaled rate.
+
+    So a resumed run must address its groups by index and keep scaling from
+    the rate the registration built, not from what the last step wrote.
+    """
+    model = Registry.from_key(GRU_DR)
+    optimizer = model.configure_optimizers()
+    step_after(model, optimizer, 1)
+    state = optimizer.state_dict()
+
+    resumed = Registry.from_key(GRU_DR)
+    restored = resumed.configure_optimizers()
+    restored.load_state_dict(state)
+    assert rates(resumed, restored)[0] == [BASE_LR * 0.25]
+
+    step_after(resumed, restored, 2)
+    predictor, selector = rates(resumed, restored)
+    assert predictor == [BASE_LR * 0.5]
+    assert selector == [BASE_LR]
+
+
 def test_an_untrained_model_says_so_rather_than_training_at_one_rate():
     model = Registry.from_key(GRU_DR)
     with pytest.raises(RuntimeError):
-        model.restrain_predictor(batch_of(), output_keeping(1))
+        model.on_before_optimizer_step(th.optim.Adam(model.parameters()))
 
 
 def test_evaluation_does_not_move_a_rate():
@@ -112,20 +166,16 @@ def test_evaluation_does_not_move_a_rate():
             losses={},
         )
 
+    assert model.batch_rates == []
     assert [group["lr"] for group in optimizer.param_groups] == before
 
 
 def test_the_rate_is_written_inside_a_real_training_loop(tmp_path):
     """The hook has to fire while Lightning owns the step, not only when called.
 
-    ``record`` runs before the optimizer steps, which is the whole reason the
-    rescale lives there. A unit call cannot show that ordering; a fit can.
+    Under accumulation too, where Lightning runs several batches per step --
+    the case a hand-driven call cannot show.
     """
-    import lightning as L
-
-    from pyhighlights.components.tasks import SPPTask
-    from pyhighlights.configurations.keys import TOY
-
     task = SPPTask(
         loader=TOY,
         model=GRU_DR,
@@ -139,7 +189,8 @@ def test_the_rate_is_written_inside_a_real_training_loop(tmp_path):
     trainer = L.Trainer(
         accelerator="cpu",
         max_epochs=1,
-        limit_train_batches=2,
+        limit_train_batches=4,
+        accumulate_grad_batches=2,
         logger=False,
         enable_checkpointing=False,
         enable_progress_bar=False,
@@ -151,3 +202,5 @@ def test_the_rate_is_written_inside_a_real_training_loop(tmp_path):
     assert selector == [BASE_LR]
     assert predictor[0] < BASE_LR
     assert predictor[0] >= BASE_LR * model.scale_floor
+    # Consumed by the steps, not piling up across the epoch.
+    assert model.batch_rates == []

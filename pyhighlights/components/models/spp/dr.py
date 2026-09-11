@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Tuple
+from typing import Dict, List
 
 import torch as th
 from cinnamon.registry import RegistrationKey
@@ -32,6 +32,12 @@ class DR(SPP):
     encoders and separates everything above it. Here a backbone owns its own
     table, so the pair is separate throughout -- the arrangement MCD uses, and
     the reason ``predictor_backbone`` is required rather than optional.
+
+    Two limits worth knowing. DR owns the predictor's rate, so a learning-rate
+    scheduler over that group would be overwritten at the next step -- nothing
+    in the library configures one. And under data parallelism each process
+    scales by the selection rate of its own batch, which is what a single-GPU
+    reference implementation cannot say anything about.
     """
 
     def __init__(
@@ -51,7 +57,8 @@ class DR(SPP):
         # predictor entirely, and a predictor that never moves cannot tell the
         # selector which tokens were worth keeping. The paper's floor.
         self.scale_floor = scale_floor
-        self.predictor_groups: List[Tuple[Dict[str, Any], float]] = []
+        self.predictor_rates: Dict[int, float] = {}
+        self.batch_rates: List[float] = []
 
     def configure_optimizers(self):
         generator = [
@@ -71,12 +78,19 @@ class DR(SPP):
         # the rate it was built at, and every rescale is written from that
         # base -- scaling the current value instead would compound the factor
         # batch after batch until the predictor stopped.
+        #
+        # By index rather than by reference: `Optimizer.load_state_dict`
+        # replaces `param_groups` with fresh dictionaries, so a resumed run
+        # would rescale objects the optimizer no longer owns. The rate kept
+        # here is the one the registration was built at, which is also the
+        # only place to read it: what a checkpoint restores is whatever the
+        # last batch scaled the rate to.
         predictor_ids = {id(parameter) for parameter in predictor}
-        self.predictor_groups = [
-            (group, group["lr"])
-            for group in optimizer.param_groups
+        self.predictor_rates = {
+            index: group["lr"]
+            for index, group in enumerate(optimizer.param_groups)
             if any(id(parameter) in predictor_ids for parameter in group["params"])
-        ]
+        }
         return optimizer
 
     def selection_rate(self, data: InputData, output_data: SPPOutput) -> th.Tensor:
@@ -90,12 +104,25 @@ class DR(SPP):
             valid = self.selection_valid(data).to(head.highlight_mask.dtype)
             return (head.highlight_mask * valid).sum() / valid.sum().clamp_min(1)
 
-    def restrain_predictor(self, data: InputData, output_data: SPPOutput) -> None:
-        if not self.predictor_groups:
+    def on_before_optimizer_step(self, optimizer: th.optim.Optimizer) -> None:
+        """Write the predictor's rate for the step about to be taken.
+
+        Here rather than beside the forward pass because this fires once per
+        *step*: under gradient accumulation several batches are selected
+        before one update, and the rate that update is taken at is the mean of
+        what they kept rather than whichever batch happened to be last.
+        """
+        if not self.predictor_rates:
             raise RuntimeError("DR needs configure_optimizers before it can train")
-        scale = max(self.selection_rate(data, output_data).item(), self.scale_floor)
-        for group, base in self.predictor_groups:
-            group["lr"] = base * scale
+        if not self.batch_rates:
+            return
+        scale = max(
+            sum(self.batch_rates) / len(self.batch_rates),
+            self.scale_floor,
+        )
+        self.batch_rates.clear()
+        for index, base in self.predictor_rates.items():
+            optimizer.param_groups[index]["lr"] = base * scale
 
     def record(
         self,
@@ -105,11 +132,11 @@ class DR(SPP):
         total_loss: th.Tensor,
         losses: Dict[str, th.Tensor],
     ) -> None:
-        # The rate is written here because this is the one point of a step
-        # that has both the mask and a moment before Lightning steps the
-        # optimizer. Training only: an evaluation pass must not move a rate.
+        # The one point of a batch that has the mask. What is done with it
+        # waits for `on_before_optimizer_step`, since a batch and a step are
+        # not the same thing. Training only: an evaluation pass sets no rate.
         if split == "train":
-            self.restrain_predictor(batch, output_data)
+            self.batch_rates.append(self.selection_rate(batch, output_data).item())
         super().record(
             split=split,
             batch=batch,
