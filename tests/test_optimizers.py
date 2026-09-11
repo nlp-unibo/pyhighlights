@@ -126,11 +126,14 @@ def test_a_rate_that_cannot_train_anything_is_refused():
     "key", [GRU_DAR, GRU_DR, GRU_FR, GRU_MCD, GRU_MGR, GRU_MRD, GRU_GRAT]
 )
 def test_every_architecture_accepts_an_encoder_rate(key):
-    """MCD and G-RAT declare the shared field set instead of inheriting it.
+    """A parameter added to the shared base has to reach every architecture.
 
-    So a parameter added to ``SPPModelConfig`` reaches FR and GenSPP and
-    misses those two, and asking for it raises rather than being ignored --
-    which is the trap this test exists to catch next time.
+    It did not, once: ``encoder_lr`` was added to ``SPPModelConfig`` while
+    MCD, MRD, MGR and G-RAT declared the field set instead of inheriting it,
+    so the legal grid would have fine-tuned Legal-BERT at the optimizer's own
+    rate (PR #48). They inherit now -- ``SPPShapeConfig`` for the shape,
+    ``SPPModelConfig`` or ``PhasedSPPModelConfig`` for the criteria -- and this
+    test is what says so from the outside.
     """
     model = Registry.from_key(key, encoder_lr=ENCODER_LR)
     optimizer = model.configure_optimizers()

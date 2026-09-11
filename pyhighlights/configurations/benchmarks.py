@@ -85,6 +85,11 @@ class PredictionAnalyzerConfig(Configuration):
     directory: str | None = Param(None)
     pattern: str = Param(PREDICTIONS)
     split: str = Param("test")
+    #: The newest run of each task, as
+    #: :class:`~pyhighlights.configurations.benchmarks.MetricsAnalyzerConfig`
+    #: does. ``False`` reads every run a task has ever done, which is a report
+    #: about the history rather than about the model.
+    latest: bool = Param(True)
 
 
 @register_class(

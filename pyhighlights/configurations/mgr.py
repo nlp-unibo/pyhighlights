@@ -2,29 +2,20 @@
 
 from typing import List, Literal
 
-import torch as th
-from cinnamon.configuration import Configuration, Param
+from cinnamon.configuration import Param
 from cinnamon.registry import RegistrationKey, register_class
 
 from pyhighlights.components.models.spp.base import (
-    SPPAggregator,
     SPPBackbone,
-    SPPPredictor,
     SPPSelector,
 )
+from pyhighlights.configurations.base import SPPModelConfig
 from pyhighlights.configurations.keys import (
-    ADAM,
-    CLASSIFICATION_LOSS,
-    CONTIGUITY_LOSS,
     GRU_BACKBONE,
-    MLP_PREDICTOR,
     MLP_SELECTOR,
     NAMESPACE,
-    SPARSITY_LOSS,
     TRANSFORMER_BACKBONE,
 )
-from pyhighlights.utility.losses import Loss
-from pyhighlights.utility.metrics import BoundMetric
 
 MGR_COMPONENT = "pyhighlights.components.models.spp.mgr.MGR"
 
@@ -32,35 +23,22 @@ MGR_COMPONENT = "pyhighlights.components.models.spp.mgr.MGR"
 @register_class(
     name="model", tags={"gru", "mgr"}, namespace=NAMESPACE, component=MGR_COMPONENT
 )
-class GRUMGRConfig(Configuration):
+class GRUMGRConfig(SPPModelConfig):
     name: str = Param("mgr")
+    #: One backbone and one selector *per generator*, where every other
+    #: architecture has one of each -- which is the whole of MGR. The base
+    #: class cannot carry these as defaults for that reason.
     selector_backbones: List[RegistrationKey[SPPBackbone]] = Param(
         [GRU_BACKBONE, GRU_BACKBONE, GRU_BACKBONE]
     )
     selectors: List[RegistrationKey[SPPSelector]] = Param(
         [MLP_SELECTOR, MLP_SELECTOR, MLP_SELECTOR]
     )
-    predictor: RegistrationKey[SPPPredictor] = Param(MLP_PREDICTOR)
+    #: The generators share one predictor, and it encodes with its own
+    #: backbone, so this is required rather than optional.
     predictor_backbone: RegistrationKey[SPPBackbone] = Param(GRU_BACKBONE)
-    aggregator: RegistrationKey[SPPAggregator] | None = Param(None)
-    temperature: float = Param(1.0, gt=0.0)
-    select_over: str = Param("word")
-    #: One rate for the encoders, another for everything above them. ``None``
-    #: trains the whole model at the optimizer's own rate, which is what every
-    #: published implementation of these architectures does -- they encode
-    #: with a GRU over a frozen table, so nothing pretrained is fine-tuned.
-    #: Set it when a pretrained encoder *is* being fine-tuned: one rate cannot
-    #: serve both a transformer and a selector initialized from scratch.
-    encoder_lr: float | None = Param(None, gt=0.0)
     inference_head: int = Param(0, ge=0)
     loss_reduction: Literal["sum", "mean"] = Param("sum")
-    losses: List[RegistrationKey[Loss]] = Param(
-        [CLASSIFICATION_LOSS, SPARSITY_LOSS, CONTIGUITY_LOSS]
-    )
-    optimizer: RegistrationKey[th.optim.Optimizer] = Param(ADAM)
-    train_metrics: List[RegistrationKey[BoundMetric]] | None = Param(None)
-    val_metrics: List[RegistrationKey[BoundMetric]] | None = Param(None)
-    test_metrics: List[RegistrationKey[BoundMetric]] | None = Param(None)
 
     @classmethod
     def default(cls):

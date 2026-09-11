@@ -11,8 +11,15 @@ import pyhighlights
 from pyhighlights.components import tasks
 from pyhighlights.components.analyzers import MetricsAnalyzer
 from pyhighlights.components.tasks import SPPTask
-from pyhighlights.configurations.keys import GRU_FR, TOY, TOY_TASK
-from pyhighlights.utility.manifest import PACKAGES, describe, resolve, versions
+from pyhighlights.configurations.keys import GRU_FR, LEAKAGE_REMOVER, TOY, TOY_TASK
+from pyhighlights.utility.manifest import (
+    KEY_FIELD,
+    PACKAGES,
+    describe,
+    registration_key,
+    resolve,
+    versions,
+)
 
 
 def test_versions_reports_the_interpreter_and_what_is_installed():
@@ -32,7 +39,7 @@ def test_resolve_replaces_a_key_with_the_values_behind_it():
 
     resolved = resolve(GRU_FR)
 
-    assert resolved["key"] == str(GRU_FR)
+    assert resolved[KEY_FIELD] == str(GRU_FR)
     # Two levels down, past the model and into the backbone it names.
     assert resolved["selector_backbones"]["hidden_size"] == 128
     # A list of keys keeps its shape and its order.
@@ -98,7 +105,7 @@ def test_an_overridden_key_is_resolved_like_any_other():
 
     build_args = describe(task)["build_args"]
 
-    assert build_args["model"]["key"] == str(GRU_FR)
+    assert build_args["model"][KEY_FIELD] == str(GRU_FR)
     assert "selectors" in build_args["model"]
 
 
@@ -212,3 +219,25 @@ def test_two_runs_inside_one_second_still_get_a_directory_each(tmp_path, monkeyp
     assert first.directory != second.directory
     assert second.directory.name.startswith(first.directory.name)
     assert len(list((tmp_path / "quick").iterdir())) == 2
+
+
+def test_a_parameter_called_key_does_not_overwrite_the_registration_key():
+    """Both survive, because the key is not stored under a parameter's name.
+
+    `LeakageRemover` has a `key` parameter -- it names the column it
+    deduplicates on -- so its resolved entry used to read `"key": "text"` with
+    the registration key gone, and `PredictionAnalyzer.corpus` then handed
+    `"text"` to `RegistrationKey.parse`.
+    """
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+
+    resolved = resolve(LEAKAGE_REMOVER)
+
+    assert resolved[KEY_FIELD] == str(LEAKAGE_REMOVER)
+    assert resolved["key"] == "text"
+    # And a reader gets the registration key without knowing which it is.
+    assert registration_key(resolved) == str(LEAKAGE_REMOVER)
+    # An older manifest wrote it under `key`; a results tree outlives a release.
+    assert registration_key({"key": "name=x--tags=[]--namespace=y"}) == (
+        "name=x--tags=[]--namespace=y"
+    )

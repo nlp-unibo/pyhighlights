@@ -3,7 +3,12 @@
 Nothing here registers: every model would otherwise inherit a registration it
 never asked for. The fields each model overrides -- the backbones, the losses,
 the optimizer -- are named once here and pinned per model in ``fr``, ``mgr``,
-``mcd``, ``grat`` and ``genspp``.
+``mcd``, ``mrd``, ``dr``, ``dar``, ``grat`` and ``genspp``.
+
+Three bases rather than one, because the architectures disagree about what a
+loss is: :class:`SPPModelConfig` scores a flat list,
+:class:`PhasedSPPModelConfig` scores three lists tied to training phases, and
+:class:`SPPShapeConfig` is what the two share.
 """
 
 from typing import List
@@ -31,8 +36,16 @@ from pyhighlights.utility.losses import Loss
 from pyhighlights.utility.metrics import BoundMetric
 
 
-class SPPModelConfig(Configuration):
-    """One selector feeding one predictor, the shape every SPP model starts from."""
+class SPPShapeConfig(Configuration):
+    """The parts every SPP model has, without saying what it optimises.
+
+    Split from :class:`SPPModelConfig` because not every architecture has a
+    flat ``losses`` list: MCD and MRD score their criteria per training phase
+    and take three lists instead. Restating the other eleven fields to get rid
+    of one is what cost PR #48 -- ``encoder_lr`` was added here and reached
+    neither -- so the shape lives in one place and each model says only what
+    differs.
+    """
 
     name: str = Param("spp")
     selector_backbones: RegistrationKey[SPPBackbone] = Param(GRU_BACKBONE)
@@ -55,10 +68,32 @@ class SPPModelConfig(Configuration):
     #: Set it when a pretrained encoder *is* being fine-tuned: one rate cannot
     #: serve both a transformer and a selector initialized from scratch.
     encoder_lr: float | None = Param(None, gt=0.0)
-    losses: List[RegistrationKey[Loss]] = Param(
-        [CLASSIFICATION_LOSS, SPARSITY_LOSS, CONTIGUITY_LOSS]
-    )
     optimizer: RegistrationKey[th.optim.Optimizer] = Param(ADAM)
     train_metrics: List[RegistrationKey[BoundMetric]] | None = Param(None)
     val_metrics: List[RegistrationKey[BoundMetric]] | None = Param(None)
     test_metrics: List[RegistrationKey[BoundMetric]] | None = Param(None)
+
+
+class SPPModelConfig(SPPShapeConfig):
+    """An SPP model scoring one flat list of criteria."""
+
+    losses: List[RegistrationKey[Loss]] = Param(
+        [CLASSIFICATION_LOSS, SPARSITY_LOSS, CONTIGUITY_LOSS]
+    )
+
+
+class PhasedSPPModelConfig(SPPShapeConfig):
+    """An SPP model whose criteria belong to a training phase.
+
+    MCD and MRD are the same shape and differ only in which criteria go in
+    which list, so the lists are declared once. Both refuse
+    ``supervise_highlights`` for the same reason: a supervision loss appended
+    to a flat list would be dropped before the first batch, and the phase it
+    belongs to has to be named.
+    """
+
+    rationale_losses: List[RegistrationKey[Loss]] = Param(
+        [SPARSITY_LOSS, CONTIGUITY_LOSS]
+    )
+    predictor_losses: List[RegistrationKey[Loss]] = Param([])
+    generator_losses: List[RegistrationKey[Loss]] = Param([])
