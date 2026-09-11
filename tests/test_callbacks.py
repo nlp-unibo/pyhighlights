@@ -15,6 +15,7 @@ from pyhighlights.components.callbacks import (
     WarmupModelCheckpoint,
     warmup_epochs,
 )
+from pyhighlights.components.tasks import SPPTask
 from pyhighlights.configurations.keys import (
     GENERALIZATION_LOSS_SCORE,
     GRU_FR,
@@ -23,6 +24,7 @@ from pyhighlights.configurations.keys import (
     LOSS_EARLY_STOPPING,
     SCORE_CHECKPOINT,
     SCORE_EARLY_STOPPING,
+    TOY,
 )
 
 
@@ -206,3 +208,48 @@ def test_the_registered_pairs_monitor_one_quantity_each():
     # And the score pair monitors what the criterion writes.
     criterion = Registry.from_key(GENERALIZATION_LOSS_SCORE)
     assert Registry.from_key(SCORE_EARLY_STOPPING).monitor == criterion.name
+
+
+def test_a_task_refuses_callbacks_that_monitor_different_quantities(tmp_path):
+    """Stopping and selection disagreeing is not a configuration, it is a bug.
+
+    Early stopping ends the run and the checkpoint chooses the epoch it is
+    scored on. Give them two quantities and the reported model is not the one
+    the stopping rule chose, and nothing downstream says so: `results.json`
+    records the scores, not the argument behind them.
+    """
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+    task = SPPTask(
+        loader=TOY,
+        model=GRU_FR,
+        name="mixed",
+        save_path=str(tmp_path),
+        callbacks=[LOSS_EARLY_STOPPING, SCORE_CHECKPOINT],
+    )
+
+    with pytest.raises(ValueError, match="monitoring different quantities"):
+        task.build_callbacks(tmp_path)
+
+
+def test_a_matching_pair_is_accepted(tmp_path):
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+    task = SPPTask(
+        loader=TOY,
+        model=GRU_FR,
+        name="matched",
+        save_path=str(tmp_path),
+        callbacks=[LOSS_EARLY_STOPPING, LOSS_CHECKPOINT],
+    )
+
+    built = task.build_callbacks(tmp_path)
+
+    assert len(built) == 2
+    # And a criterion carries no `monitor`, so it never counts as a second one.
+    scored = SPPTask(
+        loader=TOY,
+        model=GRU_FR,
+        name="scored",
+        save_path=str(tmp_path),
+        callbacks=[GENERALIZATION_LOSS_SCORE, SCORE_EARLY_STOPPING, SCORE_CHECKPOINT],
+    )
+    assert len(scored.build_callbacks(tmp_path)) == 3

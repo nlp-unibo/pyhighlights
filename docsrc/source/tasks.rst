@@ -44,7 +44,11 @@ For each seed, in order:
    somewhere different every time, and the spread across seeds is part of the
    result.
 2. Train under the ``callbacks`` the task names — early stopping and a
-   checkpoint of the best epoch, both on ``val_loss`` by default.
+   checkpoint of the best epoch, both on ``val_loss`` by default. **They have
+   to monitor the same quantity**, and a task that is given two refuses to
+   build rather than reporting a model its own stopping rule did not choose;
+   :class:`~pyhighlights.components.callbacks.GeneralizationLossScore` is how
+   two quantities become the one they can agree on.
 3. **Restore that checkpoint before scoring.** Early stopping returns after
    ``patience`` worse epochs, so the weights still in memory are not the ones
    anybody would keep.
