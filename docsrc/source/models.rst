@@ -29,6 +29,15 @@ Algorithms
 .. automodule:: pyhighlights.components.models.spp.grat
    :members:
 
+.. automodule:: pyhighlights.components.models.spp.dr
+   :members:
+
+.. automodule:: pyhighlights.components.models.spp.mrd
+   :members:
+
+.. automodule:: pyhighlights.components.models.spp.dar
+   :members:
+
 Backends
 --------
 
