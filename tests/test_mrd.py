@@ -167,3 +167,33 @@ def test_both_phases_run_under_lightning(tmp_path):
         if now.requires_grad
     ]
     assert any(moved)
+
+
+def test_the_predictor_phase_classification_never_reaches_the_generator():
+    """Strip the shared terms and the phase leaves the selector untouched.
+
+    The selection is detached before the complement and full-input passes, so
+    the only thing tying the generator to this phase is sparsity and
+    contiguity. Without them nothing should reach it.
+    """
+    model = Registry.from_key(GRU_MRD, rationale_losses=[])
+    total, losses, _ = model.predictor_phase_loss(batch_of())
+    total.backward()
+
+    assert set(losses) == {"complement_classification", "full_classification"}
+    assert model.selectors[0].selector[-1].weight.grad is None
+    assert model.predictor.predictor[-1].weight.grad is not None
+
+
+def test_the_discrepancy_is_reported_large_and_counted_negative():
+    """The reported term and its contribution to the total differ in sign.
+
+    `compute_losses` reports a term unscaled, so the table shows a divergence
+    that should grow, while the total it feeds falls as it does. Alone in the
+    model, the total is exactly its negation.
+    """
+    model = Registry.from_key(GRU_MRD, rationale_losses=[], predictor_losses=[])
+    total, losses = model.compute_loss(batch_of(), model(batch_of()))
+
+    assert losses["remaining_discrepancy"] >= 0
+    assert th.allclose(total, -losses["remaining_discrepancy"])
