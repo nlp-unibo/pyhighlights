@@ -38,6 +38,17 @@ Algorithms
 .. automodule:: pyhighlights.components.models.spp.dar
    :members:
 
+Grounded in a knowledge base
+----------------------------
+
+A corpus may explain its labels in free text rather than in spans. Where it
+does, a grounded model extracts a highlight pair for every knowledge base
+entry -- the words of the input matching the entry, and the words of the entry
+matching the input -- and names the subset the input instantiates.
+
+.. automodule:: pyhighlights.components.models.spp.grounded
+   :members:
+
 Backends
 --------
 

@@ -6,7 +6,7 @@ from pyhighlights.components.models.spp.base import (
     SPPSelector,
 )
 from pyhighlights.components.models.spp.dar import DAR
-from pyhighlights.components.models.spp.data import SPPOutput
+from pyhighlights.components.models.spp.data import GroundedSPPOutput, SPPOutput
 from pyhighlights.components.models.spp.dr import DR
 from pyhighlights.components.models.spp.fr import FR
 from pyhighlights.components.models.spp.genspp import GenSPP, GenSPPTrainer
@@ -15,6 +15,11 @@ from pyhighlights.components.models.spp.grat import (
     AttentionGuider,
     GRATGuider,
     GRATGuiderOutput,
+)
+from pyhighlights.components.models.spp.grounded import (
+    EntailmentComparer,
+    GroundedSPP,
+    SPPComparer,
 )
 from pyhighlights.components.models.spp.implementations import (
     GRUBackbone,
@@ -31,12 +36,15 @@ __all__ = [
     "AttentionGuider",
     "DAR",
     "DR",
+    "EntailmentComparer",
     "FR",
     "GenSPP",
     "GenSPPTrainer",
     "GRAT",
     "GRATGuider",
     "GRATGuiderOutput",
+    "GroundedSPP",
+    "GroundedSPPOutput",
     "GRUBackbone",
     "StackedBackbone",
     "MCD",
@@ -47,6 +55,7 @@ __all__ = [
     "SPPAggregator",
     "SPPOutput",
     "SPPBackbone",
+    "SPPComparer",
     "SPPFirstAggregator",
     "SPPPredictor",
     "SPPSelector",
