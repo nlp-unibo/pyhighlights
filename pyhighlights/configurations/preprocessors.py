@@ -75,6 +75,26 @@ class ClassWeightsConfig(Configuration):
 
 @register_class(
     name="preprocessor",
+    tags={"knowledge_weights"},
+    namespace=NAMESPACE,
+    component="pyhighlights.components.preprocessors.KnowledgeWeights",
+)
+class KnowledgeWeightsConfig(Configuration):
+    """Reads one split's clause-to-entry links; changes no row.
+
+    ``ClassWeightsTask`` runs it unchanged, so the weights land in a
+    ``results.json`` a configuration can be copied from rather than being
+    computed inside training and left nowhere.
+    """
+
+    split: str = Param("train")
+    #: The size of the knowledge base, required rather than inferred: the
+    #: largest index a split happens to use is not how many entries there are.
+    entries: int = Param(2, ge=1)
+
+
+@register_class(
+    name="preprocessor",
     tags={"pipeline"},
     namespace=NAMESPACE,
     component=PIPELINE_COMPONENT,

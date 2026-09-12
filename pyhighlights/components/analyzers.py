@@ -42,9 +42,11 @@ __all__ = [
     "label_studio",
     "latex_table",
     "offsets",
+    "readability",
     "run_of",
     "reported_head",
     "seed_of",
+    "spans",
 ]
 
 
@@ -440,6 +442,51 @@ class PredictionAnalyzer(Analyzer):
     def analyze(self) -> pd.DataFrame:
         frames = [frame for _, frame in self.frames() if not frame.empty]
         return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+
+def spans(selected: Sequence[int]) -> int:
+    """How many contiguous runs a selection is made of."""
+    positions = sorted(selected)
+    if not positions:
+        return 0
+    return 1 + sum(
+        1 for before, after in zip(positions, positions[1:]) if after - before > 1
+    )
+
+
+def readability(frame: pd.DataFrame, by: str = "label") -> pd.DataFrame:
+    """Selection size, rate and span count, per run and per class.
+
+    Over the rows :meth:`PredictionAnalyzer.analyze` returns, which is where a
+    selection is already in words and beside the document it came from.
+
+    **Two columns nothing else reports.** A span count, because a rate cannot
+    tell two readable phrases from eight scattered fragments -- twenty per cent
+    of a clause in two spans is something a person can read, and the same share
+    in eight is not. And the split by class, because domain experts asked
+    whether the highlights of negative examples differ from those of positive
+    ones, and a pooled average over a split that is 97.7% negative reports the
+    negative examples' number and calls it the model's.
+
+    ``by`` is ``"label"`` for the annotation and ``"predicted"`` for what the
+    model called it. Both are worth reading: the first shows what was missed,
+    the second what was invented.
+    """
+    if frame.empty:
+        return pd.DataFrame()
+    rows = frame.assign(
+        selection_size=frame["selected"].apply(len),
+        selection_rate=[
+            len(selected) / len(tokens) if len(tokens) else 0.0
+            for selected, tokens in zip(frame["selected"], frame["tokens"])
+        ],
+        spans=frame["selected"].apply(spans),
+    )
+    return (
+        rows.groupby(["run", by])[["selection_size", "selection_rate", "spans"]]
+        .agg(["mean", "count"])
+        .reset_index()
+    )
 
 
 def offsets(tokens: Sequence[str]) -> List[Tuple[int, int]]:

@@ -157,16 +157,64 @@ class MaskedCrossEntropy(th.nn.Module):
 
 
 class MaskedBinaryCrossEntropy(th.nn.Module):
-    """Binary cross entropy with logits over valid positions."""
+    """Binary cross entropy with logits over valid, labelled positions.
+
+    One independent decision per position, which is what the knowledge axis
+    is: a knowledge base entry either explains an example or it does not, and
+    several may.
+    """
+
+    def __init__(
+        self,
+        ignore_index: int = -1,
+        pos_weight: Sequence[float] | None = None,
+    ):
+        """``pos_weight`` is what a shared cross entropy cannot express.
+
+        One factor per position of the axis being scored, broadcast over
+        everything in front of it, multiplying the cost of missing a positive
+        there. Two classes under :class:`MaskedCrossEntropy` carry one global
+        weight; this carries a different weight per knowledge base entry, and
+        that is the difference that matters -- the decisive entry is often the
+        rare one, and a single positive weight cannot tell it apart from the
+        entry that fires on half the corpus.
+
+        Read it off the corpus rather than typing it:
+        :class:`~pyhighlights.components.preprocessors.KnowledgeWeights`.
+
+        ``ignore_index`` marks a position carrying no annotation. It was not
+        skipped before this, which was safe only because nothing bound this
+        criterion to a field that uses the marker -- a ``-1`` reaching a
+        binary target is not a label, it is a number the loss would happily
+        descend on.
+        """
+        super().__init__()
+        # Not persistent, like every other configured weight here.
+        self.register_buffer(
+            "pos_weight",
+            None
+            if pos_weight is None
+            else th.tensor(list(pos_weight), dtype=th.get_default_dtype()),
+            persistent=False,
+        )
+        self.ignore_index = ignore_index
 
     def forward(
         self, logits: th.Tensor, targets: th.Tensor, mask: th.Tensor
     ) -> th.Tensor:
-        valid = mask.bool()
+        valid = mask.bool() & (targets != self.ignore_index)
         if not valid.any():
             return logits.sum() * 0
+        weight = self.pos_weight
+        if weight is not None:
+            if weight.shape[0] != targets.shape[-1]:
+                raise ValueError(
+                    f"pos_weight has {weight.shape[0]} entries but the axis "
+                    f"being scored has {targets.shape[-1]}"
+                )
+            weight = weight.expand_as(targets)[valid]
         return th.nn.functional.binary_cross_entropy_with_logits(
-            logits[valid], targets[valid]
+            logits[valid], targets[valid].to(logits.dtype), pos_weight=weight
         )
 
 

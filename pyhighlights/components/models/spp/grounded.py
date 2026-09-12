@@ -262,8 +262,61 @@ class GroundedSPP(SPP):
             highlight_logits=highlight_logits.unsqueeze(1),
             highlight_mask=highlight_mask.unsqueeze(1),
             knowledge_logits=scores.unsqueeze(1),
+            knowledge_score=(scores[..., 1] - scores[..., 0]).unsqueeze(1),
             knowledge_mask=gate.unsqueeze(1),
             knowledge_valid=th.ones_like(gate).unsqueeze(1),
             pair_highlight_mask=pair_mask.unsqueeze(1),
             knowledge_highlight_mask=entry_mask.unsqueeze(1),
         )
+
+    def faithfulness(self, input_data, output_data):
+        """Token-level terms, and the two the knowledge axis adds.
+
+        Writing ``K`` for the whole base and ``K_x`` for the entries the model
+        named:
+
+        .. code-block:: text
+
+           rationale sufficiency       = p(y_hat | x, K_x) - p(y_hat | x, K)
+           rationale comprehensiveness = p(y_hat | x, K)   - p(y_hat | x, K \\ K_x)
+
+        This is the measurement the pipeline stands or falls on. A model whose
+        rationale comprehensiveness is near zero predicts the same thing when
+        the entries it named are taken away, which means the grounding is
+        decoration. Nobody has reported either quantity on this corpus.
+
+        The union the predictor reads is ungated, so restricting the base is
+        restricting which pairs enter that union -- the ablation is over which
+        entries are *present*, not over a gate. ``p(y_hat | x, K)`` is the
+        model's own output and is read off ``output_data`` rather than
+        recomputed.
+
+        An example that named nothing leaves the first union empty, which the
+        backbones pool to zeros. That is an honest reading of a model that
+        grounded the example in nothing, not a case to repair.
+        """
+        terms = super().faithfulness(input_data, output_data)
+        head = self.aggregator(output_data)
+        gate = head.knowledge_mask.unsqueeze(-1)
+        pairs = head.pair_highlight_mask
+
+        def probability(logits: th.Tensor, of: th.Tensor) -> th.Tensor:
+            return th.softmax(logits, dim=-1).gather(1, of.unsqueeze(1)).squeeze(1)
+
+        predicted = head.class_logits.argmax(dim=-1)
+        on_base = probability(head.class_logits, predicted)
+        on_named = probability(
+            self.predict(data=input_data, highlight_mask=(pairs * gate).amax(dim=1)),
+            predicted,
+        )
+        on_rest = probability(
+            self.predict(
+                data=input_data, highlight_mask=(pairs * (1 - gate)).amax(dim=1)
+            ),
+            predicted,
+        )
+        return {
+            **terms,
+            "rationale_sufficiency": on_named - on_base,
+            "rationale_comprehensiveness": on_base - on_rest,
+        }

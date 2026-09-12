@@ -28,6 +28,13 @@ class GroundedSPPOutput(SPPOutput):
 
     #: ``[B, H, M, 2]``: how strongly each entry is instantiated.
     knowledge_logits: th.Tensor
+    #: ``[B, H, M]``: one score per entry, positive where it is instantiated.
+    #:
+    #: The difference of the two logits above, which is what a binary criterion
+    #: reads and what a threshold is swept over. Kept as a field rather than
+    #: recomputed by every reader: a score and the gate taken from it must not
+    #: be able to disagree.
+    knowledge_score: th.Tensor
     #: ``[B, H, M]``: the entries the model named, ``K_x``.
     knowledge_mask: th.Tensor
     #: ``[B, H, M]``: which columns hold an entry, for a criterion to bind to.
