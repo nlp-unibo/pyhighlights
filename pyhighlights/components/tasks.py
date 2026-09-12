@@ -36,12 +36,13 @@ from pyhighlights.components.callbacks import MonitoredScore
 from pyhighlights.components.data import (
     HighlightCollator,
     HighlightDataset,
+    HighlightExample,
     HighlightTokenizer,
     HuggingFaceTokenizer,
     VocabularyTokenizer,
 )
 from pyhighlights.components.loaders import HighlightLoader, to_examples
-from pyhighlights.components.models.base import Model
+from pyhighlights.components.models.base import InputData, Model
 from pyhighlights.components.models.spp.genspp import GenSPPTrainer
 from pyhighlights.components.preprocessors import ClassWeights, Preprocessor
 from pyhighlights.utility import manifest
@@ -254,6 +255,7 @@ class SPPTask(Task):
         self.save_weights_only = save_weights_only
         self.faithfulness = faithfulness
         self._embedding_matrix: th.Tensor | None = None
+        self._knowledge: InputData | None = None
         self.highlight_supervision = highlight_supervision
         self.highlight_loss = highlight_loss
         self.highlight_coefficient = highlight_coefficient
@@ -303,10 +305,34 @@ class SPPTask(Task):
             return VocabularyTokenizer(table)
         return VocabularyTokenizer(vocabulary(training, size=self.vocabulary_size))
 
+    def knowledge(self) -> Sequence[Sequence[str]] | None:
+        """The corpus's knowledge base, one entry as a list of tokens.
+
+        A second loader instance, built only to ask: a loader parses and
+        downloads in :meth:`~HighlightLoader.read`, never in ``__init__``, so
+        this costs a constructor and the corpus is not read twice.
+        """
+        return Registry.from_key(self.loader, expected_type=HighlightLoader).knowledge()
+
     def loaders(self, splits: Mapping[str, pd.DataFrame]) -> Dict[str, DataLoader]:
         if self.highlight_supervision:
             self.check_supervision(splits)
-        collator = HighlightCollator(self.tokenizer(splits), self.max_length)
+        knowledge = self.knowledge()
+        collator = HighlightCollator(
+            self.tokenizer(splits),
+            self.max_length,
+            knowledge_size=None if knowledge is None else len(knowledge),
+        )
+        if knowledge is not None:
+            # A knowledge base entry has no label, and nothing reads the one
+            # this puts there. `sample_id` is its index, which is what the
+            # links point at.
+            self._knowledge = collator(
+                [
+                    HighlightExample(sample_id=index, tokens=tokens, label=0)
+                    for index, tokens in enumerate(knowledge)
+                ]
+            )
         return {
             name: DataLoader(
                 HighlightDataset(to_examples(frame)),
@@ -393,6 +419,10 @@ class SPPTask(Task):
         # through a registration: no configuration should carry a matrix.
         if self._embedding_matrix is not None:
             model.load_embeddings(self._embedding_matrix)
+        # Same reasoning as the vectors: it is data, so it reaches the model as
+        # a batch rather than through a registration.
+        if self._knowledge is not None:
+            model.load_knowledge(self._knowledge)
         return model
 
     def check_supervision(self, splits: Mapping[str, pd.DataFrame]) -> None:

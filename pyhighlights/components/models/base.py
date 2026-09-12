@@ -66,6 +66,23 @@ class Model(L.LightningModule, abc.ABC, Generic[OutputT]):
         """Fields losses and metrics can bind to, latest definition winning."""
         return {**input_data.as_dict(), **output_data.as_dict(), **extra}
 
+    def load_knowledge(self, data: InputData) -> None:
+        """Adopt the corpus's knowledge base, already tokenized.
+
+        Optional, like :meth:`faithfulness`: a model that classifies from the
+        input alone has nowhere to put a knowledge base and says so, rather
+        than accepting one and ignoring it.
+
+        It arrives as an :class:`InputData` of ``M`` rows because it is text
+        and the collator is what turns text into tensors -- the same reason
+        pretrained vectors arrive as a matrix through
+        :meth:`load_embeddings`. Its ``y_true`` carries nothing: a knowledge
+        base entry has no label.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not read a knowledge base"
+        )
+
     def faithfulness(
         self, input_data: InputData, output_data: OutputT
     ) -> Dict[str, th.Tensor]:

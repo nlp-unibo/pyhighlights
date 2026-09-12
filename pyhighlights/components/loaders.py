@@ -52,14 +52,19 @@ def to_examples(frame: pd.DataFrame) -> List[HighlightExample]:
             "and the judgements have not been reduced yet. Run an "
             "AnnotationAggregator over the splits first."
         )
+    # `knowledge` is an extra column rather than one of COLUMNS: a corpus with
+    # a knowledge base is the exception, and every loader that has none should
+    # keep returning exactly the frame it returns today.
+    links = frame["knowledge"] if "knowledge" in frame else None
     return [
         HighlightExample(
             sample_id=int(row.sample_id),
             tokens=row.tokens,
             label=int(row.label),
             highlights=row.highlights,
+            knowledge=None if links is None else links.iloc[position],
         )
-        for row in frame.itertuples()
+        for position, row in enumerate(frame.itertuples())
     ]
 
 
@@ -85,6 +90,21 @@ class HighlightLoader(abc.ABC):
     @abc.abstractmethod
     def read(self) -> Dict[str, pd.DataFrame]:
         """Parse the downloaded corpus into one frame per split."""
+
+    def knowledge(self) -> Sequence[Sequence[str]] | None:
+        """The corpus's knowledge base, one entry as a list of tokens.
+
+        Optional, like :meth:`SPPBackbone.load_embeddings`: most corpora have
+        none and say so by inheriting this. A corpus that has one returns the
+        entries **in the order its annotation indexes them**, because the
+        links a split carries are positions into this sequence and nothing
+        downstream can check an order it was never told.
+
+        It is a property of the corpus rather than of a sample: every example
+        of a run shares it, so it is loaded once and never collated into a
+        batch.
+        """
+        return None
 
     def load(self) -> Dict[str, pd.DataFrame]:
         """The splits as distributed, parsed once and kept."""

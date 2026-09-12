@@ -22,10 +22,17 @@ class HighlightExample:
     tokens: Sequence[str]
     label: int
     highlights: Sequence[int] | None = None
+    #: Which entries of a knowledge base explain this example, as indices into
+    #: it. ``None`` where the corpus annotates none, and an **empty tuple**
+    #: where it annotates that none apply -- the two are different claims. A
+    #: fair ToS clause instantiates no legal rationale, and that is a gold
+    #: label the grounded pipeline is scored on, not a missing one.
+    knowledge: Sequence[int] | None = None
 
     def __post_init__(self):
         tokens = tuple(self.tokens)
         highlights = None if self.highlights is None else tuple(self.highlights)
+        knowledge = None if self.knowledge is None else tuple(self.knowledge)
         if not isinstance(self.sample_id, Integral) or not isinstance(
             self.label, Integral
         ):
@@ -37,8 +44,14 @@ class HighlightExample:
                 raise ValueError("highlights must align with tokens")
             if any(value not in (0, 1) for value in highlights):
                 raise ValueError("highlights must contain only 0 or 1")
+        if knowledge is not None:
+            if any(not isinstance(value, Integral) or value < 0 for value in knowledge):
+                raise ValueError("knowledge must contain non-negative indices")
+            if len(set(knowledge)) != len(knowledge):
+                raise ValueError("knowledge must not repeat an index")
         object.__setattr__(self, "tokens", tokens)
         object.__setattr__(self, "highlights", highlights)
+        object.__setattr__(self, "knowledge", knowledge)
 
 
 @dataclass(frozen=True)
@@ -176,11 +189,55 @@ class HighlightCollator:
         self,
         tokenizer: HighlightTokenizer,
         max_length: int | None = None,
+        knowledge_size: int | None = None,
     ):
+        """``knowledge_size`` is ``M``, how many entries the knowledge base has.
+
+        Given, every batch carries ``knowledge_true`` on the knowledge axis;
+        left unset the field is ``None`` and a corpus without a knowledge base
+        collates exactly as it always has.
+
+        It is also the only place an out-of-range link is caught. The indices
+        are zero-based line numbers into a file nothing else reads back, so a
+        base edited without its annotation being edited silently relabels
+        every clause after the inserted line. Every path to a batch goes
+        through here.
+        """
         if max_length is not None and max_length < 1:
             raise ValueError("max_length must be positive")
+        if knowledge_size is not None and knowledge_size < 1:
+            raise ValueError("knowledge_size must be positive")
         self.tokenizer = tokenizer
         self.max_length = max_length
+        self.knowledge_size = knowledge_size
+
+    def knowledge(self, examples: Sequence[HighlightExample]) -> th.Tensor | None:
+        """The links as a multi-hot ``[B, M]``, or ``None`` without a base.
+
+        A row is ``-1`` where the example carries no annotation and ``0``/``1``
+        where it carries one, so a fair clause annotated with an empty set is
+        a row of zeros rather than a row of ``-1``.
+        """
+        if self.knowledge_size is None:
+            return None
+        rows = []
+        for example in examples:
+            if example.knowledge is None:
+                rows.append([-1] * self.knowledge_size)
+                continue
+            outside = [
+                index for index in example.knowledge if index >= self.knowledge_size
+            ]
+            if outside:
+                raise ValueError(
+                    f"sample {example.sample_id} links to knowledge {outside}, "
+                    f"outside a base of {self.knowledge_size} entries"
+                )
+            row = [0] * self.knowledge_size
+            for index in example.knowledge:
+                row[index] = 1
+            rows.append(row)
+        return th.tensor(rows, dtype=th.long)
 
     def __call__(self, examples: Sequence[HighlightExample]) -> InputData:
         if not examples:
@@ -246,4 +303,5 @@ class HighlightCollator:
             highlight_true=th.tensor(highlights, dtype=th.long),
             word_ids=th.tensor(sources, dtype=th.long),
             attention_mask=th.tensor(attention, dtype=th.float32),
+            knowledge_true=self.knowledge(examples),
         )
