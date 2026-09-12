@@ -164,3 +164,78 @@ class SelectionRate(SelectionMetric):
 class SelectionSize(SelectionMetric):
     def reduce(self, selection: th.Tensor) -> th.Tensor:
         return selection.sum()
+
+
+class KnowledgeSetMetric(Metric):
+    """Per-example agreement between the entries named and the entries annotated.
+
+    Both scores here are about the **set**, not about the individual links.
+    Per-link F1 rewards naming one correct entry out of several and stopping;
+    what a reader wants to know is whether the model got the explanation
+    right, and a partial set is a partial explanation.
+
+    An example the corpus does not annotate scores nothing: ``ignore_index``
+    marks it, and it is skipped rather than counted as an empty set. That
+    distinction is the whole point of the knowledge axis carrying ``-1`` and
+    ``0`` as different values.
+    """
+
+    is_differentiable = False
+    higher_is_better = True
+    full_state_update = False
+    plot_lower_bound = 0.0
+    plot_upper_bound = 1.0
+
+    def __init__(self, threshold: float = 0.5, ignore_index: int = -1, **kwargs):
+        super().__init__(**kwargs)
+        self.threshold = threshold
+        self.ignore_index = ignore_index
+        for state in ("hits", "examples"):
+            self.add_state(
+                name=state, default=th.tensor(0, dtype=th.float), dist_reduce_fx="sum"
+            )
+
+    def counts(self, preds: th.Tensor, target: th.Tensor):
+        """Predicted and annotated sets, over the annotated examples only."""
+        annotated = (target != self.ignore_index).all(dim=-1)
+        return (
+            (preds[annotated] > self.threshold),
+            (target[annotated] > 0),
+        )
+
+    def update(self, preds: th.Tensor, target: th.Tensor) -> None:
+        raise NotImplementedError
+
+    def compute(self) -> th.Tensor:
+        return self.hits / self.examples if self.examples > 0 else self.hits
+
+
+class ExactSetMatch(KnowledgeSetMetric):
+    """Share of examples whose named set is exactly the annotated one.
+
+    Strict, and the number a domain expert cares about: naming two of the
+    three rationales that make a clause unfair explains it two thirds of the
+    way, which is not what an explanation is for.
+    """
+
+    def update(self, preds: th.Tensor, target: th.Tensor) -> None:
+        predicted, expected = self.counts(preds, target)
+        self.hits += (predicted == expected).all(dim=-1).sum()
+        self.examples += predicted.shape[0]
+
+
+class EmptySetAccuracy(KnowledgeSetMetric):
+    """Share of examples annotated with nothing that were named nothing.
+
+    Reported on its own rather than folded into an average, because the
+    examples that instantiate nothing are the overwhelming majority -- 97.7% of
+    ToS-100 -- and would otherwise carry every number they entered. An example
+    grounded in an entry it has no business in has invented a reason, which is
+    a scoring error and not an ambiguity.
+    """
+
+    def update(self, preds: th.Tensor, target: th.Tensor) -> None:
+        predicted, expected = self.counts(preds, target)
+        empty = ~expected.any(dim=-1)
+        self.hits += (~predicted[empty].any(dim=-1)).sum()
+        self.examples += int(empty.sum())

@@ -240,7 +240,13 @@ def test_an_unannotated_row_is_skipped_rather_than_scored_as_empty():
     assert terms["knowledge"] == 0
 
 
-def test_a_grounded_model_measures_token_faithfulness_like_any_spp():
+def test_faithfulness_is_measured_on_both_axes():
+    """The token terms every SPP model has, plus the two the base adds.
+
+    Rationale comprehensiveness is what the pipeline stands or falls on: a
+    model that predicts the same thing when the entries it named are taken
+    away has grounding that is decoration.
+    """
     model = grounded()
     data = batch()
     model.eval()
@@ -248,8 +254,35 @@ def test_a_grounded_model_measures_token_faithfulness_like_any_spp():
     with th.no_grad():
         terms = model.faithfulness(data, model(data))
 
-    assert set(terms) == {"sufficiency", "comprehensiveness"}
-    assert terms["sufficiency"].shape == (2,)
+    assert set(terms) == {
+        "sufficiency",
+        "comprehensiveness",
+        "rationale_sufficiency",
+        "rationale_comprehensiveness",
+    }
+    assert all(value.shape == (2,) for value in terms.values())
+
+
+def test_the_rationale_ablation_is_over_entries_not_over_a_gate():
+    """Restricting the base restricts which pairs enter the union.
+
+    The union is ungated, so `K` against `K \\ K_x` is a different set of
+    pairs rather than a gate switched off, and the two ablations have to
+    partition the pairs between them.
+    """
+    model = grounded()
+    data = batch()
+    model.eval()
+
+    with th.no_grad():
+        head = next(model(data).unbind(dim=1))
+
+    gate = head.knowledge_mask.unsqueeze(-1)
+    pairs = head.pair_highlight_mask
+    named = (pairs * gate).amax(dim=1)
+    rest = (pairs * (1 - gate)).amax(dim=1)
+
+    assert th.equal(th.maximum(named, rest), head.highlight_mask)
 
 
 def test_the_base_follows_the_module_onto_its_device():
@@ -290,3 +323,185 @@ def test_a_grounded_model_trains_through_a_real_loop(tmp_path):
     result = task.run()
 
     assert result["runs"], "a grounded run wrote nothing down"
+
+
+def test_link_metrics_score_the_set_and_the_links_separately():
+    """Four numbers, because any one of them would hide the others.
+
+    Two entries, chosen so the two averages disagree. Entry 0 is found every
+    time; entry 1 is missed once and invented once. Micro weights every link
+    equally and reports 0.67; macro averages over entries, and the entry that
+    was failed drags it to 0.50. On a real base the failed entry is often the
+    rare one that decides a case, which is why both are reported.
+    """
+    build_registry()
+    from pyhighlights.configurations.keys import (
+        EMPTY_SET_METRIC,
+        EXACT_SET_METRIC,
+        LINK_F1_METRIC,
+        LINK_MACRO_F1_METRIC,
+    )
+
+    values = {
+        "knowledge_mask": th.tensor([[1.0, 0.0], [1.0, 0.0], [0.0, 1.0]]),
+        "knowledge_true": th.tensor([[1, 0], [1, 1], [0, 0]]),
+    }
+
+    scores = {}
+    for metric_key in (
+        LINK_F1_METRIC,
+        LINK_MACRO_F1_METRIC,
+        EXACT_SET_METRIC,
+        EMPTY_SET_METRIC,
+    ):
+        bound = Registry.from_key(metric_key)
+        bound.update(values)
+        scores[bound.name] = float(bound.compute())
+
+    assert scores["link_f1"] == pytest.approx(2 / 3)
+    assert scores["link_macro_f1"] == pytest.approx(0.5)
+    # Only the first example names exactly its annotated set.
+    assert scores["exact_set_match"] == pytest.approx(1 / 3)
+    # The one example that instantiates nothing was grounded in entry 1 anyway.
+    assert scores["empty_set_accuracy"] == pytest.approx(0.0)
+
+
+def test_an_unannotated_example_is_skipped_by_the_set_metrics():
+    """``-1`` is not an empty set, and scoring it as one would flatter."""
+    from pyhighlights.utility.metrics import EmptySetAccuracy, ExactSetMatch
+
+    preds = th.tensor([[0.0, 0.0], [0.0, 0.0]])
+    target = th.tensor([[-1, -1], [0, 0]])
+
+    for metric in (ExactSetMatch(), EmptySetAccuracy()):
+        metric.update(preds, target)
+        assert float(metric.examples) == 1
+
+
+def test_a_positive_weight_per_entry_is_what_a_shared_one_cannot_do():
+    """The reason knowledge supervision needs a binary criterion.
+
+    Two classes under a cross entropy carry one positive weight. The knowledge
+    axis needs a different weight per entry, since the entry that decides a
+    case is frequently the one that fires on a handful of examples.
+    """
+    from pyhighlights.utility.losses import MaskedBinaryCrossEntropy
+
+    scores = th.zeros(2, 3)
+    gold = th.tensor([[1, 0, 0], [0, 0, 1]])
+    valid = th.ones(2, 3)
+
+    flat = MaskedBinaryCrossEntropy()(scores, gold, valid)
+    weighted = MaskedBinaryCrossEntropy(pos_weight=[1.0, 1.0, 50.0])(
+        scores, gold, valid
+    )
+
+    assert weighted > flat
+
+    with pytest.raises(ValueError, match="pos_weight has 2 entries"):
+        MaskedBinaryCrossEntropy(pos_weight=[1.0, 1.0])(scores, gold, valid)
+
+
+def test_the_binary_criterion_skips_what_nobody_annotated():
+    """A ``-1`` reaching a binary target is a number, not a label."""
+    from pyhighlights.utility.losses import MaskedBinaryCrossEntropy
+
+    scores = th.zeros(2, 2)
+    valid = th.ones(2, 2)
+    unannotated = MaskedBinaryCrossEntropy()(
+        scores, th.tensor([[-1, -1], [-1, -1]]), valid
+    )
+
+    assert unannotated == 0
+
+
+def test_the_supervision_term_reads_the_score_the_gate_came_from():
+    """One quantity, so the term and the gate cannot disagree."""
+    from pyhighlights.configurations.keys import KNOWLEDGE_SUPERVISION_LOSS
+
+    model = grounded(losses=[KNOWLEDGE_SUPERVISION_LOSS])
+    data = batch()
+    model.train()
+
+    output = model(data)
+    head = next(output.unbind(dim=1))
+    loss, terms = model.compute_loss(input_data=data, output_data=output)
+
+    assert th.allclose(
+        head.knowledge_score,
+        head.knowledge_logits[..., 1] - head.knowledge_logits[..., 0],
+    )
+    assert "knowledge" in terms
+    assert th.isfinite(loss)
+
+
+def test_a_span_count_separates_two_phrases_from_eight_fragments():
+    """A rate cannot, and a lawyer reads phrases.
+
+    Twenty per cent of a clause in two spans is readable; the same share
+    scattered over eight is not, and they have identical selection rates.
+    """
+    from pyhighlights.components.analyzers import spans
+
+    assert spans([]) == 0
+    assert spans([3, 4, 5]) == 1
+    assert spans([0, 1, 5, 6]) == 2
+    assert spans([6, 5, 1, 0]) == 2
+
+
+def test_readability_is_reported_per_class_not_pooled():
+    """Domain experts asked whether negative highlights differ from positive.
+
+    A pooled average over a split that is overwhelmingly negative reports the
+    negative examples' number and calls it the model's.
+    """
+    import pandas as pd
+
+    from pyhighlights.components.analyzers import readability
+
+    frame = pd.DataFrame(
+        {
+            "run": ["r", "r", "r"],
+            "label": [0, 1, 1],
+            "predicted": [0, 1, 1],
+            "tokens": [["a", "b", "c", "d"]] * 3,
+            "selected": [[0], [0, 1], [0, 1, 3]],
+        }
+    )
+    report = readability(frame)
+
+    assert len(report) == 2
+    by_label = {
+        int(row): value
+        for row, value in zip(report["label"], report[("selection_size", "mean")])
+    }
+    assert by_label[0] == pytest.approx(1.0)
+    assert by_label[1] == pytest.approx(2.5)
+    assert readability(pd.DataFrame()).empty
+
+
+def test_knowledge_weights_are_read_off_the_split_not_typed():
+    """One positive weight per entry, and a refusal where there is none.
+
+    An entry no example links to has no frequency to invert, and both a zero
+    and an infinity would train something the corpus never showed -- the same
+    refusal `class_weights` already makes.
+    """
+    import pandas as pd
+
+    from pyhighlights.components.preprocessors import KnowledgeWeights, link_weights
+
+    # Entry 0 fires in one annotated example of three, entry 1 in two.
+    assert link_weights([[0], [1], [1], None], entries=2) == [2.0, 0.5]
+
+    frame = pd.DataFrame({"knowledge": [[0], [1], [1], None]})
+    weights = KnowledgeWeights(entries=2)
+    weights.process({"train": frame})
+
+    assert weights.weights == [2.0, 0.5]
+    assert weights.counts == {0: 1, 1: 2}
+
+    with pytest.raises(ValueError, match="entries \\[2\\] are linked by no example"):
+        link_weights([[0], [1]], entries=3)
+    with pytest.raises(KeyError, match="no `knowledge` column"):
+        KnowledgeWeights(entries=2).process({"train": pd.DataFrame({"label": [0]})})

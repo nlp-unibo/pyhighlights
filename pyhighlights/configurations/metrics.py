@@ -23,9 +23,13 @@ from torchmetrics import Metric
 from pyhighlights.configurations.keys import (
     ACCURACY,
     CLASS_F1,
+    EMPTY_SET_ACCURACY,
+    EXACT_SET_MATCH,
     F1,
     HIGHLIGHT_F1,
     HIGHLIGHT_IOU,
+    LINK_F1,
+    LINK_MACRO_F1,
     MULTICLASS_ACCURACY,
     MULTICLASS_F1,
     NAMESPACE,
@@ -288,3 +292,126 @@ __all__: List[str] = [
     "SelectionSizeConfig",
     "SelectionSizeMetricConfig",
 ]
+
+
+#: Entries of the knowledge base a link metric scores.
+#:
+#: Registered per size, for the reason the classification metrics are
+#: registered per class count: ``torchmetrics`` needs the number up front, and
+#: a metric sized for the wrong base scores the wrong columns. ToS-100 runs
+#: from 7 rationales on one category to 28 on another, so a study registers a
+#: variant of these carrying its own ``num_labels`` rather than overriding one
+#: at build time -- an override would not reach the metric, which a binding
+#: builds from its key alone.
+KNOWLEDGE_ENTRIES = 2
+
+
+@register_class(
+    name="torchmetric",
+    tags={"f1", "link"},
+    namespace=NAMESPACE,
+    component="torchmetrics.classification.MultilabelF1Score",
+)
+class LinkF1Config(Configuration):
+    """Per-link F1, micro-averaged: every (example, entry) link counts once.
+
+    The comparable headline number. Recall is the one to watch inside it: an
+    example can instantiate a dozen entries, so a model that names one correct
+    entry and stops looks precise and has missed the case.
+    """
+
+    num_labels: int = Param(KNOWLEDGE_ENTRIES, ge=1)
+    average: str = Param("micro")
+    ignore_index: int = Param(-1)
+
+
+@register_class(
+    name="torchmetric",
+    tags={"f1", "link", "macro"},
+    namespace=NAMESPACE,
+    component="torchmetrics.classification.MultilabelF1Score",
+)
+class LinkMacroF1Config(LinkF1Config):
+    """Per-link F1 averaged over entries rather than over links.
+
+    Reported beside the micro average rather than instead of it, and it is the
+    one that can see a rare entry. Micro weights every link equally, so the
+    entries that fire often carry it -- and the entry that decides a case is
+    frequently the one that fires on a handful of examples.
+    """
+
+    average: str = Param("macro")
+
+
+@register_class(
+    name="torchmetric",
+    tags={"exact_set"},
+    namespace=NAMESPACE,
+    component="pyhighlights.utility.metrics.ExactSetMatch",
+)
+class ExactSetMatchConfig(Configuration):
+    """Share of examples whose named set is exactly the annotated one."""
+
+    threshold: float = Param(0.5)
+    ignore_index: int = Param(-1)
+
+
+@register_class(
+    name="torchmetric",
+    tags={"empty_set"},
+    namespace=NAMESPACE,
+    component="pyhighlights.utility.metrics.EmptySetAccuracy",
+)
+class EmptySetAccuracyConfig(ExactSetMatchConfig):
+    """Share of examples annotated with nothing that were named nothing."""
+
+
+class KnowledgeMetricConfig(MetricConfig):
+    """A link metric reads the gate and the annotation behind it."""
+
+    name: str = Param("link_f1")
+    metric: RegistrationKey[Metric] = Param(LINK_F1)
+    inputs: Sequence[str] = Param(["knowledge_mask", "knowledge_true"])
+
+
+@register_class(
+    name="metric",
+    tags={"f1", "link"},
+    namespace=NAMESPACE,
+    component=BOUND_METRIC_COMPONENT,
+)
+class LinkF1MetricConfig(KnowledgeMetricConfig):
+    pass
+
+
+@register_class(
+    name="metric",
+    tags={"f1", "link", "macro"},
+    namespace=NAMESPACE,
+    component=BOUND_METRIC_COMPONENT,
+)
+class LinkMacroF1MetricConfig(KnowledgeMetricConfig):
+    name: str = Param("link_macro_f1")
+    metric: RegistrationKey[Metric] = Param(LINK_MACRO_F1)
+
+
+@register_class(
+    name="metric",
+    tags={"exact_set"},
+    namespace=NAMESPACE,
+    component=BOUND_METRIC_COMPONENT,
+)
+class ExactSetMetricConfig(KnowledgeMetricConfig):
+    name: str = Param("exact_set_match")
+    metric: RegistrationKey[Metric] = Param(EXACT_SET_MATCH)
+
+
+@register_class(
+    name="metric",
+    tags={"empty_set"},
+    namespace=NAMESPACE,
+    component=BOUND_METRIC_COMPONENT,
+)
+class EmptySetMetricConfig(KnowledgeMetricConfig):
+    name: str = Param("empty_set_accuracy")
+    metric: RegistrationKey[Metric] = Param(EMPTY_SET_ACCURACY)

@@ -11,6 +11,7 @@ from pyhighlights.configurations.keys import (
     CROSS_ENTROPY,
     JS_DIV,
     KL_DIV,
+    KNOWLEDGE_BCE,
     MASKED_BCE,
     MASKED_CROSS_ENTROPY,
     NAMESPACE,
@@ -53,12 +54,30 @@ class MaskedCrossEntropyConfig(Configuration):
 
 @register_class(
     name="criterion",
+    tags={"masked_bce", "knowledge"},
+    namespace=NAMESPACE,
+    component="pyhighlights.utility.losses.MaskedBinaryCrossEntropy",
+)
+class KnowledgeBCEConfig(Configuration):
+    """A binary criterion carrying one positive weight per knowledge entry."""
+
+    ignore_index: int = Param(-1)
+    pos_weight: List[float] | None = Param(None)
+
+
+@register_class(
+    name="criterion",
     tags={"masked_bce"},
     namespace=NAMESPACE,
     component="pyhighlights.utility.losses.MaskedBinaryCrossEntropy",
 )
 class MaskedBCEConfig(Configuration):
-    pass
+    """One independent decision per position of the axis being scored."""
+
+    ignore_index: int = Param(-1)
+    #: One factor per position, multiplying the cost of missing a positive
+    #: there. Read off the corpus by ``KnowledgeWeights`` rather than typed.
+    pos_weight: List[float] | None = Param(None)
 
 
 @register_class(
@@ -163,6 +182,31 @@ class HighlightLossConfig(LossConfig):
     name: str = Param("highlight")
     loss: RegistrationKey[th.nn.Module] = Param(MASKED_CROSS_ENTROPY)
     inputs: List[str] = Param(["highlight_logits", "highlight_true", "mask"])
+
+
+@register_class(
+    name="loss",
+    tags={"knowledge", "supervised"},
+    namespace=NAMESPACE,
+    component=LOSS_COMPONENT,
+)
+class KnowledgeSupervisionLossConfig(LossConfig):
+    """Told which entries to name, with a weight per entry.
+
+    The same supervision as the term below and a different criterion, for one
+    reason: two classes under a cross entropy carry a single positive weight,
+    and the knowledge axis needs one per entry. The entry that decides a case
+    is frequently the rare one, and a shared weight cannot tell it from the
+    entry that fires on half the corpus.
+
+    It scores ``knowledge_score``, the difference of the comparer's two logits
+    -- the same quantity the gate is taken from, so the term and the gate
+    cannot disagree.
+    """
+
+    name: str = Param("knowledge")
+    loss: RegistrationKey[th.nn.Module] = Param(KNOWLEDGE_BCE)
+    inputs: List[str] = Param(["knowledge_score", "knowledge_true", "knowledge_valid"])
 
 
 @register_class(

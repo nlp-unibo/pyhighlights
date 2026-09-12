@@ -322,6 +322,44 @@ class LabelMapper(Preprocessor):
         return processed
 
 
+def link_weights(links: Sequence[Any], entries: int) -> List[float]:
+    """One positive weight per knowledge base entry, ``negatives / positives``.
+
+    What a binary cross entropy over the knowledge axis needs. The axis is
+    imbalanced twice over: most examples instantiate nothing, and among those
+    that do, most entries still do not apply. A single positive weight cannot
+    separate the entry that fires on half the annotated examples from the one
+    that fires on three of them -- and the deciding entry is frequently the
+    rare one, which is the reason this is a vector.
+
+    ``links`` is one sequence of entry indices per example, or ``None`` where
+    the corpus annotates none; unannotated examples are skipped, since they
+    are evidence of nothing rather than evidence of absence.
+    """
+    if entries < 1:
+        raise ValueError("a knowledge base needs at least one entry")
+    positives = [0] * entries
+    annotated = 0
+    for value in links:
+        if value is None:
+            continue
+        annotated += 1
+        for index in value:
+            if not 0 <= index < entries:
+                raise ValueError(f"link {index} is outside a base of {entries}")
+            positives[index] += 1
+    if not annotated:
+        raise ValueError("link weights need at least one annotated example")
+
+    missing = [index for index, count in enumerate(positives) if not count]
+    if missing:
+        # The same refusal `class_weights` makes, for the same reason: an
+        # entry no example links to has no frequency to invert, and both a
+        # zero and an infinity would train something the corpus never showed.
+        raise ValueError(f"entries {missing} are linked by no example in this split")
+    return [(annotated - count) / count for count in positives]
+
+
 class ClassWeights(Preprocessor):
     """Computes a split's class weights and hands every row back unchanged.
 
@@ -349,4 +387,41 @@ class ClassWeights(Preprocessor):
         labels = [int(label) for label in splits[self.split]["label"]]
         self.weights = class_weights(labels, self.classes)
         self.counts = {index: labels.count(index) for index in range(len(self.weights))}
+        return dict(splits)
+
+
+class KnowledgeWeights(ClassWeights):
+    """Reads a split's clause-to-entry links and hands every row back unchanged.
+
+    The knowledge-axis counterpart of :class:`ClassWeights`, and a
+    :class:`~pyhighlights.components.tasks.ClassWeightsTask` runs it unchanged:
+    ``weights`` is one positive weight per entry rather than one per class, and
+    ``counts`` how many examples link to each.
+
+    ``entries`` is the size of the base, and it is required rather than
+    inferred. The largest index a split happens to use is not the size of the
+    knowledge base, and guessing it would hand the loss a weight vector one
+    entry short -- which broadcasts against the wrong axis or silently drops
+    the last entry.
+    """
+
+    def __init__(self, entries: int, split: str = "train"):
+        super().__init__(split=split)
+        self.entries = entries
+
+    def process(self, splits: Mapping[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
+        if self.split not in splits:
+            raise KeyError(f"no {self.split!r} split to weight; got {sorted(splits)}")
+        frame = splits[self.split]
+        if "knowledge" not in frame:
+            raise KeyError(
+                f"the {self.split!r} split carries no `knowledge` column; a "
+                "corpus without links cannot weight them"
+            )
+        links = list(frame["knowledge"])
+        self.weights = link_weights(links, self.entries)
+        self.counts = {
+            index: sum(1 for value in links if value is not None and index in value)
+            for index in range(self.entries)
+        }
         return dict(splits)
