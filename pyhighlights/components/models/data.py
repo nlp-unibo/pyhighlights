@@ -88,6 +88,17 @@ class InputData(ModelData):
     #: is always seen. Defaults to every non-padding position when a batch is
     #: assembled by hand.
     attention_mask: th.Tensor | None = None
+    #: **Knowledge axis** ``[B, M]``: which entries of the knowledge base
+    #: explain each example, one column per entry. ``-1`` on a row the corpus
+    #: does not annotate, and ``0`` where it annotates that the entry does not
+    #: apply -- the same convention ``highlight_true`` uses, and the same
+    #: reason: an empty knowledge set is a prediction to be scored, not an
+    #: absent annotation to be skipped.
+    #:
+    #: ``None`` when the corpus has no knowledge base at all. The base itself
+    #: is not here: it is shared by every example of a run, so it reaches the
+    #: model once rather than riding in every batch.
+    knowledge_true: th.Tensor | None = None
 
     def attention(self) -> th.Tensor:
         """What the encoder attends over, whether or not the batch said."""
