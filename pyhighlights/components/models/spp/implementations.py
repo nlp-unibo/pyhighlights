@@ -204,11 +204,21 @@ class StackedBackbone(SPPBackbone):
         mask: th.Tensor,
         selection_mask: th.Tensor | None = None,
     ) -> th.Tensor:
-        # The selection reaches the transformer, not the GRU: dropping a
-        # subtoken from the attention is what makes the predictor read the
-        # highlight and nothing else. Masking the GRU's input instead would
-        # leave the transformer having attended over the whole clause.
+        # The selection reaches the transformer *and* the GRU, and it has to
+        # reach both. Masking only the transformer's attention leaves a dropped
+        # subtoken with a state of its own -- a transformer carries every
+        # position's input forward through the residual stream whether or not
+        # anything attended to it -- and the GRU is recurrent, so that state
+        # reaches every position after it. The predictor would then read a
+        # summary that depends on words the highlight excluded, which is the
+        # one thing select-then-predict is for.
+        #
+        # `GRUBackbone` zeroes its dropped embeddings for the same reason. The
+        # two now agree, which is what makes a highlight mean the same thing
+        # whichever backbone read the text.
         states = self.transformer.encode(features, mask, selection_mask)
+        if selection_mask is not None:
+            states = states * selection_mask.to(states.dtype).unsqueeze(-1)
         valid = mask.bool()
         packed = th.nn.utils.rnn.pack_padded_sequence(
             states,

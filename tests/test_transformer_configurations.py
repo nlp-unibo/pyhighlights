@@ -24,6 +24,7 @@ from pyhighlights.components.models.spp import (
 from pyhighlights.components.tasks import SPPTask
 from pyhighlights.configurations.keys import (
     FROZEN_TRANSFORMER_BACKBONE,
+    GRU_BACKBONE,
     GRU_FR,
     STACKED_BACKBONE,
     TOY,
@@ -248,3 +249,50 @@ def test_a_stacked_backbone_trains_a_gru_over_a_frozen_transformer(monkeypatch):
     # predictor has to read the highlight and nothing else.
     selected = backbone.encode(features, mask, selection_mask=mask * 0)
     assert not th.equal(selected, states.detach())
+
+
+def test_no_backbone_lets_a_dropped_word_reach_the_predictor(monkeypatch):
+    """The select-then-predict guarantee, checked at the backbone contract.
+
+    A highlight *is* the predictor's input, not a story about it. So changing a
+    word the selection dropped must not change what the predictor reads -- and
+    it has to hold for every backbone, or a highlight means one thing over a
+    GRU and another over a transformer.
+
+    ``StackedBackbone`` failed this. Masking the transformer's attention is not
+    enough: a transformer carries every position's own input forward through
+    the residual stream whether or not anything attended to it, so a dropped
+    subtoken still had a state, and the recurrent encoder above it is recurrent
+    -- that state reached every position after it and then the pooled summary
+    the predictor reads. ``GRUBackbone`` zeroed its dropped embeddings and did
+    not have the problem, which is how the two disagreed.
+    """
+    transformers = ModuleType("transformers")
+    transformers.AutoModel = FakeAutoModel
+    monkeypatch.setitem(sys.modules, "transformers", transformers)
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+
+    mask = th.ones(1, 6)
+    selection = th.tensor([[1.0, 1.0, 0.0, 0.0, 1.0, 1.0]])
+    kept = selection.bool().squeeze(0)
+    before = th.tensor([[5, 6, 7, 8, 9, 10]])
+    after = before.clone()
+    # Only the two dropped positions change.
+    after[0, 2], after[0, 3] = 40, 41
+
+    backbones = {
+        "gru": Registry.from_key(GRU_BACKBONE, hidden_size=4),
+        "transformer": Registry.from_key(TRANSFORMER_BACKBONE),
+        "stacked": Registry.from_key(STACKED_BACKBONE, hidden_size=4),
+    }
+    for name, backbone in backbones.items():
+        backbone.eval()
+        with th.no_grad():
+            states = [
+                backbone.encode(features, mask, selection)
+                for features in (before, after)
+            ]
+            pooled = [backbone.pool(state, mask * selection) for state in states]
+        assert th.allclose(states[0][:, kept], states[1][:, kept], atol=1e-6), name
+        # What `SPP.predict` hands the predictor.
+        assert th.allclose(pooled[0], pooled[1], atol=1e-6), name
