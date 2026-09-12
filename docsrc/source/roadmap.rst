@@ -25,6 +25,47 @@ library would not have found them; one that reported numbers did.
 Done
 ----
 
+**Knowledge grounding.** A corpus may explain its labels in free text rather
+than in spans: ToS-100 records which legal rationales make each unfair clause
+unfair, and never which words carry them. So *which* rationale applies is a
+gold standard where the highlight is not.
+
+:class:`~pyhighlights.components.models.spp.grounded.GroundedSPP` extracts a
+highlight pair for every knowledge base entry — the words of the input matching
+the entry, and the words of the entry matching the input — scores each pair
+with an :class:`~pyhighlights.components.models.spp.grounded.SPPComparer`, and
+names the subset the input instantiates. Two encoder passes per batch whatever
+the base's size, because the base is a property of the corpus rather than of a
+sample: it arrives once through
+:meth:`~pyhighlights.components.models.base.Model.load_knowledge` and never
+rides in a batch.
+
+Almost none of it is a new contract. Conditioning is a concatenation, so an
+ordinary :class:`~pyhighlights.components.models.spp.base.SPPSelector` at twice
+the width is a conditioned one; the comparer emits two logits, so the gate is
+the same activation a token selection uses and the link loss is an existing
+criterion under a new binding; the sparsity penalty binds to the knowledge axis
+unchanged.
+
+Scored by per-link F1 micro **and** macro, exact-set match and empty-set
+accuracy, and by the two rationale-level faithfulness terms — ablate the
+entries the model named and see whether the prediction moves. Nobody has
+reported the last two on this corpus.
+
+**The highlight is the predictor's input, on every backbone.**
+:class:`~pyhighlights.components.models.spp.implementations.StackedBackbone`
+masked its transformer's attention and then handed the whole sequence to the
+GRU above it. A transformer carries every position's own input forward through
+the residual stream whether or not anything attended to it, so a dropped
+subtoken still had a state, and a recurrent encoder carried it to every
+position after it. Changing only the dropped words moved the predictor's pooled
+state by 0.48; the GRU backbone, which zeroes its dropped embeddings, moved by
+zero. The two implementations of one contract disagreed, which is what made it
+a bug rather than a choice.
+
+Every run over a stacked backbone before 0.8.0 is affected, including the legal
+study's whole frozen arm.
+
 **What a run is monitored by is a configuration.** A task used to take
 ``monitor`` and ``patience`` and build its own early stopping and checkpoint,
 with ``mode`` fixed at ``min`` — so stopping on a *maximized* metric was not
