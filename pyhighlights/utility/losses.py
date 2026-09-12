@@ -115,10 +115,32 @@ class CrossEntropy(th.nn.Module):
 
 
 class MaskedCrossEntropy(th.nn.Module):
-    """Token-level cross entropy over valid, labelled positions."""
+    """Cross entropy over valid, labelled positions of any axis.
 
-    def __init__(self, ignore_index: int = -1):
+    Positions are whatever the binding names: tokens of a sequence, or entries
+    of a knowledge base. Everything before the class axis is flattened, so the
+    shape of the thing being scored is the binding's business.
+    """
+
+    def __init__(self, ignore_index: int = -1, weight: Sequence[float] | None = None):
+        """``weight`` is one factor per class, for an axis that is imbalanced.
+
+        The knowledge axis is: a clause instantiates one or two of up to 28
+        rationales, so the negative class outnumbers the positive one by more
+        than an order of magnitude before the fair clauses -- which instantiate
+        nothing at all -- are counted.
+
+        Not persistent, like :class:`CrossEntropy`'s: the weights come from the
+        configuration rather than from training.
+        """
         super().__init__()
+        self.register_buffer(
+            "weight",
+            None
+            if weight is None
+            else th.tensor(list(weight), dtype=th.get_default_dtype()),
+            persistent=False,
+        )
         self.ignore_index = ignore_index
 
     def forward(
@@ -129,7 +151,9 @@ class MaskedCrossEntropy(th.nn.Module):
         valid = (targets != self.ignore_index) & mask.reshape(-1).bool()
         if not valid.any():
             return logits.sum() * 0
-        return th.nn.functional.cross_entropy(logits[valid], targets[valid].long())
+        return th.nn.functional.cross_entropy(
+            logits[valid], targets[valid].long(), weight=self.weight
+        )
 
 
 class MaskedBinaryCrossEntropy(th.nn.Module):

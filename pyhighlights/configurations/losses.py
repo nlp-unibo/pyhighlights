@@ -43,7 +43,12 @@ class CrossEntropyConfig(Configuration):
     component="pyhighlights.utility.losses.MaskedCrossEntropy",
 )
 class MaskedCrossEntropyConfig(Configuration):
-    pass
+    """Cross entropy over valid, labelled positions of any axis."""
+
+    #: One weight per class, for an axis whose classes are imbalanced. The
+    #: knowledge axis is: a clause instantiates one or two of up to 28
+    #: rationales, before the clauses that instantiate none are counted.
+    weight: List[float] | None = Param(None)
 
 
 @register_class(
@@ -158,6 +163,43 @@ class HighlightLossConfig(LossConfig):
     name: str = Param("highlight")
     loss: RegistrationKey[th.nn.Module] = Param(MASKED_CROSS_ENTROPY)
     inputs: List[str] = Param(["highlight_logits", "highlight_true", "mask"])
+
+
+@register_class(
+    name="loss", tags={"knowledge"}, namespace=NAMESPACE, component=LOSS_COMPONENT
+)
+class KnowledgeLossConfig(LossConfig):
+    """Which knowledge base entries explain this example, against the gold links.
+
+    The one place in a grounded run where a highlight-side claim meets a gold
+    standard. ``knowledge_true`` is ``-1`` on an example the corpus does not
+    annotate and ``0`` where it annotates that an entry does not apply, so the
+    criterion skips the first and scores the second: an empty knowledge set is
+    an answer, not a missing label.
+    """
+
+    name: str = Param("knowledge")
+    loss: RegistrationKey[th.nn.Module] = Param(MASKED_CROSS_ENTROPY)
+    inputs: List[str] = Param(["knowledge_logits", "knowledge_true", "knowledge_valid"])
+
+
+@register_class(
+    name="loss",
+    tags={"sparsity", "knowledge"},
+    namespace=NAMESPACE,
+    component=LOSS_COMPONENT,
+)
+class KnowledgeSparsityLossConfig(LossConfig):
+    """How much of the knowledge base an example is allowed to instantiate.
+
+    The same criterion the token axis uses, bound to the knowledge axis: it
+    reads the field names it is given and does not care which axis they are.
+    """
+
+    name: str = Param("knowledge_sparsity")
+    loss: RegistrationKey[th.nn.Module] = Param(SPARSITY_PENALTY)
+    inputs: List[str] = Param(["knowledge_mask", "knowledge_valid"])
+    coefficient: float = Param(1.0, ge=0.0)
 
 
 @register_class(

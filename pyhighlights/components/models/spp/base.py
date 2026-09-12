@@ -138,7 +138,7 @@ class SPP(Model[SPPOutput]):
             Registry.from_key(
                 key,
                 expected_type=SPPSelector,
-                input_size=backbone.output_size,
+                input_size=self.selector_input_size(backbone),
             )
             for key, backbone in zip(selector_keys, self.selector_backbones)
         )
@@ -178,6 +178,15 @@ class SPP(Model[SPPOutput]):
         # whichever backbone read the text. `subtoken` is the older behaviour,
         # kept so the difference can be measured rather than argued about.
         self.select_over = select_over
+
+    def selector_input_size(self, backbone: SPPBackbone) -> int:
+        """How wide the states a selector reads are.
+
+        A backbone's own width, unless a model hands the selector something
+        beside the states -- ``GroundedSPP`` concatenates the partner of a pair
+        onto them, so its selectors are twice as wide.
+        """
+        return backbone.output_size
 
     @property
     def selector_backbone(self) -> SPPBackbone:
@@ -376,25 +385,40 @@ class SPP(Model[SPPOutput]):
         valid = self.selection_valid(data).bool()
         highlight_mask = highlight_mask * valid.to(highlight_mask.dtype)
 
-        # A sample whose selector marks no valid token would leave the
-        # predictor with an empty input, so the highest-scoring valid token is
-        # selected instead. The fallback is straight-through, keeping the
-        # gradient path to the selector open. GenSPP overrides this: its search
-        # scores empty selections rather than repairing them.
-        needs_fallback = valid.any(dim=1) & ~highlight_mask.bool().any(dim=1)
-        if needs_fallback.any():
-            scores = th.softmax(highlight_logits / self.temperature, dim=-1)[..., 1]
-            scores = scores * valid.to(scores.dtype)
-            fallback_hard = th.nn.functional.one_hot(
-                scores.masked_fill(~valid, -th.inf).argmax(dim=1),
-                num_classes=scores.shape[1],
-            ).to(scores.dtype)
-            fallback = fallback_hard + scores - scores.detach()
-            highlight_mask = th.where(
-                needs_fallback.unsqueeze(1), fallback, highlight_mask
-            )
+        return highlight_logits, self.repair_empty(
+            highlight_logits, highlight_mask, valid
+        )
 
-        return highlight_logits, highlight_mask
+    def repair_empty(
+        self,
+        highlight_logits: th.Tensor,
+        highlight_mask: th.Tensor,
+        valid: th.Tensor,
+    ) -> th.Tensor:
+        """Keep the highest-scoring valid position where nothing was selected.
+
+        A sample whose selector marks no valid token would leave the predictor
+        with an empty input, so one is selected instead. Straight-through, so
+        the gradient path to the selector stays open. GenSPP overrides
+        :meth:`select`: its search scores empty selections rather than
+        repairing them.
+
+        The position axis is the last one and everything before it is batch, so
+        this serves one selection per sample and one per ``(sample, knowledge
+        entry)`` pair alike.
+        """
+        valid = valid.bool()
+        needs_fallback = valid.any(dim=-1) & ~highlight_mask.bool().any(dim=-1)
+        if not needs_fallback.any():
+            return highlight_mask
+        scores = th.softmax(highlight_logits / self.temperature, dim=-1)[..., 1]
+        scores = scores * valid.to(scores.dtype)
+        fallback_hard = th.nn.functional.one_hot(
+            scores.masked_fill(~valid, -th.inf).argmax(dim=-1),
+            num_classes=scores.shape[-1],
+        ).to(scores.dtype)
+        fallback = fallback_hard + scores - scores.detach()
+        return th.where(needs_fallback.unsqueeze(-1), fallback, highlight_mask)
 
     def predict(
         self,
