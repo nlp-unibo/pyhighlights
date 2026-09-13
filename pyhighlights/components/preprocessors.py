@@ -162,9 +162,11 @@ class AnnotationAggregator(Preprocessor):
     is loaded with every judgement kept, because reducing them is a choice the
     corpus does not make for you:
 
-    - ``label``: majority vote. A post the annotators split three ways has no
-      majority; ``ties="drop"`` removes it, as the HateXplain paper does, and
-      ``ties="keep"`` resolves it by annotator order.
+    - ``label``: majority vote. A post whose top label is shared with another
+      has no majority; ``ties="drop"`` removes it, as the HateXplain paper
+      does, and ``ties="keep"`` resolves it by annotator order. An even number
+      of annotators splitting evenly is a tie as much as three splitting three
+      ways is, and a single annotator is never one.
     - ``highlights``: ``"majority"`` marks a token more than half the
       rationale vectors marked, ``"union"`` any, ``"intersection"`` all.
 
@@ -203,8 +205,14 @@ class AnnotationAggregator(Preprocessor):
         return [int(count * 2 > len(valid)) for count in counts]
 
     def label(self, votes: Sequence[str]) -> int | None:
-        (name, count), *_ = Counter(votes).most_common()
-        if count == 1 and self.ties == "drop":
+        # A tie is *several labels sharing the top count*, which is not the
+        # same as a top count of one. The two coincide at three annotators and
+        # nowhere else: four splitting 2-2 have a top count of two and were
+        # resolved silently by annotator order, and a single annotator has a
+        # top count of one and had every row dropped.
+        ranked = Counter(votes).most_common()
+        (name, count), *rest = ranked
+        if any(other == count for _, other in rest) and self.ties == "drop":
             return None
         if self.labels and name not in self.labels:
             raise ValueError(f"unexpected label {name}")
