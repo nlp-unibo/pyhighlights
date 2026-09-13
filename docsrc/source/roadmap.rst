@@ -112,6 +112,35 @@ other's published numbers. A metric's column name is its own parameter, and
 :class:`~pyhighlights.utility.metrics.ClassF1Score` says in its own docs which
 class it scores.
 
+**A tie is several labels sharing the top count.**
+:class:`~pyhighlights.components.preprocessors.AnnotationAggregator` called a
+tie when the top count was *one*, which coincides with a tie only at exactly
+three annotators. HateXplain has three, so the defect was invisible everywhere
+the library was exercised. Four annotators splitting 2-2 have a top count of
+two, so no tie was detected and the label became whichever one ``Counter``
+ordered first — silently, with ``ties="drop"`` not firing; a single-annotator
+corpus has a top count of one on every row and emptied its splits entirely.
+Nothing in the library's own corpora changes, which is the point: the component
+stops being correct by coincidence.
+
+**The ``cinnamon-core`` floor is 2.1.3**, and each step of it is a defect
+rather than a preference. 2.1.1 stopped the registry scan walking a checkout's
+own ``site-packages``. 2.1.2 validates a ``list`` or ``dict`` dependency's
+members — below it ``validate_conditions`` recursed only when the whole field
+was a ``Configuration``, so the registry dropped an invalid child and kept the
+parent pointing at it, and every task here names its metrics, its callbacks and
+its preprocessing steps as ``List[RegistrationKey[...]]``.
+
+2.1.3 is the floor rather than 2.1.2 because 2.1.2 cannot run this library at
+all. It forgot every module under a scanned root, and ``Registry.build`` is
+given ``Path(pyhighlights.__file__).parent`` here — the package itself. Anything
+imported before a build was dropped and re-imported by the registration
+scripts, so the registry resolved a second copy of every class and a component
+held across a reset failed ``issubclass`` against its own class, with a
+``TypeError`` naming that class on both sides. 49 tests, one per test that
+imports a component at module level. A build forgets only what it imported
+itself now.
+
 **A manifest cannot shadow its own key.** ``manifest.resolve`` wrote
 ``{"key": str(key), ...}`` over the resolved parameters, so a component with a
 parameter *named* ``key`` — ``LeakageRemover`` has one — overwrote its
