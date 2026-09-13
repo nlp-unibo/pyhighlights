@@ -93,6 +93,42 @@ def test_aggregator_reduces_labels_and_rationales(tmp_path):
     assert len(kept["train"]) == 2
 
 
+def test_a_tie_is_two_labels_sharing_the_top_count():
+    """Not "the top count is one", which is only the same thing at three.
+
+    HateXplain has three annotators, so the two coincide there and the defect
+    stayed invisible. They come apart in both directions:
+
+    - four annotators splitting 2-2 have a top count of *two*, so no tie was
+      detected and the label was decided by whichever one `Counter` happened
+      to order first -- silently, with ``ties="drop"`` not firing
+    - a single annotator has a top count of *one*, so every row of a
+      single-annotator corpus was dropped as a tie
+    """
+    voter = aggregator()
+
+    # A real majority is untouched, whatever the panel size.
+    assert voter.label(["normal", "normal", "hatespeech"]) == 1
+    assert voter.label(["normal", "normal", "hatespeech", "offensive"]) == 1
+
+    # Three splitting three ways: the case that already worked.
+    assert voter.label(["normal", "hatespeech", "offensive"]) is None
+    # Four splitting 2-2: the case that did not.
+    assert voter.label(["normal", "normal", "hatespeech", "hatespeech"]) is None
+    # One annotator has nobody to tie with.
+    assert voter.label(["hatespeech"]) == 0
+
+
+def test_keeping_a_tie_still_resolves_it_by_annotator_order():
+    """``ties="keep"`` is the other half of the contract, and it has to hold
+    for an even split as much as for an odd one."""
+    voter = aggregator(ties="keep")
+
+    assert voter.label(["hatespeech", "hatespeech", "normal", "normal"]) == 0
+    assert voter.label(["normal", "normal", "hatespeech", "hatespeech"]) == 1
+    assert voter.label(["offensive"]) == 2
+
+
 def test_aggregator_leaves_an_already_reduced_corpus_alone(tmp_path):
     splits = hotel_splits(tmp_path)
     processed = aggregator().process(splits)
