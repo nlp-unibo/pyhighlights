@@ -312,6 +312,53 @@ def test_a_model_without_compaction_does_not_answer_the_same():
     assert not th.allclose(logits[0], logits[1], atol=1e-6)
 
 
+def test_a_compact_model_still_trains_its_selector():
+    """The load-bearing claim, checked on a model rather than on the primitive.
+
+    Compaction gathers by an index derived from the mask, and an index is not
+    differentiable. If the gradient went with it the selector would stop
+    learning and the arm would look like a result about compaction when it was
+    a result about a dead optimizer.
+    """
+    data = batch(
+        [
+            HighlightExample(0, ["a", "b", "c", "d"], 1),
+            HighlightExample(1, ["b", "c"], 0),
+        ]
+    )
+
+    grads = {}
+    for flag in (False, True):
+        th.manual_seed(0)
+        spp = model(compact=flag)
+        spp.train()
+        spp(data).class_logits.sum().backward()
+        selector = [p for name, p in spp.named_parameters() if "selector" in name]
+        assert all(p.grad is not None for p in selector), flag
+        grads[flag] = sum(float(p.grad.abs().sum()) for p in selector)
+
+    assert grads[True] > 0
+    # Not a claim that the two are equal -- they are different computations --
+    # only that compaction has not collapsed the signal by an order of
+    # magnitude, which is what a severed path would look like.
+    assert grads[True] > grads[False] / 10
+
+
+def test_compaction_keeps_a_special_token_where_a_pretrained_encoder_expects_it():
+    """`[CLS]` first and `[SEP]` last, after the gaps are gone.
+
+    `to_subtokens` always keeps a special token, and the gather is stable, so
+    the two ends stay the two ends. A transformer pretrained on that shape
+    would otherwise be handed a sequence starting mid-clause.
+    """
+    features = th.tensor([[101, 2000, 3000, 4000, 5000, 102]])
+    keep = th.tensor([[1.0, 0.0, 0.0, 1.0, 0.0, 1.0]])
+
+    compacted, _ = SPP.compacted(features, keep)
+
+    assert compacted.tolist() == [[101, 4000, 102]]
+
+
 def test_compaction_closes_the_gap_channel_on_every_backbone(monkeypatch):
     """What the xfail tests above are waiting for, under ``compact=True``.
 
