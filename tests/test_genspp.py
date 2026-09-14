@@ -199,12 +199,18 @@ def test_registered_gru_genspp_and_trainer():
         model.selector_backbone.embedding.weight,
         second_model.selector_backbone.embedding.weight,
     )
-    search._align_frozen_state(model)
-    search._align_frozen_state(second_model)
+    search._align_initial_state(model)
+    search._align_initial_state(second_model)
     assert th.equal(
         model.selector_backbone.embedding.weight,
         second_model.selector_backbone.embedding.weight,
     )
+    # The predictor too, and that is the part a candidate's fitness depends on:
+    # two candidates must train the same predictor or they are not comparable.
+    for first, second in zip(
+        model.predictor_parameters(), second_model.predictor_parameters()
+    ):
+        assert th.equal(first, second)
     optimizer = Registry.from_key(model.optimizer, params=model.predictor_parameters())
     assert optimizer.param_groups[0]["lr"] == pytest.approx(1e-2)
     # Lightning trains one candidate at a time, and only its predictor.
@@ -273,6 +279,53 @@ def test_inner_training_changes_only_predictor_and_validation_scores_fitness():
     assert selection_rate == pytest.approx(expected_rate)
 
 
+def test_a_candidate_scores_the_same_wherever_it_is_evaluated():
+    """Fitness is a property of the chromosome, not of evaluation order.
+
+    Before this held, the same chromosome scored 2.8246, 2.4722 and 1.0000 as
+    the first, second and fourth candidate of one run: every evaluation built
+    a predictor from the global random state, so each one shifted the next.
+    A search over such a fitness ranks initialisations alongside genes, and
+    parallel evaluation could not reproduce a sequential run at all.
+    """
+    model = register_tiny_genspp()
+    search = trainer(model, seed=7)
+    search._random.seed(7)
+    search._torch_generator.manual_seed(7)
+    search._initial_state = None
+    search._evaluation_seed = 11
+    train, val = [batch()], [batch()]
+
+    probe = search._chromosome(Registry.from_key(model)).clone()
+    decoy = probe + 0.3
+
+    scores = []
+    for position in range(3):
+        for _ in range(position):
+            search._new_individual(train, val, decoy)
+        scores.append(search._new_individual(train, val, probe).fitness)
+
+    assert scores[0] == scores[1] == scores[2]
+
+
+def test_the_first_generation_is_not_one_point_repeated():
+    """Sharing a predictor between candidates must not share their generators.
+
+    The shared initial state is what makes fitness comparable, and it covers
+    everything except the chromosome. Covering the chromosome too would give
+    every founder the same generator -- a first generation of one repeated
+    point, with mutation left as the only source of diversity.
+    """
+    model = register_tiny_genspp()
+    search = trainer(model, seed=7, population_size=4)
+    search.fit([batch()], [batch()])
+
+    chromosomes = [individual.chromosome for individual in search.population]
+    assert len(chromosomes) == 4
+    for other in chromosomes[1:]:
+        assert not th.equal(chromosomes[0], other)
+
+
 def test_search_rejects_single_pass_loaders():
     search = trainer(register_tiny_genspp())
     with pytest.raises(ValueError, match="re-iterable"):
@@ -314,7 +367,12 @@ def test_search_is_reproducible_and_keeps_only_candidate_chromosomes():
 
     first_search = trainer(model_key, n_generations=1)
     first_model = first_search.fit(train, validation)
-    assert CountingGenSPP.instances == 4
+    # Two founders and two children evaluated, plus one build per founder to
+    # draw its generator at random -- that draw cannot happen inside the
+    # evaluation, whose seed is fixed. Six builds for a population of two over
+    # one generation, and the extra pair is paid once per run rather than once
+    # per generation.
+    assert CountingGenSPP.instances == 6
     first_state = {
         name: value.detach().clone() for name, value in first_model.state_dict().items()
     }
