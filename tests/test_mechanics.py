@@ -30,6 +30,7 @@ from pyhighlights.components.data import (
     TokenizedExample,
     VocabularyTokenizer,
 )
+from pyhighlights.components.models.spp.base import SPP
 from pyhighlights.configurations.keys import GRU_BACKBONE, GRU_FR
 
 VOCABULARY = {word: index + 1 for index, word in enumerate("a b c d e f g".split())}
@@ -226,6 +227,107 @@ def test_the_gap_between_kept_words_cannot_change_what_the_predictor_reads():
         pooled = backbone.pool(
             backbone.encode(features, mask, selection), mask * selection
         )
+
+    assert th.allclose(pooled[0], pooled[1], atol=1e-6)
+
+
+def test_compaction_moves_the_kept_words_to_the_front_in_order():
+    """The primitive, on tensors small enough to read."""
+    features = th.tensor([[2, 9, 9, 3, 9, 9, 9], [2, 3, 9, 9, 9, 9, 9]])
+    keep = th.tensor([[1.0, 0, 0, 1.0, 0, 0, 0], [1.0, 1.0, 0, 0, 0, 0, 0]])
+
+    compacted, mask = SPP.compacted(features, keep)
+
+    # Same kept words, same order, and the gap is gone from both rows.
+    assert compacted.tolist() == [[2, 3], [2, 3]]
+    assert mask.tolist() == [[1.0, 1.0], [1.0, 1.0]]
+
+
+def test_compaction_cuts_to_the_widest_selection_in_the_batch():
+    """A row that kept fewer is padded, not stretched."""
+    features = th.tensor([[2, 3, 4, 5], [6, 7, 8, 9]])
+    keep = th.tensor([[1.0, 1.0, 1.0, 0.0], [1.0, 0.0, 0.0, 0.0]])
+
+    compacted, mask = SPP.compacted(features, keep)
+
+    assert compacted[0].tolist() == [2, 3, 4]
+    assert mask.tolist() == [[1.0, 1.0, 1.0], [1.0, 0.0, 0.0]]
+
+
+def test_compaction_keeps_the_gradient_path_to_the_selector_open():
+    """The permutation is detached; the mask values are not.
+
+    Gathering is a reordering rather than a quantity, so the gradient runs
+    through the mask values that come back, not through the argsort.
+    """
+    features = th.tensor([[2, 9, 9, 3]])
+    keep = th.tensor([[1.0, 0.0, 0.0, 1.0]], requires_grad=True)
+
+    _, mask = SPP.compacted(features, keep)
+    mask.sum().backward()
+
+    assert keep.grad is not None
+    assert keep.grad.abs().sum() > 0
+
+
+def test_a_compact_model_answers_the_same_for_two_gaps_of_one_highlight():
+    """End to end, through ``SPP.predict``, which is what a run uses.
+
+    The tests above check the primitive. This checks the flag: two clauses
+    whose highlights hold the same words in the same order, differing only in
+    what sits between them, must reach the predictor as one input.
+    """
+    spp = model(compact=True)
+    spp.eval()
+    data = batch(
+        [
+            HighlightExample(0, ["a", "b", "c", "d"], 1),
+            HighlightExample(1, ["a", "d", "b", "c"], 1),
+        ]
+    )
+    # `a` and `d` in both, adjacent in the second and two apart in the first.
+    highlight = th.tensor([[1.0, 0.0, 0.0, 1.0], [1.0, 1.0, 0.0, 0.0]])
+
+    with th.no_grad():
+        logits = spp.predict(data, highlight)
+
+    assert th.allclose(logits[0], logits[1], atol=1e-6)
+
+
+def test_a_model_without_compaction_does_not_answer_the_same():
+    """The control: the difference above is the flag and not the fixture."""
+    spp = model(compact=False)
+    spp.eval()
+    data = batch(
+        [
+            HighlightExample(0, ["a", "b", "c", "d"], 1),
+            HighlightExample(1, ["a", "d", "b", "c"], 1),
+        ]
+    )
+    highlight = th.tensor([[1.0, 0.0, 0.0, 1.0], [1.0, 1.0, 0.0, 0.0]])
+
+    with th.no_grad():
+        logits = spp.predict(data, highlight)
+
+    assert not th.allclose(logits[0], logits[1], atol=1e-6)
+
+
+def test_compaction_closes_the_gap_channel_on_every_backbone(monkeypatch):
+    """What the xfail tests above are waiting for, under ``compact=True``.
+
+    Same kept words, same order, different gaps. With the dropped positions
+    zeroed in place the predictor's input moves; with them gathered away it
+    does not, because the two rows become the same sequence.
+    """
+    build_registry()
+    features = th.tensor([[2, 9, 9, 3, 9, 9, 9], [2, 3, 9, 9, 9, 9, 9]])
+    keep = th.tensor([[1.0, 0, 0, 1.0, 0, 0, 0], [1.0, 1.0, 0, 0, 0, 0, 0]])
+    compacted, mask = SPP.compacted(features, keep)
+
+    backbone = Registry.from_key(GRU_BACKBONE, hidden_size=8)
+    backbone.eval()
+    with th.no_grad():
+        pooled = backbone.pool(backbone.encode(compacted, mask), mask)
 
     assert th.allclose(pooled[0], pooled[1], atol=1e-6)
 

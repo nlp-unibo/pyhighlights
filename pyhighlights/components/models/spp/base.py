@@ -92,6 +92,7 @@ class SPP(Model[SPPOutput]):
         predictor_backbone: RegistrationKey[SPPBackbone] | None = None,
         aggregator: RegistrationKey[SPPAggregator] | None = None,
         temperature: float = 1.0,
+        compact: bool = False,
         select_over: Literal["word", "subtoken"] = "word",
         encoder_lr: float | None = None,
         supervise_highlights: bool = False,
@@ -100,6 +101,10 @@ class SPP(Model[SPPOutput]):
         **kwargs,
     ):
         super().__init__(**kwargs)
+
+        # Off by default: it changes what the predictor is handed, so a run
+        # with it on is a different experiment rather than a better one.
+        self.compact = compact
 
         # Supervision is a setting, not a variant: the same model key runs
         # unsupervised or guided by the annotation, and the two are different
@@ -440,11 +445,52 @@ class SPP(Model[SPPOutput]):
         # attended and a dropped word is gone in every piece of itself.
         prediction_mask = self.to_subtokens(selection, data)
         attention = data.attention().to(prediction_mask.dtype)
+        if self.compact:
+            features, kept = self.compacted(data.features, attention * prediction_mask)
+            states = backbone.encode(features, kept)
+            return predictor(backbone.pool(states, kept))
         states = backbone.encode(
             data.features, attention, selection_mask=prediction_mask
         )
         pooled = backbone.pool(states, attention * prediction_mask)
         return predictor(pooled)
+
+    @staticmethod
+    def compacted(features: th.Tensor, keep: th.Tensor) -> Tuple[th.Tensor, th.Tensor]:
+        """The kept positions, moved to the front and cut to the longest.
+
+        Zeroing a dropped position leaves it in the sequence, and the predictor
+        can read the fact of it: a recurrent encoder steps over it, and a
+        transformer gives the next kept token a different position embedding.
+        So the mask's *shape* reaches the predictor alongside the words it kept.
+        Gathering the kept positions into a shorter sequence closes both
+        mechanisms at once -- a clause of 35 words with 4 kept becomes a
+        length-4 sequence whatever the gaps were.
+
+        Order is preserved: the kept words arrive in the order they were
+        written, which is what makes the result a highlight rather than a bag.
+
+        **This changes what the predictor is trained on**, and is not a repair.
+        The predictor already reads a corpus of the selector's construction --
+        that is why the full input is off-distribution for it -- and compaction
+        makes that corpus shorter and more artificial. Whether the channel it
+        closes was the one that mattered is a measurement, not a consequence.
+
+        One cost to know: a dropped word beyond the batch's widest selection is
+        cut, so the selector gets no gradient telling it to keep that word. A
+        dropped word within the width is still present at mask zero and still
+        gets one. Exploration is therefore weaker than with in-place zeroing,
+        and this is the reason the flag defaults off.
+        """
+        # Stable, so kept positions keep their relative order; on the inverted
+        # mask, so the kept ones sort first. Detached because the permutation
+        # is a reordering rather than a quantity -- the gradient to the
+        # selector runs through the gathered mask values.
+        order = th.argsort(1 - keep.detach(), dim=1, stable=True)
+        width = int(keep.sum(dim=1).max().item()) if keep.numel() else 0
+        width = max(1, width)
+        index = order[:, :width]
+        return features.gather(1, index), keep.gather(1, index)
 
     def predict_full(self, data: InputData) -> th.Tensor:
         """Class logits from the whole input, with nothing selected away.
