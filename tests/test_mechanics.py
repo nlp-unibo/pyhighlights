@@ -151,6 +151,58 @@ def test_the_encoder_attends_over_specials_but_they_are_never_selectable():
     assert spp.encoder_mask(data).tolist() == [[1, 1, 1, 1]]
 
 
+def test_a_special_token_is_unselectable_on_the_subtoken_axis_too():
+    """The other half of the guarantee, on the axis where specials exist.
+
+    Selecting over words makes this structural -- a special token belongs to no
+    word, so it is not on the axis at all. Selecting over subtokens puts it on
+    the axis, and ``selection_valid`` is then the only thing keeping it out. A
+    model that could mark ``[CLS]`` would report a highlight containing no word.
+    """
+
+    class Specials:
+        pad_token_id = 0
+
+        def encode(self, tokens, max_length=None):
+            return TokenizedExample(
+                [101, *range(10, 10 + len(tokens)), 102],
+                [None, *range(len(tokens)), None],
+            )
+
+    data = batch([HighlightExample(0, ["a", "b"], 1)], Specials())
+
+    # Four subtokens: [CLS], two words, [SEP]. Only the two words may be
+    # selected, and the encoder still attends over all four.
+    assert model(select_over="subtoken").selection_valid(data).tolist() == [
+        [0.0, 1.0, 1.0, 0.0]
+    ]
+    assert model(select_over="subtoken").encoder_mask(data).tolist() == [[1, 1, 1, 1]]
+
+
+def test_a_padded_subtoken_is_unselectable_on_the_subtoken_axis_too():
+    """Padding carries no word id either, so the same guard excludes it."""
+
+    class Specials:
+        pad_token_id = 0
+
+        def encode(self, tokens, max_length=None):
+            return TokenizedExample(
+                [101, *range(10, 10 + len(tokens)), 102],
+                [None, *range(len(tokens)), None],
+            )
+
+    data = batch(
+        [HighlightExample(0, ["a", "b"], 1), HighlightExample(1, ["a"], 0)], Specials()
+    )
+
+    # The shorter row is padded to the longer one's width; nothing past its
+    # own [SEP] is selectable.
+    assert model(select_over="subtoken").selection_valid(data).tolist() == [
+        [0.0, 1.0, 1.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+    ]
+
+
 def test_padding_never_reaches_the_encoders_output():
     build_registry()
     backbone = Registry.from_key(GRU_BACKBONE, hidden_size=4)
