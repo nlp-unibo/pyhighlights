@@ -153,7 +153,11 @@ def test_highlight_position_analyzer_bins_where_the_selector_looked(tmp_path):
     assert report.loc[0, "run"] == "2026-01-01T00-00-00"
     assert report.loc[0, "seed"] == "0"
     assert report.loc[0, "samples"] == 2
-    assert report.loc[0, "selection_rate"] == pytest.approx(2 / 7)
+    # The mean of the per-document rates, 1/4 and 1/3, and not the pooled
+    # 2/7: this fixture is the case where the two disagree, because the
+    # documents have different lengths. `SelectionRate` is the sample mean,
+    # so a column of the same name here has to be one too.
+    assert report.loc[0, "selection_rate"] == pytest.approx((1 / 4 + 1 / 3) / 2)
     assert report.loc[0, "bin_0"] == pytest.approx(0.5)
     assert report.loc[0, "bin_1"] == pytest.approx(0.5)
 
