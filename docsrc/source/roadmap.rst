@@ -112,6 +112,27 @@ other's published numbers. A metric's column name is its own parameter, and
 :class:`~pyhighlights.utility.metrics.ClassF1Score` says in its own docs which
 class it scores.
 
+**Compaction, and the channel it closes.** A select-then-predict model claims
+the highlight *is* the predictor's input. The library enforced that a dropped
+word cannot reach the predictor and not that the *shape* of the mask stays out,
+which is a channel a selector can signal a label through: two clauses with the
+same kept words in the same order but different gaps between them produced
+different predictor inputs, by about a third of what changing a kept word does.
+
+Two mechanisms, one per family. A
+:class:`~pyhighlights.components.models.spp.implementations.GRUBackbone` steps
+its recurrence over dropped positions, so their number changes the state; a
+:class:`~pyhighlights.components.models.spp.implementations.TransformerBackbone`
+re-indexes a kept word's position embedding when the gap before it changes.
+Both are held by ``xfail(strict=True)`` tests.
+
+``SPP(compact=True)`` gathers the kept positions into a shorter sequence and
+closes both — measured on real Legal-BERT, 2.124514 in place against 0.000000
+compacted. **Off by default and not a repair**: it changes what the predictor is
+trained on rather than what it reads, and a compacted sequence can classify well
+and mean nothing to a human reader. See *What the bottleneck does and does not
+guarantee* under :doc:`models`.
+
 **A tie is several labels sharing the top count.**
 :class:`~pyhighlights.components.preprocessors.AnnotationAggregator` called a
 tie when the top count was *one*, which coincides with a tie only at exactly
