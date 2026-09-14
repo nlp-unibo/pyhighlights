@@ -190,6 +190,46 @@ def test_a_dropped_word_cannot_change_what_the_predictor_reads():
     assert th.allclose(pooled[0], pooled[1], atol=1e-6)
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="Known, measured, and not yet fixed: the predictor can read the "
+    "*shape* of the mask as well as the words it kept. A GRU steps its "
+    "recurrence over dropped positions with a zero input, so the number of "
+    "them changes the state; a transformer gives a kept word a different "
+    "position embedding when the gap before it changes. Compaction -- "
+    "gathering the kept positions instead of zeroing the dropped ones -- is "
+    "the candidate fix.",
+)
+def test_the_gap_between_kept_words_cannot_change_what_the_predictor_reads():
+    """The same highlight must mean the same input, wherever its words sat.
+
+    ``test_a_dropped_word_cannot_change_what_the_predictor_reads`` changes what
+    a dropped word *is*. This changes how many there are. Both are outside the
+    highlight, so under `the highlight is the predictor's input` neither may
+    move the prediction -- but only the first was ever checked, and the second
+    is the channel by which a selector can signal a label through the count.
+
+    Two rows, identical kept words in the same order, different gaps between
+    them. A model whose predictor reads its highlight and nothing else answers
+    the same for both.
+    """
+    build_registry()
+    backbone = Registry.from_key(GRU_BACKBONE, hidden_size=8)
+    backbone.eval()
+
+    mask = th.ones(2, 7)
+    #            kept  drop  drop  kept  pad-ish filler
+    features = th.tensor([[2, 9, 9, 3, 9, 9, 9], [2, 3, 9, 9, 9, 9, 9]])
+    selection = th.tensor([[1.0, 0, 0, 1.0, 0, 0, 0], [1.0, 1.0, 0, 0, 0, 0, 0]])
+
+    with th.no_grad():
+        pooled = backbone.pool(
+            backbone.encode(features, mask, selection), mask * selection
+        )
+
+    assert th.allclose(pooled[0], pooled[1], atol=1e-6)
+
+
 # --------------------------------------------------------------------------
 # The fold between axes: which direction, and along which axis.
 # --------------------------------------------------------------------------

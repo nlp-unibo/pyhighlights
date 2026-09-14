@@ -86,6 +86,35 @@ def test_transformer_backbone_reports_missing_optional_dependency(monkeypatch):
         TransformerBackbone("unused")
 
 
+class PositionalFakeTransformer(FakeTransformer):
+    """``FakeTransformer`` with what a real encoder has and it does not.
+
+    The one above is position-blind: its output for a token is its embedding
+    plus the masked mean of the sequence, so moving a kept word cannot change
+    its state. Every real transformer adds a position embedding, and that is
+    the difference the geometry test below turns on -- measured on
+    ``nlpaueb/legal-bert-base-uncased``, moving a kept word by two positions
+    moves its state by 9.39 and the pooled vector by 2.12.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.positions = th.nn.Embedding(64, 6)
+
+    def forward(self, input_ids, attention_mask):
+        out = super().forward(input_ids, attention_mask)
+        index = th.arange(input_ids.shape[1], device=input_ids.device)
+        return SimpleNamespace(
+            last_hidden_state=out.last_hidden_state + self.positions(index)
+        )
+
+
+class PositionalFakeAutoModel:
+    @classmethod
+    def from_pretrained(cls, pretrained_model_card: str):
+        return PositionalFakeTransformer()
+
+
 class FakeAutoModel:
     @classmethod
     def from_pretrained(cls, pretrained_model_card: str):
@@ -296,3 +325,33 @@ def test_no_backbone_lets_a_dropped_word_reach_the_predictor(monkeypatch):
         assert th.allclose(states[0][:, kept], states[1][:, kept], atol=1e-6), name
         # What `SPP.predict` hands the predictor.
         assert th.allclose(pooled[0], pooled[1], atol=1e-6), name
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="Known, measured, and not yet fixed. A kept word gets a different "
+    "position embedding when the gap before it changes, so the mask's shape "
+    "reaches the predictor alongside the words it kept. Measured on real "
+    "Legal-BERT: pooled vector moves 2.12, kept states move 9.39. This is the "
+    "transformer half of the channel; the GRU half is in test_mechanics.py.",
+)
+def test_the_gap_between_kept_words_does_not_move_a_transformers_states(monkeypatch):
+    """The same kept words, the same order, a different gap between them."""
+    transformers = ModuleType("transformers")
+    transformers.AutoModel = PositionalFakeAutoModel
+    monkeypatch.setitem(sys.modules, "transformers", transformers)
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+
+    backbone = Registry.from_key(TRANSFORMER_BACKBONE)
+    backbone.eval()
+
+    mask = th.ones(2, 7)
+    features = th.tensor([[2, 9, 9, 3, 9, 9, 9], [2, 3, 9, 9, 9, 9, 9]])
+    selection = th.tensor([[1.0, 0, 0, 1.0, 0, 0, 0], [1.0, 1.0, 0, 0, 0, 0, 0]])
+
+    with th.no_grad():
+        pooled = backbone.pool(
+            backbone.encode(features, mask, selection), mask * selection
+        )
+
+    assert th.allclose(pooled[0], pooled[1], atol=1e-6)
