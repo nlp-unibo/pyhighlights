@@ -30,6 +30,7 @@ from pyhighlights.components.data import (
     TokenizedExample,
     VocabularyTokenizer,
 )
+from pyhighlights.components.models.spp.base import SPP
 from pyhighlights.configurations.keys import GRU_BACKBONE, GRU_FR
 
 VOCABULARY = {word: index + 1 for index, word in enumerate("a b c d e f g".split())}
@@ -278,6 +279,195 @@ def test_the_gap_between_kept_words_cannot_change_what_the_predictor_reads():
         pooled = backbone.pool(
             backbone.encode(features, mask, selection), mask * selection
         )
+
+    assert th.allclose(pooled[0], pooled[1], atol=1e-6)
+
+
+def test_compaction_moves_the_kept_words_to_the_front_in_order():
+    """The primitive, on tensors small enough to read."""
+    features = th.tensor([[2, 9, 9, 3, 9, 9, 9], [2, 3, 9, 9, 9, 9, 9]])
+    keep = th.tensor([[1.0, 0, 0, 1.0, 0, 0, 0], [1.0, 1.0, 0, 0, 0, 0, 0]])
+
+    compacted, mask = SPP.compacted(features, keep)
+
+    # Same kept words, same order, and the gap is gone from both rows.
+    assert compacted.tolist() == [[2, 3], [2, 3]]
+    assert mask.tolist() == [[1.0, 1.0], [1.0, 1.0]]
+
+
+def test_compaction_cuts_to_the_widest_selection_in_the_batch():
+    """A row that kept fewer is padded, not stretched."""
+    features = th.tensor([[2, 3, 4, 5], [6, 7, 8, 9]])
+    keep = th.tensor([[1.0, 1.0, 1.0, 0.0], [1.0, 0.0, 0.0, 0.0]])
+
+    compacted, mask = SPP.compacted(features, keep)
+
+    assert compacted[0].tolist() == [2, 3, 4]
+    assert mask.tolist() == [[1.0, 1.0, 1.0], [1.0, 0.0, 0.0]]
+
+
+def test_compaction_keeps_the_gradient_path_to_the_selector_open():
+    """The permutation is detached; the mask values are not.
+
+    Gathering is a reordering rather than a quantity, so the gradient runs
+    through the mask values that come back, not through the argsort.
+    """
+    features = th.tensor([[2, 9, 9, 3]])
+    keep = th.tensor([[1.0, 0.0, 0.0, 1.0]], requires_grad=True)
+
+    _, mask = SPP.compacted(features, keep)
+    mask.sum().backward()
+
+    assert keep.grad is not None
+    assert keep.grad.abs().sum() > 0
+
+
+def test_a_compact_model_answers_the_same_for_two_gaps_of_one_highlight():
+    """End to end, through ``SPP.predict``, which is what a run uses.
+
+    The tests above check the primitive. This checks the flag: two clauses
+    whose highlights hold the same words in the same order, differing only in
+    what sits between them, must reach the predictor as one input.
+    """
+    spp = model(compact=True)
+    spp.eval()
+    data = batch(
+        [
+            HighlightExample(0, ["a", "b", "c", "d"], 1),
+            HighlightExample(1, ["a", "d", "b", "c"], 1),
+        ]
+    )
+    # `a` and `d` in both, adjacent in the second and two apart in the first.
+    highlight = th.tensor([[1.0, 0.0, 0.0, 1.0], [1.0, 1.0, 0.0, 0.0]])
+
+    with th.no_grad():
+        logits = spp.predict(data, highlight)
+
+    assert th.allclose(logits[0], logits[1], atol=1e-6)
+
+
+def test_a_model_without_compaction_does_not_answer_the_same():
+    """The control: the difference above is the flag and not the fixture."""
+    spp = model(compact=False)
+    spp.eval()
+    data = batch(
+        [
+            HighlightExample(0, ["a", "b", "c", "d"], 1),
+            HighlightExample(1, ["a", "d", "b", "c"], 1),
+        ]
+    )
+    highlight = th.tensor([[1.0, 0.0, 0.0, 1.0], [1.0, 1.0, 0.0, 0.0]])
+
+    with th.no_grad():
+        logits = spp.predict(data, highlight)
+
+    assert not th.allclose(logits[0], logits[1], atol=1e-6)
+
+
+def test_a_compact_model_still_trains_its_selector():
+    """The load-bearing claim, checked on a model rather than on the primitive.
+
+    Compaction gathers by an index derived from the mask, and an index is not
+    differentiable. If the gradient went with it the selector would stop
+    learning and the arm would look like a result about compaction when it was
+    a result about a dead optimizer.
+    """
+    data = batch(
+        [
+            HighlightExample(0, ["a", "b", "c", "d"], 1),
+            HighlightExample(1, ["b", "c"], 0),
+        ]
+    )
+
+    grads = {}
+    for flag in (False, True):
+        th.manual_seed(0)
+        spp = model(compact=flag)
+        spp.train()
+        spp(data).class_logits.sum().backward()
+        selector = [p for name, p in spp.named_parameters() if "selector" in name]
+        assert all(p.grad is not None for p in selector), flag
+        grads[flag] = sum(float(p.grad.abs().sum()) for p in selector)
+
+    assert grads[True] > 0
+    # Not a claim that the two are equal -- they are different computations --
+    # only that compaction has not collapsed the signal by an order of
+    # magnitude, which is what a severed path would look like.
+    assert grads[True] > grads[False] / 10
+
+
+def test_compaction_keeps_a_special_token_where_a_pretrained_encoder_expects_it():
+    """`[CLS]` first and `[SEP]` last, after the gaps are gone.
+
+    `to_subtokens` always keeps a special token, and the gather is stable, so
+    the two ends stay the two ends. A transformer pretrained on that shape
+    would otherwise be handed a sequence starting mid-clause.
+    """
+    features = th.tensor([[101, 2000, 3000, 4000, 5000, 102]])
+    keep = th.tensor([[1.0, 0.0, 0.0, 1.0, 0.0, 1.0]])
+
+    compacted, _ = SPP.compacted(features, keep)
+
+    assert compacted.tolist() == [[101, 4000, 102]]
+
+
+def test_compaction_rounds_the_width_rather_than_truncating_it():
+    """A mask that is not exactly binary must not lose a kept position.
+
+    Every mask reaching `compacted` is 0.0 or 1.0 in the forward pass today.
+    `int()` on a sum that is not would be a silent off-by-some: two positions
+    at 0.9 sum to 1.8 and truncate to a width of one.
+    """
+    features = th.tensor([[2, 3, 4, 5]])
+    soft = th.tensor([[0.9, 0.9, 0.0, 0.0]])
+
+    compacted, _ = SPP.compacted(features, soft)
+
+    assert compacted.shape[1] == 2
+
+
+def test_compaction_survives_a_batch_with_no_rows():
+    """An empty batch has no widest selection to take the maximum of."""
+    compacted, mask = SPP.compacted(th.zeros(0, 5, dtype=th.long), th.zeros(0, 5))
+
+    assert compacted.shape == (0, 1)
+    assert mask.shape == (0, 1)
+
+
+def test_a_compact_complement_is_still_the_complement():
+    """Compaction gathers whichever side it is given, and they stay disjoint.
+
+    `predict_complement` passes `valid * (1 - highlight)`, so under compaction
+    the predictor reads the dropped words gathered together. The two passes
+    have to stay different inputs, or comprehensiveness would be measuring one
+    thing twice.
+    """
+    features = th.tensor([[2, 3, 4, 5]])
+    highlight = th.tensor([[1.0, 0.0, 0.0, 1.0]])
+
+    kept, _ = SPP.compacted(features, highlight)
+    complement, _ = SPP.compacted(features, 1.0 - highlight)
+
+    assert kept.tolist() == [[2, 5]]
+    assert complement.tolist() == [[3, 4]]
+
+
+def test_compaction_closes_the_gap_channel_on_every_backbone(monkeypatch):
+    """What the xfail tests above are waiting for, under ``compact=True``.
+
+    Same kept words, same order, different gaps. With the dropped positions
+    zeroed in place the predictor's input moves; with them gathered away it
+    does not, because the two rows become the same sequence.
+    """
+    build_registry()
+    features = th.tensor([[2, 9, 9, 3, 9, 9, 9], [2, 3, 9, 9, 9, 9, 9]])
+    keep = th.tensor([[1.0, 0, 0, 1.0, 0, 0, 0], [1.0, 1.0, 0, 0, 0, 0, 0]])
+    compacted, mask = SPP.compacted(features, keep)
+
+    backbone = Registry.from_key(GRU_BACKBONE, hidden_size=8)
+    backbone.eval()
+    with th.no_grad():
+        pooled = backbone.pool(backbone.encode(compacted, mask), mask)
 
     assert th.allclose(pooled[0], pooled[1], atol=1e-6)
 
