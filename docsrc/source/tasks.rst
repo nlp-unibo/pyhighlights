@@ -394,6 +394,26 @@ passes by design. So this is a property of the measure, not a demerit of a
 model, and published numbers carry the same distortion with the terms
 exchanged.
 
+**Comprehensiveness can be uninformative rather than low.** Both of its terms
+are the full-length pass. For a select-then-predict model that is the pass it
+never trains on, so both are degraded and their difference is compressed toward
+zero whatever the highlight contains. Measured on a legal corpus, four words
+kept out of thirty-five:
+
+.. code-block:: text
+
+   cell            p(y_hat|h)   p(y_hat|x)   p(y_hat|x \ h)   comprehensiveness
+   FR (GRU)             0.979        0.741           0.730              +0.012
+   G-RAT (GRU)          0.982        0.764           0.761              +0.003
+   MGR (GRU)            0.936        0.560           0.539              +0.020
+
+The model answers 0.98 on the highlight and 0.74 on the whole clause. Removing
+four words from thirty-five leaves thirty-one, which is the same off-training
+input, so the prediction does not move and the column reads near zero. That is
+a fact about the measure applied to this model class, not a finding about the
+highlight. **Do not read a low value here as a demerit** unless
+``p(y_hat | x)`` is a pass the model is trained for.
+
 Two consequences to know before reading a column:
 
 * ``y_hat`` **is the class predicted from the highlight**, not from the full
