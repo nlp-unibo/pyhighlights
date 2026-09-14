@@ -215,6 +215,13 @@ class HighlightPositionAnalyzer(Analyzer):
 
     Positions are word positions, since that is what a selection is made over.
 
+    ``selection_rate`` is the **mean of the per-document rates**, which is what
+    :class:`pyhighlights.utility.metrics.SelectionRate` reports and what a
+    study's tables are built from. Pooling instead -- all kept words over all
+    words -- gives a different number on documents of different lengths, since
+    it weights a long document more than a short one, and two quantities under
+    one column name is how a table stops being comparable to itself.
+
     Positions are reported as a share of the document, so documents of
     different lengths are comparable. ``absolute`` reports word positions
     instead, which is the other question: a model keying on the first three
@@ -244,7 +251,8 @@ class HighlightPositionAnalyzer(Analyzer):
         rows = []
         for path in sorted(self.directory.rglob(self.pattern)):
             positions: Counter = Counter()
-            selected = kept = tokens = 0
+            rate = 0.0
+            kept = 0
             for batch in pd.read_pickle(path):
                 masks = reported_head(np.asarray(batch["highlight_mask"]))
                 valid = np.asarray(batch["mask"])
@@ -257,15 +265,14 @@ class HighlightPositionAnalyzer(Analyzer):
                         int(index) if self.absolute else int(index / length * self.bins)
                         for index in marked
                     )
-                    selected += len(marked)
+                    rate += len(marked) / length
                     kept += 1
-                    tokens += length
 
             row: Dict[str, Any] = {
                 "run": run_of(path, self.directory),
                 "seed": seed_of(path),
                 "samples": kept,
-                "selection_rate": selected / tokens if tokens else 0.0,
+                "selection_rate": rate / kept if kept else 0.0,
             }
             total = sum(positions.values())
             column = "position" if self.absolute else "bin"
