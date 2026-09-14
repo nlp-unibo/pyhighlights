@@ -54,6 +54,19 @@ class SPPShapeConfig(Configuration):
     predictor_backbone: RegistrationKey[SPPBackbone] | None = Param(None)
     aggregator: RegistrationKey[SPPAggregator] | None = Param(None)
     temperature: float = Param(1.0, gt=0.0)
+    #: Gather the kept positions into a shorter sequence instead of zeroing the
+    #: dropped ones in place. Off by default, because it changes what the
+    #: predictor is trained on rather than fixing what it reads.
+    #:
+    #: Zeroing leaves a dropped position in the sequence, and the predictor can
+    #: read the fact of it -- a recurrent encoder steps over it, and a
+    #: transformer gives the next kept token a different position embedding. So
+    #: a selector can signal a label through the *shape* of the mask rather than
+    #: the words in it. Compaction closes both mechanisms; it does not close the
+    #: count, which a shorter sequence still shows.
+    #:
+    #: See ``SPP.compacted`` for what it costs.
+    compact: bool = Param(False)
     #: A selection is made over words: the unit the corpus annotates, that a
     #: sparsity target is a fraction of, and that an export shows -- the same
     #: unit whichever backbone read the text. ``"subtoken"`` is what the
