@@ -359,6 +359,47 @@ def test_compaction_keeps_a_special_token_where_a_pretrained_encoder_expects_it(
     assert compacted.tolist() == [[101, 4000, 102]]
 
 
+def test_compaction_rounds_the_width_rather_than_truncating_it():
+    """A mask that is not exactly binary must not lose a kept position.
+
+    Every mask reaching `compacted` is 0.0 or 1.0 in the forward pass today.
+    `int()` on a sum that is not would be a silent off-by-some: two positions
+    at 0.9 sum to 1.8 and truncate to a width of one.
+    """
+    features = th.tensor([[2, 3, 4, 5]])
+    soft = th.tensor([[0.9, 0.9, 0.0, 0.0]])
+
+    compacted, _ = SPP.compacted(features, soft)
+
+    assert compacted.shape[1] == 2
+
+
+def test_compaction_survives_a_batch_with_no_rows():
+    """An empty batch has no widest selection to take the maximum of."""
+    compacted, mask = SPP.compacted(th.zeros(0, 5, dtype=th.long), th.zeros(0, 5))
+
+    assert compacted.shape == (0, 1)
+    assert mask.shape == (0, 1)
+
+
+def test_a_compact_complement_is_still_the_complement():
+    """Compaction gathers whichever side it is given, and they stay disjoint.
+
+    `predict_complement` passes `valid * (1 - highlight)`, so under compaction
+    the predictor reads the dropped words gathered together. The two passes
+    have to stay different inputs, or comprehensiveness would be measuring one
+    thing twice.
+    """
+    features = th.tensor([[2, 3, 4, 5]])
+    highlight = th.tensor([[1.0, 0.0, 0.0, 1.0]])
+
+    kept, _ = SPP.compacted(features, highlight)
+    complement, _ = SPP.compacted(features, 1.0 - highlight)
+
+    assert kept.tolist() == [[2, 5]]
+    assert complement.tolist() == [[3, 4]]
+
+
 def test_compaction_closes_the_gap_channel_on_every_backbone(monkeypatch):
     """What the xfail tests above are waiting for, under ``compact=True``.
 

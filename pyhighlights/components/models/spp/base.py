@@ -487,8 +487,18 @@ class SPP(Model[SPPOutput]):
         # is a reordering rather than a quantity -- the gradient to the
         # selector runs through the gathered mask values.
         order = th.argsort(1 - keep.detach(), dim=1, stable=True)
-        width = int(keep.sum(dim=1).max().item()) if keep.numel() else 0
-        width = max(1, width)
+        # Rounded, not truncated. Every mask that reaches here is 0.0 or 1.0 in
+        # the forward pass -- `select_activation` is a hard Gumbel in training
+        # and an argmax in evaluation -- but `int()` on a sum that is not is a
+        # silent off-by-some: a row of two 0.9s gives a width of 1 and loses a
+        # kept position. Rounding costs nothing and does not depend on that
+        # invariant holding forever.
+        counts = keep.detach().sum(dim=1).round()
+        # `max(1, ...)` because a width of zero indexes nothing, and an empty
+        # batch has no maximum to take. A row that kept nothing cannot occur --
+        # `repair_empty` runs first -- but a width of one is a valid sequence
+        # either way, where a width of zero is not.
+        width = max(1, int(counts.max().item()) if keep.numel() else 0)
         index = order[:, :width]
         return features.gather(1, index), keep.gather(1, index)
 
