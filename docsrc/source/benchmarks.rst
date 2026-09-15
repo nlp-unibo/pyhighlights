@@ -127,8 +127,53 @@ API
 .. automodule:: pyhighlights_benchmarks.genspp2025.configurations.common
    :members:
 
+Toy
+~~~
+
 .. automodule:: pyhighlights_benchmarks.genspp2025.configurations.toy
    :members:
 
+.. automodule:: pyhighlights_benchmarks.genspp2025.configurations.toy.datasets
+   :members:
+
+.. automodule:: pyhighlights_benchmarks.genspp2025.configurations.toy.backbones
+   :members:
+
+.. automodule:: pyhighlights_benchmarks.genspp2025.configurations.toy.models
+   :members:
+
+.. automodule:: pyhighlights_benchmarks.genspp2025.configurations.toy.trainers
+   :members:
+
+.. automodule:: pyhighlights_benchmarks.genspp2025.configurations.toy.tasks
+   :members:
+
+.. automodule:: pyhighlights_benchmarks.genspp2025.configurations.toy.benchmarks
+   :members:
+
+HateXplain
+~~~~~~~~~~
+
 .. automodule:: pyhighlights_benchmarks.genspp2025.configurations.hatexplain
+   :members:
+
+.. automodule:: pyhighlights_benchmarks.genspp2025.configurations.hatexplain.preprocessing
+   :members:
+
+.. automodule:: pyhighlights_benchmarks.genspp2025.configurations.hatexplain.losses
+   :members:
+
+.. automodule:: pyhighlights_benchmarks.genspp2025.configurations.hatexplain.backbones
+   :members:
+
+.. automodule:: pyhighlights_benchmarks.genspp2025.configurations.hatexplain.models
+   :members:
+
+.. automodule:: pyhighlights_benchmarks.genspp2025.configurations.hatexplain.trainers
+   :members:
+
+.. automodule:: pyhighlights_benchmarks.genspp2025.configurations.hatexplain.tasks
+   :members:
+
+.. automodule:: pyhighlights_benchmarks.genspp2025.configurations.hatexplain.benchmarks
    :members:
