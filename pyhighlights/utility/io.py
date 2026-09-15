@@ -19,11 +19,22 @@ def cache_directory() -> Path:
 
 
 def download(url: str, target: Path, sha256: str | None = None) -> Path:
-    """Fetch ``url`` into ``target`` unless already there; verify if asked."""
+    """Fetch ``url`` into ``target`` unless already there; verify if asked.
+
+    A download that fails leaves no corpus behind: the bytes land in a
+    ``.part`` beside the target and are renamed onto it only once the transfer
+    returns, and a rename is atomic. So an interrupted fetch is a missing file
+    the next call retries, never a truncated one a loader would parse. The
+    ``.part`` itself is removed on the way out rather than left in the cache.
+    """
     target.parent.mkdir(parents=True, exist_ok=True)
     if not target.exists():
         partial = target.with_name(target.name + ".part")
-        urllib.request.urlretrieve(url, partial)
+        try:
+            urllib.request.urlretrieve(url, partial)
+        except BaseException:
+            partial.unlink(missing_ok=True)
+            raise
         partial.replace(target)
 
     if sha256 is not None:

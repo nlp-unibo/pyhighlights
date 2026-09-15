@@ -19,6 +19,7 @@ from pyhighlights.components.models.spp import (
     SPPPredictor,
     SPPSelector,
 )
+from pyhighlights.components.models.spp.genspp import _Individual
 from pyhighlights.configurations.keys import GRU_GENSPP, GRU_GENSPP_TRAINER
 
 NAMESPACE = "tests_genspp"
@@ -527,3 +528,81 @@ def test_search_is_reproducible_and_keeps_only_candidate_chromosomes():
         first_search.population[0].chromosome.data_ptr()
         != first_search.population[1].chromosome.data_ptr()
     )
+
+
+def test_a_generation_draws_couples_and_keeps_the_population_whole():
+    """``selection_rate`` counts couples, not children, and not survivors.
+
+    The release computes ``n_couples = int(selection_rate * len(population))``
+    and crosses each couple into two, so its default 0.5 adds one child per
+    member: 25 couples and 50 children for a population of 50. This was
+    written as ``population_size // 2``, which is the same number with the
+    rate baked in -- and reads as though a generation bred half a population.
+
+    What has to hold whatever the rate is: the population that comes out is
+    the population that went in, because survival keeps exactly
+    ``population_size``.
+    """
+    model = register_tiny_genspp()
+    train, val = [batch(labels=(0, 1))], [batch(labels=(0, 1))]
+
+    for rate, couples in ((0.5, 4), (1.0, 8), (0.25, 2)):
+        search = trainer(model, n_generations=2, population_size=8, selection_rate=rate)
+        search.fit(train, val)
+        assert int(rate * 8) == couples
+        assert len(search.population) == 8
+
+    # The elites lead and every drawn survivor sits below them. The drawn half
+    # is in the order the sampler returned, not in fitness order, so the list
+    # as a whole is not sorted.
+    fitnesses = [individual.fitness for individual in search.population]
+    assert fitnesses[:4] == sorted(fitnesses, reverse=True)[:4]
+    assert min(fitnesses[:4]) >= max(fitnesses[4:])
+
+
+def test_a_rate_that_draws_no_couple_is_refused():
+    """A generation with no children is a search that cannot move."""
+    model = register_tiny_genspp()
+    with pytest.raises(ValueError, match="draws no couple"):
+        trainer(model, population_size=8, selection_rate=0.1)
+    with pytest.raises(ValueError, match="selection_rate must be in"):
+        trainer(model, selection_rate=0.0)
+    with pytest.raises(ValueError, match="selection_rate must be in"):
+        trainer(model, selection_rate=1.5)
+
+
+def test_survivors_are_half_elites_and_half_drawn_without_replacement():
+    """Half elitism, which is what keeps a hundred generations from collapsing.
+
+    ``HalfElitismSurvival`` in the release keeps the best half outright and
+    draws the other half from everything below, fitness-proportional and
+    without replacement. Without the second half the search is hill climbing
+    on one lineage; with replacement a single chromosome could take every
+    remaining place.
+    """
+    model = register_tiny_genspp()
+    search = trainer(model, population_size=8)
+    candidates = [
+        _Individual(
+            chromosome=th.full((1,), float(index)),
+            fitness=float(index + 1),
+            task_loss=0.0,
+            selection_rate=0.0,
+        )
+        for index in range(16)
+    ]
+
+    survivors = search._select_survivors(candidates)
+
+    assert len(survivors) == 8
+    # The four best are kept because they are the four best.
+    assert [individual.fitness for individual in survivors[:4]] == [
+        16.0,
+        15.0,
+        14.0,
+        13.0,
+    ]
+    # The other four come from below them, and none is kept twice.
+    drawn = [individual.fitness for individual in survivors[4:]]
+    assert len(set(drawn)) == 4
+    assert all(fitness <= 12.0 for fitness in drawn)

@@ -127,6 +127,7 @@ class HuggingFaceTokenizer:
         self,
         pretrained_model_card: str,
         add_special_tokens: bool = True,
+        use_fast: bool = True,
         **tokenizer_kwargs,
     ):
         """``add_special_tokens`` keeps ``[CLS]`` and ``[SEP]``, and it should.
@@ -146,7 +147,9 @@ class HuggingFaceTokenizer:
                 "HuggingFaceTokenizer requires pyhighlights[transformers]"
             ) from error
 
-        if tokenizer_kwargs.pop("use_fast", True) is not True:
+        # An argument rather than something fished out of `**kwargs`: it is
+        # not forwarded as given, it is refused unless it is `True`.
+        if use_fast is not True:
             raise ValueError("HuggingFaceTokenizer requires a fast tokenizer")
         self.add_special_tokens = add_special_tokens
         self.tokenizer = AutoTokenizer.from_pretrained(
@@ -161,14 +164,16 @@ class HuggingFaceTokenizer:
     def encode(
         self, tokens: Sequence[str], max_length: int | None = None
     ) -> TokenizedExample:
-        kwargs = {
-            "is_split_into_words": True,
-            "add_special_tokens": self.add_special_tokens,
-            "return_attention_mask": False,
-        }
-        if max_length is not None:
-            kwargs.update(truncation=True, max_length=max_length)
-        encoded = self.tokenizer(list(tokens), **kwargs)
+        # `truncation=False, max_length=None` is what omitting both means, so
+        # the unbounded case needs no separate call.
+        encoded = self.tokenizer(
+            list(tokens),
+            is_split_into_words=True,
+            add_special_tokens=self.add_special_tokens,
+            return_attention_mask=False,
+            truncation=max_length is not None,
+            max_length=max_length,
+        )
         try:
             word_ids = encoded.word_ids()
         except (AttributeError, ValueError) as error:

@@ -164,6 +164,7 @@ class GenSPPTrainer:
         model: RegistrationKey[GenSPP],
         n_generations: int = 100,
         population_size: int = 50,
+        selection_rate: float = 0.5,
         mutation_probability: float = 1.0,
         mutation_std: float = 0.05,
         predictor_epochs: int = 3,
@@ -176,6 +177,14 @@ class GenSPPTrainer:
             raise ValueError("n_generations must be non-negative")
         if population_size < 2 or population_size % 2:
             raise ValueError("population_size must be an even integer of at least two")
+        if not 0.0 < selection_rate <= 1.0:
+            raise ValueError("selection_rate must be in (0, 1]")
+        if int(selection_rate * population_size) < 1:
+            raise ValueError(
+                f"selection_rate {selection_rate} over a population of "
+                f"{population_size} draws no couple, so a generation has no "
+                "children"
+            )
         if not 0.0 < mutation_probability <= 1.0:
             raise ValueError("mutation_probability must be in (0, 1]")
         if not math.isfinite(mutation_std) or mutation_std <= 0:
@@ -190,6 +199,11 @@ class GenSPPTrainer:
         self.model = model
         self.n_generations = n_generations
         self.population_size = population_size
+        #: How many couples a generation draws, as a share of the population.
+        #: Each couple crosses into two children, so the release's 0.5 adds one
+        #: child per member -- ``int(0.5 * 50) = 25`` couples and 50 children,
+        #: which then compete with their 50 parents for 50 places.
+        self.selection_rate = selection_rate
         self.mutation_probability = mutation_probability
         self.mutation_std = mutation_std
         self.predictor_epochs = predictor_epochs
@@ -281,25 +295,12 @@ class GenSPPTrainer:
             self._torch_generator.manual_seed(self.seed)
             th.manual_seed(self.seed)
 
-        # Drawn once, here, and handed to every candidate as a list. A
-        # `DataLoader` over a training split shuffles, so re-iterating it draws
-        # a new permutation from the global random state: the same chromosome
-        # then scores differently depending on how many candidates came before
-        # it, which is the defect `_align_initial_state` closes on the other
-        # side. Threads make it worse rather than introducing it -- with a pool
-        # the permutation a candidate gets depends on how the workers
-        # interleaved. One order, fixed before the search starts, is what makes
-        # a fitness a property of its chromosome.
-        #
-        # After the seeding above, so the order is the seed's and a rerun
-        # repeats it.
-        #
-        # The validation batches are held for a different reason: `_evaluate`
-        # sums over all of them, so their order never mattered, but a loader
-        # re-collates the split once per candidate and a search has thousands
-        # of those.
-        # ponytail: both splits stay in memory for the search; stream them
-        # again if a corpus arrives that does not fit.
+        # One batch order for the whole search, drawn after the seeding above.
+        # A shuffling `DataLoader` re-permutes on every pass, so a chromosome
+        # would score differently depending on how many candidates preceded it.
+        # Validation is materialised for cost rather than order: `_evaluate`
+        # sums over every batch, and a search re-collates the split thousands
+        # of times. Both splits stay in memory.
         train_batches = list(train_loader)
         val_batches = list(val_loader)
         if not train_batches:
@@ -598,9 +599,22 @@ class GenSPPTrainer:
         train_loader: Iterable[InputData],
         val_loader: Iterable[InputData],
     ) -> None:
+        """Breed one generation and keep ``population_size`` of the result.
+
+        Couples are drawn by roulette wheel -- fitness-proportional, with
+        replacement, so a good chromosome can parent several children -- and
+        each couple crosses into two. ``selection_rate`` is therefore about
+        *couples*: at 0.5 a population of fifty draws twenty-five of them and
+        so gains fifty children, which then compete with their fifty parents
+        for fifty places.
+
+        Parents are kept in the pool rather than replaced. A generation cannot
+        lose ground: the best chromosome so far is still a candidate for
+        survival against everything its children became.
+        """
         weights = [individual.fitness for individual in self.population]
         children = []
-        for _ in range(self.population_size // 2):
+        for _ in range(int(self.selection_rate * self.population_size)):
             parent_1, parent_2 = self._random.choices(
                 self.population, weights=weights, k=2
             )
@@ -613,6 +627,17 @@ class GenSPPTrainer:
         self.population = self._select_survivors([*self.population, *scored])
 
     def _select_survivors(self, candidates: list[_Individual]) -> list[_Individual]:
+        """Half elitism: the best half kept outright, the rest drawn by fitness.
+
+        The top ``population_size // 2`` survive because they are the top; the
+        other half is sampled from everything below them, fitness-proportional
+        and **without replacement**, so a mediocre chromosome has a chance and
+        no chromosome takes two places. That is what keeps a search of a
+        hundred generations from collapsing onto one lineage.
+
+        ``population_size`` is even by construction, so the two halves are the
+        whole population and no candidate below them is kept.
+        """
         candidates = sorted(
             candidates, key=lambda individual: individual.fitness, reverse=True
         )
@@ -633,6 +658,12 @@ class GenSPPTrainer:
     def _crossover(
         self, chromosome_1: th.Tensor, chromosome_2: th.Tensor
     ) -> tuple[th.Tensor, th.Tensor]:
+        """One-point crossover, returning both children of the cut.
+
+        The cut is anywhere in the chromosome, which is the generator's
+        parameters flattened into one vector -- so it usually falls inside a
+        weight matrix rather than between two of them.
+        """
         point = self._random.randrange(chromosome_1.numel())
         return (
             th.cat((chromosome_1[:point], chromosome_2[point:])),
@@ -640,6 +671,12 @@ class GenSPPTrainer:
         )
 
     def _mutate(self, chromosome: th.Tensor) -> th.Tensor:
+        """Gaussian noise on a share of the genes, in place of a resample.
+
+        ``mutation_probability`` is per gene and defaults to 1.0, so every
+        gene is perturbed: the release mutates the whole chromosome and relies
+        on ``mutation_std`` being small to keep a child near its parents.
+        """
         selected = (
             th.rand(chromosome.shape, generator=self._torch_generator)
             < self.mutation_probability
@@ -649,4 +686,10 @@ class GenSPPTrainer:
 
     @staticmethod
     def _chromosome(model: GenSPP) -> th.Tensor:
+        """The generator's parameters as one flat vector.
+
+        Only the generator: the predictor is fitted by gradient descent on
+        every candidate and is not inherited, which is what makes a fitness a
+        property of the chromosome rather than of the descent that followed it.
+        """
         return th.nn.utils.parameters_to_vector(model.generator_parameters()).detach()

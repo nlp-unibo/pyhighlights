@@ -112,9 +112,11 @@ same detector serves a loader's output and a preprocessed copy of it.
    are whitespace- and case-normalised, since raw equality understates real
    overlap.
 
-``detector.check(splits, tolerance=0.0)``
-   The same report, but raising when a pair exceeds the tolerance. Call it in a
-   test or before a run.
+``detector.check(splits)``
+   The same report, but raising when any pair shares a row. Call it in a test
+   or before a run. There is no tolerance to set: a shared row is leakage at
+   any rate, and a corpus distributed with one — R2A is — is read with
+   ``report`` instead.
 
 ``detector.duplicates(splits)``
    Repeated rows inside each split.
@@ -384,9 +386,10 @@ removes.
 Toy
 ---
 
-A synthetic corpus, generated in memory: each document is filler tokens with
-one trigger phrase per class inserted at a random position, and the highlights
-are exactly that trigger.
+A synthetic corpus, generated in memory. **Tokens are characters**, as they
+are in every toy corpus of this line of work: each document is filler
+characters with one character pattern per class inserted at a random position,
+and the highlights are exactly that pattern.
 
 :Download: none
 :Loader: :class:`pyhighlights.components.loaders.ToyLoader`
@@ -395,11 +398,21 @@ are exactly that trigger.
 .. code-block:: python
 
    ToyLoader(sizes={"train": 64, "val": 16, "test": 16},
-             triggers=("a great film", "a dull film"), seed=0)
+             triggers=("aa", "bcd"), seed=0)
+
+The filler is drawn from the letters no trigger uses, so a pattern can only
+appear where the generator put one — two adjacent filler characters can never
+spell ``"aa"`` if ``a`` is not a filler character.
 
 Every split is annotated, a seed makes the corpus reproducible, and there is
 nothing to fetch — which makes it the cheap way to exercise a model, a
 configuration or a training loop before pointing it at a real corpus.
+
+It is a smoke test rather than the GenSPP paper's toy corpus. That one places
+several patterns per class at positions a constraint solver picks and
+contaminates the sequence with partial chunks of other classes' patterns; a
+reproduction reads the released pickle through
+:class:`pyhighlights_benchmarks.genspp2025.corpora.GenSPPToyLoader`.
 
 Corpus statistics
 -----------------
