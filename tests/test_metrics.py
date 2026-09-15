@@ -152,6 +152,51 @@ def test_selection_metrics_average_over_samples():
     assert size.compute() == pytest.approx(1.5)
 
 
+def test_a_selection_metric_reduces_the_batch_at_once(monkeypatch):
+    """The batch is one pair of masked sums, not a Python loop over rows.
+
+    Two updates cost 2.36 ms against a 54 ms training step before this, all of
+    it interpreter overhead. What has to survive vectorising is the treatment
+    of a row with no token at all: it has no rate, so it is left out of the
+    denominator rather than counted as a zero.
+    """
+    preds = th.tensor([[1.0, 1.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 1.0]])
+    # The third row is pure padding: nothing there could have been kept.
+    target = th.tensor([[1.0, 1.0, 0.0], [1.0, 1.0, 1.0], [0.0, 0.0, 0.0]])
+
+    rate = SelectionRate()
+    rate.update(preds, target)
+    size = SelectionSize()
+    size.update(preds, target)
+
+    assert rate.samples == 2
+    assert rate.compute() == pytest.approx((1.0 + 1 / 3) / 2)
+    assert size.compute() == pytest.approx(1.5)
+
+    # A padded position is dropped whatever it holds. Multiplying by the mask
+    # instead would carry `0 * nan` into the sum and poison the whole batch,
+    # where the loop never looked at that position at all.
+    poisoned = SelectionRate()
+    poisoned.update(
+        th.tensor([[1.0, 1.0, float("nan")], [1.0, 0.0, 0.0]]),
+        th.tensor([[1.0, 1.0, 0.0], [1.0, 1.0, 1.0]]),
+    )
+    assert poisoned.compute() == pytest.approx((1.0 + 1 / 3) / 2)
+
+    # And `reduce` sees the whole batch once, not one row at a time.
+    calls = []
+    original = SelectionRate.reduce
+    monkeypatch.setattr(
+        SelectionRate,
+        "reduce",
+        lambda self, kept, length: (
+            calls.append(len(kept)) or original(self, kept, length)
+        ),
+    )
+    SelectionRate().update(preds, target)
+    assert calls == [2]
+
+
 def test_a_selection_rate_ignores_the_padding_it_could_not_have_kept():
     """The denominator is the document, not the widest row in the batch.
 

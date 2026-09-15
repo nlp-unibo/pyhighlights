@@ -164,28 +164,47 @@ class SelectionMetric(Metric):
             name="samples", default=th.tensor(0, dtype=th.float), dist_reduce_fx="sum"
         )
 
-    def reduce(self, selection: th.Tensor) -> th.Tensor:
+    def reduce(self, kept: th.Tensor, length: th.Tensor) -> th.Tensor:
+        """One statistic per document, from what it kept and how long it is.
+
+        Both arguments are ``[B]`` and cover only the documents that have a
+        token: ``kept`` is how many of them the selection marked, ``length``
+        how many there are. A subclass divides or does not.
+        """
         raise NotImplementedError
 
     def update(self, preds: th.Tensor, target: th.Tensor) -> None:
-        for sample_preds, sample_target in zip(preds, target):
-            selection = sample_preds[sample_target > 0]
-            if selection.numel():
-                self.value += self.reduce(selection).detach()
-                self.samples += 1
+        # Over the batch rather than a row at a time. The loop this replaces
+        # cost 2.36 ms per batch of 64 against a 54 ms training step, all of it
+        # Python: the arithmetic is two masked sums.
+        valid = target > 0
+        length = valid.sum(dim=-1)
+        # A row of pure padding has no selection rate. Excluded rather than
+        # counted as zero, which is what the loop did by skipping it.
+        counted = length > 0
+        if not counted.any():
+            return
+        # `where` rather than a multiply: a padded position is dropped whatever
+        # it holds, and `0 * nan` is `nan`. The loop this replaces never looked
+        # at those positions, so neither does this.
+        kept = th.where(valid, preds, th.zeros_like(preds)).sum(dim=-1)
+        self.value += self.reduce(kept[counted], length[counted]).sum().detach()
+        # On the device, like the states themselves: `int()` here would force a
+        # host synchronisation on every batch, which the loop never did.
+        self.samples += counted.sum()
 
     def compute(self) -> th.Tensor:
         return self.value / self.samples if self.samples > 0 else self.value
 
 
 class SelectionRate(SelectionMetric):
-    def reduce(self, selection: th.Tensor) -> th.Tensor:
-        return selection.mean()
+    def reduce(self, kept: th.Tensor, length: th.Tensor) -> th.Tensor:
+        return kept / length
 
 
 class SelectionSize(SelectionMetric):
-    def reduce(self, selection: th.Tensor) -> th.Tensor:
-        return selection.sum()
+    def reduce(self, kept: th.Tensor, length: th.Tensor) -> th.Tensor:
+        return kept
 
 
 class KnowledgeSetMetric(Metric):
