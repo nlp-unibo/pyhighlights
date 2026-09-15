@@ -32,6 +32,7 @@ TIES = ("drop", "keep")
 __all__ = [
     "AnnotationAggregator",
     "ClassWeights",
+    "KnowledgeWeights",
     "LabelMapper",
     "LeakageRemover",
     "LengthFilter",
@@ -39,6 +40,7 @@ __all__ = [
     "Pipeline",
     "Preprocessor",
     "class_weights",
+    "link_weights",
     "remove_leakage",
 ]
 

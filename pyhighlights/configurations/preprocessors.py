@@ -124,6 +124,7 @@ __all__: List[str] = [
     "ClassWeightsConfig",
     "HateXplainAggregatorConfig",
     "HateXplainPipelineConfig",
+    "KnowledgeWeightsConfig",
     "LeakageDetectorConfig",
     "LeakageRemoverConfig",
     "PipelineConfig",

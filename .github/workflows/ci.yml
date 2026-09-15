@@ -43,7 +43,7 @@ jobs:
           cache: pip
       - run: pip install -e ".[dev]"
       # `-n auto` is the runner's core count, which is inside the cap the
-      # noxfile applies locally. The suite is 153 short, independent tests.
+      # noxfile applies locally. The suite is short, independent tests.
       - run: pytest -n auto --cov=pyhighlights --cov-branch --cov-fail-under=92 --cov-report=term-missing
 
   transformers:
