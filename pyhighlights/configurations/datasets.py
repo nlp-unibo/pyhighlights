@@ -70,6 +70,11 @@ class HateXplainConfig(LoaderConfig):
 
     url: str = Param(HateXplainLoader.URL)
     divisions_url: str = Param(HateXplainLoader.DIVISIONS_URL)
+    #: As on :class:`R2AConfig`: the loader's defaults, named again where the
+    #: registered key can be read off them. Two digests because they are two
+    #: downloads.
+    sha256: str | None = Param(HateXplainLoader.SHA256)
+    divisions_sha256: str | None = Param(HateXplainLoader.DIVISIONS_SHA256)
 
 
 @register_class(

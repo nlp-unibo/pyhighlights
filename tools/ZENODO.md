@@ -302,6 +302,12 @@ synthetic corpus, reproducibility, GenSPP, pyhighlights
    local `toy_dataset.pkl` still works, and `url=None` still refuses rather
    than synthesising a different corpus.
 
+4. `HateXplainLoader` reads both files at commit `01d7422` rather than at
+   `master`, and defaults `sha256` and `divisions_sha256` to digests computed
+   against it. Two digests because they are two downloads, and a commit
+   because a branch name pins nothing: the same key would name different rows
+   after an upstream push, and no run could be told from another.
+
 The registered configurations name the same values, so a run built from a key
 is pinned too. They did not until 2026-09-15: `R2AConfig`, `MoviesConfig` and
 `ToyConfig` each passed `sha256=None`, which overrode the constructor default

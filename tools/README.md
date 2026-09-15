@@ -53,6 +53,14 @@ is what a reviewer checks a run against.
   `66e18d4e6c9df9e9f5544572b0bfe92a39673f74ecbfc3859b46cedb2f5b2dee`. The
   benchmark does not publish this digest; `ERASERLoader` computed it once and
   defaults `sha256` to it.
+- HateXplain — `hate-alert/HateXplain` at commit
+  `01d742279dac941981f53806154481c0e15ee686`, not at `master`:
+  `Data/dataset.json`,
+  `63bb3340fee0ec469b09690d04cb68f7c187787dd8b83807f071892c084967fb`, and
+  `Data/post_id_divisions.json`,
+  `c2fb0d89862e7897b11ea3e9380753f15a793482b4b70ad0532dfb1212212835`. The
+  benchmark publishes neither digest; both were computed against that commit,
+  which is what `master` resolved to on 2026-09-15.
 - GenSPP toy — `nlp-unibo/gen-spp`, `genetic/data/toy_dataset.pkl`,
   `2ee223d8aecd6ee9a585aa695a6fd5fd6f4c10c39fe6046ffb833d7ab44fb064`
 
