@@ -34,6 +34,10 @@ class ToyTaskConfig(PaperTaskConfig):
     val_metrics: List[RegistrationKey] = Param(THREE_CLASS_METRICS)
     test_metrics: List[RegistrationKey] = Param(THREE_CLASS_METRICS)
     vocabulary_size: int = Param(VOCABULARY_SIZE, ge=2)
+    #: One-hot inputs, as the release reads this corpus. The width is the
+    #: vocabulary's own size here, and has to match the backbone's
+    #: ``embedding_dim``.
+    one_hot_embeddings: int = Param(25, ge=1)
 
 
 @register_class(
@@ -98,3 +102,6 @@ class ToyGenSPPTaskConfig(PaperGenSPPTaskConfig):
     val_metrics: List[RegistrationKey] = Param(THREE_CLASS_METRICS)
     test_metrics: List[RegistrationKey] = Param(THREE_CLASS_METRICS)
     vocabulary_size: int = Param(VOCABULARY_SIZE, ge=2)
+    #: Twenty-six, which is the width the genetic half declares -- two
+    #: columns wider than the corpus has characters.
+    one_hot_embeddings: int = Param(26, ge=1)

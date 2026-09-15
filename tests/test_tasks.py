@@ -29,6 +29,7 @@ from pyhighlights.configurations.keys import (
     TOY_TASK,
 )
 from pyhighlights.configurations.tasks import BINARY_METRICS
+from pyhighlights.utility.embeddings import one_hot_table
 from pyhighlights.utility.manifest import KEY_FIELD
 
 
@@ -185,6 +186,41 @@ def test_a_genspp_task_searches_scores_and_writes_down_its_generations(tmp_path)
     assert len(progress["training_progress"]) == 1
 
 
+def test_a_searched_model_reads_the_vectors_the_task_was_given(tmp_path):
+    """A GenSPP candidate is built by the search, which bypassed `build_model`.
+
+    That is where the table was loaded, so a searched model kept the random
+    one its configuration sized: on HateXplain, whose registered placeholder
+    is two rows against a corpus of sixteen thousand tokens, the first batch
+    raised `IndexError: index out of range in self`.
+    """
+    build_registry()
+    vectors = tmp_path / "vectors.txt"
+    # GENSPP_GRU_BACKBONE is 128-dimensional, and the file has to match it.
+    vectors.write_text(
+        "".join(
+            f"{token} {' '.join(['0.1'] * 128)}\n" for token in ("a", "great", "film")
+        )
+    )
+
+    task = Registry.from_key(
+        TOY_GENSPP_TASK,
+        save_path=str(tmp_path),
+        seeds=[0],
+        embeddings=str(vectors),
+    )
+    task.run()
+
+    directory = next((tmp_path / "toy-genspp").iterdir()) / "seed=0"
+    weights = th.load(directory / "best.ckpt", weights_only=True)["state_dict"]
+    table = weights["selector_backbones.0.embedding.weight"]
+    # One row per token in the file, plus row zero for the unknown id.
+    assert table.shape == (4, 128)
+    assert th.equal(table[1:], th.full((3, 128), 0.1))
+    # And the predictor's backbone reads the same table, as it does elsewhere.
+    assert th.equal(table, weights["predictor_backbone.embedding.weight"])
+
+
 def test_a_genspp_task_needs_a_validation_split(tmp_path):
     build_registry()
     task = Registry.from_key(TOY_GENSPP_TASK, save_path=str(tmp_path))
@@ -287,6 +323,37 @@ def test_a_task_embeds_its_tokens_one_way_or_the_other(tmp_path):
             embeddings=str(tmp_path / "vectors.txt"),
             pretrained_model_card="distilbert-base-uncased",
         )
+    with pytest.raises(ValueError, match="a one-hot table"):
+        SPPTask(
+            loader=TOY,
+            model=GRU_FR,
+            embeddings=str(tmp_path / "vectors.txt"),
+            one_hot_embeddings=25,
+        )
+
+
+def test_a_task_can_embed_its_tokens_one_hot(tmp_path):
+    """A corpus of symbols has nothing to pretrain and nothing to learn."""
+    build_registry()
+    task = SPPTask(
+        loader=TOY,
+        model=GRU_FR,
+        save_path=str(tmp_path),
+        vocabulary_size=6,
+        # The width has to be the backbone's embedding_dim; GRU_FR uses 128.
+        one_hot_embeddings=128,
+    )
+    task.tokenizer(task.splits())
+
+    table = task.build_model().selector_backbone.embedding.weight
+    assert table.shape == (6, 128)
+    # Row zero is the unknown and padding id and contributes nothing; the rest
+    # are orthonormal, which a frozen random table is not.
+    assert not table[0].any()
+    assert th.equal(table[1:] @ table[1:].T, th.eye(5))
+
+    with pytest.raises(ValueError, match="needs 5 dimensions"):
+        one_hot_table(6, 4)
 
 
 def test_a_class_weights_task_writes_down_what_it_read(tmp_path):

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+import torch as th
 from cinnamon.registry import Registry
 
 import pyhighlights
@@ -24,6 +25,7 @@ from pyhighlights_benchmarks.genspp2025.configurations.toy.keys import (
     TOY_BENCHMARK,
     TOY_FR_TASK,
     TOY_GENSPP,
+    TOY_GENSPP_TASK,
     TOY_GENSPP_TRAINER,
     TOY_MGR,
 )
@@ -88,8 +90,10 @@ def test_the_released_hyperparameters_are_what_is_registered():
     assert mgr.selector_backbone.encoder.hidden_size == 8
 
     # GenSPP's own encoder is the genetic half's, not the baselines': one
-    # direction, and 26 dimensions on toy against the baselines' 25 -- a row
-    # per letter of the alphabet the corpus is built from.
+    # direction, and 26 dimensions on toy against the baselines' 25. Both are
+    # one-hot widths rather than projection sizes: the corpus uses twenty-four
+    # characters, so the baselines' 25 is the vocabulary with its padding id
+    # and the genetic half's 26 leaves two columns always zero.
     toy_genspp = Registry.from_key(TOY_GENSPP)
     assert toy_genspp.selector_backbone.embedding.embedding_dim == 26
     assert toy_genspp.selector_backbone.encoder.bidirectional is False
@@ -120,6 +124,41 @@ def test_the_released_hyperparameters_are_what_is_registered():
 
     benchmark = Registry.from_key(TOY_BENCHMARK)
     assert len(benchmark.tasks) == 5
+
+
+def test_the_toy_corpus_reaches_a_model_as_one_hot(tmp_path):
+    """The release does not embed this corpus, it one-hots it.
+
+    Both halves build a one-hot matrix and hand it over -- the baselines
+    through ``OneHotEmbedderCollator``, the genetic half through
+    ``OneHotEmbedder``. This reproduction froze a *random* table instead,
+    which is a different corpus to learn from: its rows had norm 5.16 and
+    reached a cosine of 0.58 with one another, where one-hot rows are
+    orthonormal and the padding row is zero.
+    """
+    build_registry()
+    splits = GenSPPToyLoader(url=str(toy_pickle(tmp_path))).load()
+
+    for key, width in ((TOY_FR_TASK, 25), (TOY_GENSPP_TASK, 26)):
+        task = Registry.from_key(key, save_path=str(tmp_path))
+        assert task.one_hot_embeddings == width
+        task.tokenizer(splits)
+        matrix = task._embedding_matrix
+
+        assert matrix.shape == (25, width)
+        # Row zero is the unknown and padding id, and contributes nothing.
+        assert not matrix[0].any()
+        # Every other row is a distinct basis vector.
+        assert th.equal(matrix[1:].sum(dim=1), th.ones(24))
+        assert th.equal(matrix[1:] @ matrix[1:].T, th.eye(24))
+
+    # And the table the baselines' model is built with is that matrix, rather
+    # than the random one its `vocab_size` sized.
+    task = Registry.from_key(TOY_FR_TASK, save_path=str(tmp_path))
+    task.tokenizer(splits)
+    table = task.build_model().selector_backbone.embedding.weight
+    assert th.equal(table, task._embedding_matrix)
+    assert table.requires_grad is False
 
 
 def test_the_toy_corpus_is_read_as_characters(tmp_path):
