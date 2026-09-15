@@ -16,6 +16,34 @@ import torch as th
 __all__ = ["load_vectors"]
 
 
+def one_hot_table(rows: int, width: int) -> th.Tensor:
+    """A one-hot embedding table: row 0 zero, row ``j`` the basis vector ``e[j-1]``.
+
+    What a corpus small enough to have no vector file wants, when its tokens
+    are symbols rather than words: every token is orthonormal to every other
+    and nothing about them is learned or guessed. A frozen *random* table is
+    not the same thing -- its rows are neither unit-length nor orthogonal, so
+    the symbols arrive already entangled.
+
+    Row zero is the unknown and padding id, matching
+    :class:`~pyhighlights.components.data.VocabularyTokenizer`, so a padded
+    position contributes nothing.
+
+    ``width`` may exceed the vocabulary, leaving columns that are always zero.
+    That is a declared embedding size larger than the alphabet turned out to
+    be, which costs a few unused input weights and nothing else.
+    """
+    if rows < 2:
+        raise ValueError("a one-hot table needs the padding id and one more")
+    if width < rows - 1:
+        raise ValueError(
+            f"a one-hot table of {rows} ids needs {rows - 1} dimensions, not {width}"
+        )
+    table = th.zeros(rows, width)
+    table[1:rows, : rows - 1] = th.eye(rows - 1)
+    return table
+
+
 def load_vectors(
     path: str | Path,
     tokens: Iterable[str] | None = None,

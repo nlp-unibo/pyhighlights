@@ -46,7 +46,7 @@ from pyhighlights.components.models.base import InputData, Model
 from pyhighlights.components.models.spp.genspp import GenSPPTrainer
 from pyhighlights.components.preprocessors import ClassWeights, Preprocessor
 from pyhighlights.utility import manifest
-from pyhighlights.utility.embeddings import load_vectors
+from pyhighlights.utility.embeddings import load_vectors, one_hot_table
 from pyhighlights.utility.losses import Loss
 from pyhighlights.utility.metrics import BoundMetric, build_metrics
 
@@ -205,6 +205,7 @@ class SPPTask(Task):
         add_special_tokens: bool = True,
         embeddings: str | Path | None = None,
         pretrained_tokens_only: bool = True,
+        one_hot_embeddings: int | None = None,
         callbacks: List[RegistrationKey[Callback]] | None = None,
         store_predictions: bool = False,
         keep_checkpoints: bool = True,
@@ -235,10 +236,22 @@ class SPPTask(Task):
         self.add_special_tokens = add_special_tokens
         self.embeddings = Path(embeddings) if embeddings is not None else None
         self.pretrained_tokens_only = pretrained_tokens_only
-        if self.embeddings is not None and pretrained_model_card is not None:
+        #: Width of a one-hot table, or ``None`` for a learned one. A corpus of
+        #: symbols has nothing to pretrain and nothing to learn: see
+        #: :func:`~pyhighlights.utility.embeddings.one_hot_table`.
+        self.one_hot_embeddings = one_hot_embeddings
+        named = [
+            name
+            for name, value in (
+                ("a pretrained model card", pretrained_model_card),
+                ("a vector file", self.embeddings),
+                ("a one-hot table", one_hot_embeddings),
+            )
+            if value is not None
+        ]
+        if len(named) > 1:
             raise ValueError(
-                "a task embeds its tokens either with a pretrained model card "
-                "or with a vector file, not both"
+                "a task embeds its tokens one way: " + ", ".join(named) + ", not both"
             )
         self.callbacks = list(callbacks) if callbacks is not None else None
         self.store_predictions = store_predictions
@@ -280,7 +293,8 @@ class SPPTask(Task):
         the backbone's ``vocab_size``: an id the embedding has no row for is a
         crash at the first batch. Naming ``embeddings`` fits it against a
         vector file instead, and the matrix that comes back is handed to the
-        model, which sizes its table to it.
+        model, which sizes its table to it. ``one_hot_embeddings`` builds that
+        matrix rather than reading one, for a corpus whose tokens are symbols.
         """
         if self.pretrained_model_card is not None:
             return HuggingFaceTokenizer(
@@ -303,6 +317,10 @@ class SPPTask(Task):
                 pretrained_only=self.pretrained_tokens_only,
             )
             return VocabularyTokenizer(table)
+        if self.one_hot_embeddings is not None:
+            self._embedding_matrix = one_hot_table(
+                self.vocabulary_size, self.one_hot_embeddings
+            )
         return VocabularyTokenizer(vocabulary(training, size=self.vocabulary_size))
 
     def knowledge(self) -> Sequence[Sequence[str]] | None:

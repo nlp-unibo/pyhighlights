@@ -29,6 +29,7 @@ from pyhighlights.configurations.keys import (
     TOY_TASK,
 )
 from pyhighlights.configurations.tasks import BINARY_METRICS
+from pyhighlights.utility.embeddings import one_hot_table
 from pyhighlights.utility.manifest import KEY_FIELD
 
 
@@ -322,6 +323,37 @@ def test_a_task_embeds_its_tokens_one_way_or_the_other(tmp_path):
             embeddings=str(tmp_path / "vectors.txt"),
             pretrained_model_card="distilbert-base-uncased",
         )
+    with pytest.raises(ValueError, match="a one-hot table"):
+        SPPTask(
+            loader=TOY,
+            model=GRU_FR,
+            embeddings=str(tmp_path / "vectors.txt"),
+            one_hot_embeddings=25,
+        )
+
+
+def test_a_task_can_embed_its_tokens_one_hot(tmp_path):
+    """A corpus of symbols has nothing to pretrain and nothing to learn."""
+    build_registry()
+    task = SPPTask(
+        loader=TOY,
+        model=GRU_FR,
+        save_path=str(tmp_path),
+        vocabulary_size=6,
+        # The width has to be the backbone's embedding_dim; GRU_FR uses 128.
+        one_hot_embeddings=128,
+    )
+    task.tokenizer(task.splits())
+
+    table = task.build_model().selector_backbone.embedding.weight
+    assert table.shape == (6, 128)
+    # Row zero is the unknown and padding id and contributes nothing; the rest
+    # are orthonormal, which a frozen random table is not.
+    assert not table[0].any()
+    assert th.equal(table[1:] @ table[1:].T, th.eye(5))
+
+    with pytest.raises(ValueError, match="needs 5 dimensions"):
+        one_hot_table(6, 4)
 
 
 def test_a_class_weights_task_writes_down_what_it_read(tmp_path):

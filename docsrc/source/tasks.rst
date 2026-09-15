@@ -325,6 +325,20 @@ and it is what ``stop_threshold`` is compared against. A search that stopped
 improving in its tenth generation and one still descending when the budget ran
 out report the same metrics otherwise.
 
+One-hot inputs
+--------------
+
+A corpus whose tokens are symbols rather than words has nothing to pretrain and
+nothing to learn: ``one_hot_embeddings=<width>`` builds the table instead of
+reading one, so every token is orthonormal to every other and the padding id is
+zero. A frozen *random* table is not the same corpus to learn from — its rows
+are neither unit-length nor orthogonal, so the symbols arrive entangled. The
+width has to match the backbone's ``embedding_dim``, and may exceed the
+vocabulary, which leaves columns that are always zero.
+
+It is one of three ways a task embeds its tokens, and they are mutually
+exclusive: a pretrained model card, a vector file, or this.
+
 Class weights
 -------------
 
