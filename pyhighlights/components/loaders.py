@@ -324,25 +324,53 @@ class HateXplainLoader(HighlightLoader):
     :meth:`~HighlightLoader.datasets` says so.
     """
 
-    URL = "https://raw.githubusercontent.com/hate-alert/HateXplain/master/Data/dataset.json"
-    DIVISIONS_URL = "https://raw.githubusercontent.com/hate-alert/HateXplain/master/Data/post_id_divisions.json"
+    #: The commit both files are read at. A branch name is not a version: the
+    #: same key would name different rows after an upstream push, and a run
+    #: made before it could not be told from a run made after. The benchmark
+    #: publishes no digest of its own, so :attr:`SHA256` and
+    #: :attr:`DIVISIONS_SHA256` were computed against this commit -- which is
+    #: what ``master`` resolved to as of 2026-09-15, byte for byte.
+    COMMIT = "01d742279dac941981f53806154481c0e15ee686"
+    URL = (
+        "https://raw.githubusercontent.com/hate-alert/HateXplain/"
+        f"{COMMIT}/Data/dataset.json"
+    )
+    #: Digest of the 12256170-byte ``dataset.json`` that commit holds.
+    SHA256 = "63bb3340fee0ec469b09690d04cb68f7c187787dd8b83807f071892c084967fb"
+    DIVISIONS_URL = (
+        "https://raw.githubusercontent.com/hate-alert/HateXplain/"
+        f"{COMMIT}/Data/post_id_divisions.json"
+    )
+    #: Digest of the official split map. Separate from :attr:`SHA256` because
+    #: they are separate downloads: one can change without the other.
+    DIVISIONS_SHA256 = (
+        "c2fb0d89862e7897b11ea3e9380753f15a793482b4b70ad0532dfb1212212835"
+    )
     LABELS = ("hatespeech", "normal", "offensive")
 
     def __init__(
         self,
         url: str = URL,
         divisions_url: str = DIVISIONS_URL,
+        sha256: str | None = SHA256,
+        divisions_sha256: str | None = DIVISIONS_SHA256,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.url = url
         self.divisions_url = divisions_url
+        self.sha256 = sha256
+        self.divisions_sha256 = divisions_sha256
 
     def download(self) -> Dict[str, Path]:
         root = self.directory / "hatexplain"
         return {
-            "posts": download(self.url, root / "dataset.json"),
-            "divisions": download(self.divisions_url, root / "post_id_divisions.json"),
+            "posts": download(self.url, root / "dataset.json", sha256=self.sha256),
+            "divisions": download(
+                self.divisions_url,
+                root / "post_id_divisions.json",
+                sha256=self.divisions_sha256,
+            ),
         }
 
     def read(self) -> Dict[str, pd.DataFrame]:

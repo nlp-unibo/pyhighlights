@@ -90,6 +90,10 @@ def hatexplain(directory: Path) -> dict:
         "url": (directory / "posts.json").as_uri(),
         "divisions_url": (directory / "divisions.json").as_uri(),
         "directory": directory / "cache",
+        # Two downloads, two opt-outs: these are stand-ins rather than the
+        # pinned upstream files.
+        **UNPINNED,
+        "divisions_sha256": None,
     }
 
 
