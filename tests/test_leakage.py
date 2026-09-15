@@ -35,15 +35,13 @@ def test_report_gives_the_share_of_each_split_already_seen(tmp_path):
 def test_check_names_the_offending_pairs(tmp_path):
     splits = hotel_splits(tmp_path)
 
-    with pytest.raises(ValueError, match="share rows above the 0.0 tolerance"):
+    with pytest.raises(ValueError, match="splits share rows"):
         LeakageDetector().check(splits)
 
-    # The distributed splits leak wholly, so only a full tolerance passes.
-    assert LeakageDetector().check(splits, tolerance=1.0) is not None
-    assert LeakageDetector(tolerance=1.0).check(splits) is not None
-
-    with pytest.raises(ValueError, match="tolerance must be between 0 and 1"):
-        LeakageDetector(tolerance=2.0)
+    # A corpus distributed leaky is read rather than refused, which is what
+    # `report` is for: it says how much is shared and raises nothing.
+    report = LeakageDetector().report(splits).set_index(["left", "right"])
+    assert report.loc[("train", "test"), "ratio"] == 1.0
 
 
 def test_registered_detector_builds():
@@ -51,4 +49,4 @@ def test_registered_detector_builds():
     detector = Registry.from_key(LEAKAGE_DETECTOR)
 
     assert isinstance(detector, LeakageDetector)
-    assert detector.tolerance == 0.0
+    assert detector.key == "text"

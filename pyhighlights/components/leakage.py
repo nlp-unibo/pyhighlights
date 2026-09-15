@@ -80,16 +80,8 @@ class LeakageDetector:
     detector serves whichever loader or preprocessing stage is being checked.
     """
 
-    def __init__(
-        self,
-        key: str = "text",
-        tolerance: float = 0.0,
-        normalize_keys: bool = True,
-    ):
-        if not 0.0 <= tolerance <= 1.0:
-            raise ValueError("tolerance must be between 0 and 1")
+    def __init__(self, key: str = "text", normalize_keys: bool = True):
         self.key = key
-        self.tolerance = tolerance
         self.normalize_keys = normalize_keys
 
     def report(self, splits: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
@@ -100,23 +92,19 @@ class LeakageDetector:
         """Repeated rows within each split."""
         return duplicates(splits, key=self.key, normalize_keys=self.normalize_keys)
 
-    def check(
-        self,
-        splits: Mapping[str, pd.DataFrame],
-        tolerance: float | None = None,
-    ) -> pd.DataFrame:
-        """Return the report, raising when a split pair exceeds ``tolerance``.
+    def check(self, splits: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
+        """Return the report, raising when any split pair shares a row.
 
         Meant for a test or the top of a run. A corpus that shares rows
         between train and test reports highlight scores on examples the model
         was trained on, and every number downstream is quietly wrong.
+
+        There is no tolerance to set. A shared row is leakage at any rate, and
+        a corpus distributed with one -- R2A is -- is read with
+        :meth:`report`, which says how much it shares without refusing it.
         """
-        limit = self.tolerance if tolerance is None else tolerance
         report = self.report(splits)
-        offending = report[report["ratio"] > limit]
+        offending = report[report["ratio"] > 0]
         if not offending.empty:
-            raise ValueError(
-                f"splits share rows above the {limit} tolerance:\n"
-                f"{offending.to_string(index=False)}"
-            )
+            raise ValueError(f"splits share rows:\n{offending.to_string(index=False)}")
         return report

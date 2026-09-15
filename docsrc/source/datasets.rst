@@ -112,9 +112,11 @@ same detector serves a loader's output and a preprocessed copy of it.
    are whitespace- and case-normalised, since raw equality understates real
    overlap.
 
-``detector.check(splits, tolerance=0.0)``
-   The same report, but raising when a pair exceeds the tolerance. Call it in a
-   test or before a run.
+``detector.check(splits)``
+   The same report, but raising when any pair shares a row. Call it in a test
+   or before a run. There is no tolerance to set: a shared row is leakage at
+   any rate, and a corpus distributed with one — R2A is — is read with
+   ``report`` instead.
 
 ``detector.duplicates(splits)``
    Repeated rows inside each split.

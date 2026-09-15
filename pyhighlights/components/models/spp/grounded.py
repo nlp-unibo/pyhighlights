@@ -58,10 +58,10 @@ class EntailmentComparer(SPPComparer):
     """
 
     def __init__(self, input_size: int, hidden_sizes: List[int]):
-        from pyhighlights.components.models.spp.implementations import _mlp
+        from pyhighlights.components.models.spp.implementations import mlp
 
         super().__init__()
-        self.comparer = _mlp([4 * input_size, *hidden_sizes, 2])
+        self.comparer = mlp([4 * input_size, *hidden_sizes, 2])
 
     def forward(self, states: th.Tensor, knowledge: th.Tensor) -> th.Tensor:
         return self.comparer(
