@@ -177,13 +177,28 @@ sizes the table to it, so ``vocab_size`` is not a number the configuration has
 to have guessed. Whether the table then trains is still the backbone's
 ``freeze_embeddings``, untouched by the load.
 
-Only tokens the **training split** uses are read, for the same reason the
-fitted vocabulary is: keeping a vector for a word only the test split contains
-tells the model which words those are. ``pretrained_tokens_only`` decides what
-happens to a training token the file has no vector for — dropped by default, so
-every row is a released vector, since a random row inside a frozen table is
-noise nothing can learn away. Set it to ``False`` to keep the token with a
-random row instead.
+``vocabulary_from`` decides which tokens are read, and the two answers are
+different experiments rather than a tidiness choice.
+
+``"corpus"``, the default, reads only the tokens the **training split** uses.
+A token the training split never saw is unknown at evaluation whatever the
+file covers, and ``pretrained_tokens_only`` decides what happens to a training
+token the file has no vector for — dropped by default, so every row is a
+released vector, since a random row inside a frozen table is noise nothing can
+learn away. Set it to ``False`` to keep the token with a random row instead.
+
+``"vectors"`` takes the file's own vocabulary whole. Nothing the file covers is
+ever unknown. This is not a leak: the file is external, and which words it
+holds says nothing about which split uses them — which is why the choice is
+about fidelity rather than hygiene. The released GenSPP baselines embed this
+way (``use_pretrained_only=True``), and on their HateXplain splits the
+difference is 5.4% of validation tokens and 5.6% of test tokens, embedded as
+zero under ``"corpus"`` and as their GloVe vector under ``"vectors"``.
+
+``"vectors"`` needs ``embeddings`` and refuses to build without it.
+``requires_embeddings=True`` asks for the same refusal while keeping the
+corpus vocabulary, for a reproduction whose numbers are a vector file's even
+though its vocabulary is not.
 
 ``embeddings`` and ``pretrained_model_card`` are mutually exclusive: a subword
 tokenizer brings its own embeddings.

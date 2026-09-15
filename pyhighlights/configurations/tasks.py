@@ -70,6 +70,15 @@ class TaskConfig(Configuration):
     add_special_tokens: bool = Param(True)
     embeddings: str | None = Param(None)
     pretrained_tokens_only: bool = Param(True)
+    #: ``"corpus"`` fits the vocabulary on the training split and looks its
+    #: tokens up in the vector file; ``"vectors"`` takes the file's own
+    #: vocabulary whole, so nothing the file covers is ever unknown. The
+    #: second needs ``embeddings`` and refuses to build without it.
+    vocabulary_from: str = Param("corpus")
+    #: Refuse to build without ``embeddings``, for a reproduction whose
+    #: numbers are a released vector file's. Implied by
+    #: ``vocabulary_from="vectors"``.
+    requires_embeddings: bool = Param(False)
     #: What monitors the run: early stopping, checkpointing, and any criterion
     #: they read. The pair here is what the task used to build for itself, so
     #: a run that names nothing behaves as before.
