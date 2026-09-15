@@ -294,7 +294,12 @@ from three annotators. Mathew et al., 2021, *HateXplain: A Benchmark Dataset
 for Explainable Hate Speech Detection*.
 
 :Download: ``dataset.json`` (12 MB) and ``post_id_divisions.json`` from the
-           ``hate-alert/HateXplain`` repository
+           ``hate-alert/HateXplain`` repository, read at commit
+           ``01d7422`` rather than at ``master`` and pinned by default at
+           ``63bb3340...`` and ``c2fb0d89...`` — the benchmark publishes no
+           digest of its own, and a branch name pins nothing: the same key
+           would name different rows after an upstream push. Pass
+           ``sha256=None`` and ``divisions_sha256=None`` to skip the checks
 :Rows: 20148 posts, 3 annotators each; splits come from the published
        ``post_id_divisions.json``
 :Labels: ``hatespeech``, ``normal``, ``offensive``

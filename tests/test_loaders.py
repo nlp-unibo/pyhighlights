@@ -220,6 +220,16 @@ def test_registered_downloads_carry_the_digest_they_document(tmp_path):
         assert Registry.retrieve_configuration(key).sha256 == R2A_SHA256
     assert Registry.retrieve_configuration(MOVIES).sha256 == ERASERLoader.SHA256
 
+    # HateXplain is two downloads, so it is two digests -- and two URLs at an
+    # immutable commit rather than at a branch, since a digest pins bytes and
+    # a branch name does not pin which bytes.
+    hatexplain = Registry.retrieve_configuration(HATEXPLAIN)
+    assert hatexplain.sha256 == HateXplainLoader.SHA256
+    assert hatexplain.divisions_sha256 == HateXplainLoader.DIVISIONS_SHA256
+    for url in (hatexplain.url, hatexplain.divisions_url):
+        assert HateXplainLoader.COMMIT in url
+        assert "/master/" not in url
+
     # And a stand-in archive opts out of the check explicitly, which is what
     # the loaders document.
     unpinned = Registry.from_key(
