@@ -102,20 +102,44 @@ archive or a local ``toy_dataset.pkl`` instead. With ``url=None`` it refuses
 rather than synthesising a corpus of the same shape but different content,
 which :class:`~pyhighlights.components.loaders.ToyLoader` would happily do.
 
-Where this is not the paper
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Where this is not the release
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Checked against the reference implementation at `nlp-unibo/gen-spp
+<https://github.com/nlp-unibo/gen-spp>`_, file by file. The corpora, the
+training settings and the search parameters match it; what follows is
+everything that does not.
 
 * **HateXplain is parsed from upstream**, from the released ``dataset.json``
-  and the official ``post_id_divisions.json``, where the paper reads its own
-  preprocessed pickles. The preparation is reproduced; the row counts may
-  differ by whatever those pickles did that the JSON does not say.
+  and the official ``post_id_divisions.json``, where the release reads its own
+  preprocessed pickles. Nothing is lost by it: after the same length filter,
+  both sides hold 13507 rows — 10783 / 1369 / 1355 across the splits — and
+  every one of those rows agrees on its tokens, its label and its highlight.
+  The pickles are the official split unchanged.
 * **One split scheme for all five models.** The released baselines and the
   released genetic code split the toy corpus differently. The baselines' —
   the first 80% train, a fifth of it held out for validation, the rest test —
-  is used throughout, so the five numbers are comparable to each other.
-* **Mutation is the paper's, not the release's.** Gaussian noise at ``0.05``
-  for every gene; the released split mutator applies ``0.10`` to the final
-  gene alone, which the paper does not describe.
+  is used throughout, so the five numbers are comparable to each other. It
+  reproduces their splitter exactly: the same 6400 / 1600 / 2000, the same
+  rows in the same order.
+* **Validation does not overlap training.** The released genetic code draws
+  its validation set as a permuted fifth of train and then trains on all of
+  train, so a candidate's fitness is measured partly on rows its predictor
+  has just seen. Here validation is held out of training, as the baselines
+  hold it out.
+* **Every candidate of a search sees one batch order.** The released code
+  re-iterates a shuffling loader per candidate, so a chromosome's fitness
+  depends on how many candidates preceded it. The order is drawn once from the
+  seed and shared, which is what makes a fitness a property of its chromosome.
+* **Mutation is uniform.** Gaussian noise at ``0.05`` for every gene; the
+  released split mutator applies ``0.10`` to the final gene alone — the
+  generator's output bias, which is its decision threshold, since that
+  generator ends in one sigmoid thresholded at ``0.5``. This library's
+  selector emits two logits and takes the larger: an equivalent rule whose
+  threshold is the *difference* of two biases rather than one gene. Mutating
+  both at ``0.05`` moves that difference with a standard deviation of
+  ``0.0707``, against the release's ``0.10``, so the threshold is explored at
+  71% of their rate rather than half of it.
 
 API
 ---
