@@ -49,14 +49,31 @@ THREE_CLASS_METRICS = [
 
 
 class PaperTaskConfig(Configuration):
-    """How every baseline in the paper is trained."""
+    """How every baseline in the paper is trained.
 
+    Left abstract: a corpus half fills in ``loader`` and a model half fills in
+    ``model``, and everything below is the same for all of them.
+    """
+
+    #: The corpus, as distributed. What the paper does to it is
+    #: ``preprocessor``'s business.
     loader: RegistrationKey[HighlightLoader] = Param(None)
+    #: The architecture under test -- the one thing a row of the paper's table
+    #: varies.
     model: RegistrationKey[Model] = Param(None)
+    #: Filtering, label folding and vote aggregation. ``None`` for a corpus
+    #: the paper takes as it comes.
     preprocessor: RegistrationKey[Preprocessor] | None = Param(None)
+    #: Scored at the end of every epoch, and what the early stopping rule
+    #: watches through ``val_loss``.
     val_metrics: List[RegistrationKey[BoundMetric]] = Param(BINARY_METRICS)
+    #: Scored once, on the epoch the checkpoint kept. These are the numbers in
+    #: the table.
     test_metrics: List[RegistrationKey[BoundMetric]] = Param(BINARY_METRICS)
+    #: Five runs per cell. A single run of a select-then-predict model says
+    #: very little, so the spread is part of the result.
     seeds: Sequence[int] = Param(SEEDS)
+    #: Sixty-four, for every architecture and both corpora.
     batch_size: int = Param(64, ge=1)
     #: Early stopping and checkpointing on the validation loss, with the
     #: paper's patience of thirty rather than the library's five. Both monitor
@@ -65,15 +82,28 @@ class PaperTaskConfig(Configuration):
     callbacks: List[RegistrationKey[Callback]] = Param(
         [PAPER_EARLY_STOPPING, PAPER_CHECKPOINT]
     )
+    #: Where the run writes. Left null, a benchmark tells each task to write
+    #: inside its own directory.
     save_path: str | None = Param(None)
+    #: Five hundred epochs is a budget, not a schedule: the early stopping
+    #: rule above ends a run long before it.
     trainer_args: Dict[str, Any] = Param(
         {"accelerator": "auto", "devices": 1, "max_epochs": 500}
     )
 
 
 class PaperGenSPPTaskConfig(Configuration):
-    """GenSPP's own task: a search, not five hundred epochs of descent."""
+    """GenSPP's own task: a search, not five hundred epochs of descent.
 
+    The fields it shares with :class:`PaperTaskConfig` mean the same things.
+    What is missing is as telling as what is here: no ``model``, because the
+    search names its own and naming it twice is a way for the two to disagree;
+    no ``callbacks``, because nothing is monitored across epochs when the
+    generator is searched rather than trained.
+    """
+
+    #: The genetic search, which carries the model key and every setting of
+    #: the search itself.
     search: RegistrationKey[GenSPPTrainer] = Param(None)
     loader: RegistrationKey[HighlightLoader] = Param(None)
     preprocessor: RegistrationKey[Preprocessor] | None = Param(None)

@@ -240,6 +240,19 @@ class GenSPPTrainer:
         selection_rate: float,
         task_loss_limit: float,
     ) -> float:
+        """Selection rate traded against task loss, higher being better.
+
+        ``task_loss_limit`` is the cross entropy above which a candidate is not
+        competing at all: it gets the floor of 1.0 whatever it selected, so the
+        search cannot buy a sparse selection with a model that has stopped
+        classifying. The paper sets it per corpus -- 0.1 on the toy corpus,
+        which is nearly solved, and 0.6 on HateXplain, which is not.
+
+        Below the limit the objective is
+        ``1 - sqrt((1 - selection_rate) * (1 - task_loss))``, and the fitness
+        is its reciprocal: both terms have to be small for it to be large, so a
+        candidate cannot win on sparsity alone.
+        """
         if task_loss > task_loss_limit:
             return 1.0
         objective = 1.0 - math.sqrt(

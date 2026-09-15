@@ -63,6 +63,13 @@ class Preprocessor(abc.ABC):
 def class_weights(labels: Sequence[Any], classes: int | None = None) -> List[float]:
     """Inverse-frequency weights, ``n / (classes * count)`` per class.
 
+    The same formula and the same refusals as scikit-learn's
+    ``compute_class_weight(class_weight="balanced", ...)``, which raises both
+    for a class declared but absent from ``y`` and for one present but not
+    declared. Written out rather than depended on: scikit-learn is thirty
+    megabytes this package does not otherwise need, for six lines, and it
+    returns an array where a configuration wants a list.
+
     What a weighted cross entropy needs when the classes are not the same size:
     the rarer a class, the more a mistake on it costs, so a model cannot score
     well by never predicting it.
@@ -167,7 +174,7 @@ class LeakageRemover(Preprocessor):
 
 
 class AnnotationAggregator(Preprocessor):
-    """Collapses per-annotator labels and rationales into one of each.
+    """Collapses per-annotator labels and highlights into one of each.
 
     A corpus annotated by several people -- HateXplain has three per post --
     is loaded with every judgement kept, because reducing them is a choice the
@@ -179,10 +186,10 @@ class AnnotationAggregator(Preprocessor):
       of annotators splitting evenly is a tie as much as three splitting three
       ways is, and a single annotator is never one.
     - ``highlights``: ``"majority"`` marks a token more than half the
-      rationale vectors marked, ``"union"`` any, ``"intersection"`` all.
+      annotators marked, ``"union"`` any, ``"intersection"`` all.
 
-    Rows whose rationale vectors are all the wrong width, and classes carrying
-    no rationale by design, come back all-zero: "no token was marked", not
+    Rows whose annotation vectors are all the wrong width, and classes carrying
+    no annotation by design, come back all-zero: "no token was marked", not
     "not annotated".
     """
 
@@ -281,6 +288,10 @@ class Pipeline(Preprocessor):
 
 class LengthFilter(Preprocessor):
     """Drops rows longer than ``max_length`` tokens.
+
+    Nothing here is any one corpus's. The *policy* -- thirty tokens, because
+    that is how the GenSPP release bounds its compute -- is a configuration and
+    lives in the benchmark that adopts it.
 
     Truncating would keep the row and lose the tokens, which for a corpus
     scored on highlights means scoring against an annotation whose tail was
