@@ -108,6 +108,35 @@ def test_highlight_metrics_ignore_unlabelled_positions():
     assert iou.compute() == pytest.approx(0.5)
 
 
+def test_a_highlight_score_is_nan_when_nothing_was_asked_of_it():
+    """Two ways to divide by zero, and both mean the same thing.
+
+    An update whose every position is a true negative leaves all three
+    counters at zero, exactly as never updating does. It is not a model that
+    scored badly, so it is not 0.0, and it is not a model that scored
+    perfectly for selecting nothing, so it is not 1.0.
+    """
+    # Annotated, seen, and every position a true negative: the corpus says
+    # nothing here is a highlight and the model marked nothing.
+    preds = th.tensor([[0.0, 0.0, 0.0]])
+    target = th.tensor([[0, 0, -1]])
+
+    f1 = BinaryHighlightF1Score()
+    f1.update(preds, target)
+    iou = BinaryHighlightIoU()
+    iou.update(preds, target)
+
+    assert (f1.tp, f1.fp, f1.fn) == (0, 0, 0)
+    assert th.isnan(f1.compute())
+    assert th.isnan(iou.compute())
+
+    # One marked position is enough to define both again.
+    f1.update(th.tensor([[1.0, 0.0, 0.0]]), th.tensor([[1, 0, -1]]))
+    iou.update(th.tensor([[1.0, 0.0, 0.0]]), th.tensor([[1, 0, -1]]))
+    assert f1.compute() == pytest.approx(1.0)
+    assert iou.compute() == pytest.approx(1.0)
+
+
 def test_selection_metrics_average_over_samples():
     # `target` is the padding mask: 1 is a real token, 0 is padding.
     preds = th.tensor([[1.0, 1.0, 0.0], [1.0, 0.0, 0.0]])

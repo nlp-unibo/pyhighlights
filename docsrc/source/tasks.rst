@@ -306,6 +306,14 @@ one trainer per candidate. Gradients reach the predictor only:
 generator is put back in evaluation mode at the start of every epoch so its
 dropout cannot score the same candidate two different ways.
 
+Every candidate trains on the same batches in the same order. The training
+loader shuffles, so the search draws one permutation from the seed before it
+starts and hands every candidate that: re-iterating the loader instead would
+give each candidate its own order, and a chromosome would score differently
+depending on how many candidates preceded it -- or, with several devices, on
+how the workers interleaved. The whole training split is held in memory for
+the duration of the search as a result.
+
 Alongside the usual per-seed files, a GenSPP run writes ``best.ckpt`` -- the
 weights the search settled on -- and ``search.json``, one entry per generation
 under ``training_progress``. The entry is the best **objective** the search
@@ -498,6 +506,11 @@ analyzer serves a notebook, a test and a LaTeX table.
    like one that found the rationale. A model with several selectors stores one
    mask per head; the analysis reads the head its aggregator keeps, which is
    the one every reported metric scored.
+
+   Positions are word positions on either selection axis: a selection made
+   over subtokens is folded through ``word_ids`` first, exactly as
+   ``PredictionAnalyzer`` folds it, and a word split into several pieces is
+   one word however many of its pieces were selected.
 
    ``absolute`` asks the other question. A model keying on the first three
    words of every document does that regardless of how long the document is,

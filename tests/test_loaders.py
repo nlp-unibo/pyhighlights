@@ -6,6 +6,7 @@ from cinnamon.registry import Registry
 
 import pyhighlights
 from pyhighlights.components.loaders import (
+    R2A_SHA256,
     BeerLoader,
     ERASERLoader,
     HateXplainLoader,
@@ -194,11 +195,37 @@ def test_registered_loaders_build(tmp_path):
     )
 
     archive = r2a(tmp_path)
-    beer = Registry.from_key(BEER, url=archive, directory=str(tmp_path / "b"))
-    hotel_loader = Registry.from_key(HOTEL, url=archive, directory=str(tmp_path / "h"))
+    beer = Registry.from_key(
+        BEER, url=archive, directory=str(tmp_path / "b"), **UNPINNED
+    )
+    hotel_loader = Registry.from_key(
+        HOTEL, url=archive, directory=str(tmp_path / "h"), **UNPINNED
+    )
     assert isinstance(beer, BeerLoader) and beer.task == "beer0"
     assert isinstance(hotel_loader, HotelLoader)
     assert hotel_loader.task == "hotel_Location"
+
+
+def test_registered_downloads_carry_the_digest_they_document(tmp_path):
+    """The key is what a run builds, so the key is where the pin has to be.
+
+    A constructor default is not enough: every registered run builds through
+    the key, and a configuration naming `sha256=None` overrides the default
+    silently. The documentation said these downloads were pinned while the
+    registry said they were not.
+    """
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+
+    for key in (BEER, HOTEL):
+        assert Registry.retrieve_configuration(key).sha256 == R2A_SHA256
+    assert Registry.retrieve_configuration(MOVIES).sha256 == ERASERLoader.SHA256
+
+    # And a stand-in archive opts out of the check explicitly, which is what
+    # the loaders document.
+    unpinned = Registry.from_key(
+        BEER, url=r2a(tmp_path), directory=str(tmp_path / "b"), **UNPINNED
+    )
+    assert unpinned.sha256 is None
 
 
 def test_to_examples_needs_the_standard_columns(tmp_path):

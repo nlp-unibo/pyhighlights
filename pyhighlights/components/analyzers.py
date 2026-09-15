@@ -17,7 +17,7 @@ import abc
 import json
 from collections import Counter
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Sequence, Tuple
+from typing import Any, Dict, Iterator, List, Mapping, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -205,6 +205,49 @@ class MetricsAnalyzer(Analyzer):
         return pd.DataFrame(rows)
 
 
+def word_axis_map(batch: Mapping[str, Any], masks: np.ndarray) -> np.ndarray | None:
+    """``word_ids`` when the selection is over subtokens, ``None`` otherwise.
+
+    The two axes are different widths and a stored batch carries both:
+    ``mask`` and ``highlight_true`` are ``[B, W]``, ``word_ids`` and a
+    subtoken selection are ``[B, T]``. Which one ``highlight_mask`` lives on
+    is the model's ``select_over``, which the predictions do not record, so it
+    is read off the width. Equal widths are a vocabulary tokenizer, where the
+    map is the identity and either answer gives the same words.
+    """
+    stored = batch.get("word_ids")
+    if stored is None:
+        return None
+    word_ids = np.asarray(stored)
+    return word_ids if masks.shape[1] == word_ids.shape[1] else None
+
+
+def selected_words(
+    highlights: np.ndarray,
+    length: int,
+    word_ids: np.ndarray | None,
+    index: int,
+) -> np.ndarray:
+    """Which words one sample's selection kept, whichever axis it was made on.
+
+    A subtoken selection is folded through ``word_ids`` and deduplicated: a
+    word split into three pieces is one word however many of its pieces were
+    selected. Slicing the subtoken mask to the word count instead -- which is
+    what this did -- dropped or shifted whatever sat past it, silently and
+    without a shape to complain about.
+
+    The word mask is not applied to a folded selection, because it cannot
+    narrow one: :class:`~pyhighlights.components.data.HighlightCollator`
+    refuses a ``word_id`` outside its own sample's words, so every word this
+    returns is a word that sample has, and the padded tail of the word axis is
+    unreachable from any subtoken.
+    """
+    if word_ids is None:
+        return np.flatnonzero(highlights[:length])
+    kept = (highlights > 0) & (word_ids[index] >= 0)
+    return np.unique(word_ids[index][kept])
+
+
 class HighlightPositionAnalyzer(Analyzer):
     """Where in a document the selector looked, and how much it kept.
 
@@ -256,14 +299,15 @@ class HighlightPositionAnalyzer(Analyzer):
             for batch in pd.read_pickle(path):
                 masks = reported_head(np.asarray(batch["highlight_mask"]))
                 valid = np.asarray(batch["mask"])
-                for highlights, length_mask in zip(masks, valid):
+                word_ids = word_axis_map(batch, masks)
+                for index, length_mask in enumerate(valid):
                     length = int(length_mask.sum())
                     if not length:
                         continue
-                    marked = np.flatnonzero(highlights[:length])
+                    marked = selected_words(masks[index], length, word_ids, index)
                     positions.update(
-                        int(index) if self.absolute else int(index / length * self.bins)
-                        for index in marked
+                        int(word) if self.absolute else int(word / length * self.bins)
+                        for word in marked
                     )
                     rate += len(marked) / length
                     kept += 1
@@ -397,7 +441,6 @@ class PredictionAnalyzer(Analyzer):
             examples = corpora[run]
             for batch in pd.read_pickle(path):
                 masks = reported_head(np.asarray(batch["highlight_mask"]))
-                word_ids = np.asarray(batch["word_ids"])
                 valid = np.asarray(batch["mask"]) > 0
                 predicted = np.asarray(batch["class_logits"])
                 if predicted.ndim == 3:
@@ -406,7 +449,7 @@ class PredictionAnalyzer(Analyzer):
 
                 # A selection over words is already word-indexed; one over
                 # subtokens is as wide as the encoding and has to be folded.
-                over_subtokens = masks.shape[1] == word_ids.shape[1]
+                word_ids = word_axis_map(batch, masks)
 
                 for index, sample_id in enumerate(batch["sample_ids"]):
                     example = examples.get(int(sample_id))
@@ -416,19 +459,24 @@ class PredictionAnalyzer(Analyzer):
                         # split is more use than refusing all of it.
                         continue
                     tokens = list(example.tokens)
-                    kept = valid[index] & (masks[index] > 0)
-                    words = (
-                        word_ids[index][kept]
-                        if over_subtokens
-                        else np.flatnonzero(kept)
+                    # `valid` is the word axis, so it may only narrow a
+                    # selection made on that axis: combining it with a
+                    # subtoken mask compared two different widths, and numpy
+                    # refused to broadcast them.
+                    words = selected_words(
+                        masks[index] * valid[index]
+                        if word_ids is None
+                        else masks[index],
+                        int(valid[index].sum()),
+                        word_ids,
+                        index,
                     )
                     if words.size and words.max() >= len(tokens):
                         # The corpus places this sample's words differently
                         # than the run did. Folding the selection against it
                         # anyway would print a rationale nothing selected.
                         continue
-                    # A padded position belongs to no word and says ``-1``.
-                    selected = sorted({int(word) for word in words if word >= 0})
+                    selected = [int(word) for word in words]
                     rows.append(
                         {
                             "run": run_of(path, self.directory),

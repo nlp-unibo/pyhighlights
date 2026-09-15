@@ -8,6 +8,7 @@ from cinnamon.registry import register_class
 from pyhighlights.components.loaders import (
     BEER_TASKS,
     HOTEL_TASKS,
+    R2A_SHA256,
     R2A_URL,
     ERASERLoader,
     HateXplainLoader,
@@ -26,7 +27,11 @@ class R2AConfig(LoaderConfig):
 
     splits: Dict[str, str] | None = Param(None)
     url: str = Param(R2A_URL)
-    sha256: str | None = Param(None)
+    #: The digest the loader defaults to, named again here because a
+    #: registered key is what a run actually builds: leaving it null handed
+    #: every registered run an unverified download while the documentation
+    #: said the opposite. A fixture archive passes ``sha256=None`` explicitly.
+    sha256: str | None = Param(R2A_SHA256)
 
 
 @register_class(
@@ -79,7 +84,9 @@ class MoviesConfig(LoaderConfig):
     task: str = Param("movies")
     splits: Dict[str, str] | None = Param(None)
     url: str = Param(ERASERLoader.URL)
-    sha256: str | None = Param(None)
+    #: As on :class:`R2AConfig`: the loader's default, said again where the
+    #: registered key can be read off it.
+    sha256: str | None = Param(ERASERLoader.SHA256)
 
 
 @register_class(
