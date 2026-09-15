@@ -9,6 +9,7 @@ from torch.utils.data import DataLoader
 import pyhighlights
 from pyhighlights.components.models import InputData
 from pyhighlights.components.models.spp import FR, MCD, MGR
+from pyhighlights.components.models.spp.base import SPP
 from pyhighlights.configurations.keys import (
     GRU_BACKBONE,
     GRU_FR,
@@ -256,6 +257,46 @@ def test_registered_gru_mgr_has_independent_generators_and_head_policy():
     assert actual.class_logits.shape == (2, 1, 2)
     assert th.equal(actual.class_logits, expected.class_logits)
     assert th.equal(actual.highlight_mask, expected.highlight_mask)
+
+
+def test_mgr_scores_the_inference_head_and_not_the_first_one(monkeypatch):
+    """Which generator a training metric is about.
+
+    MGR emits every head while training, and `update_metrics` slices to
+    `inference_head` before scoring. Nothing asserted that it sliced to the
+    right one: `validation_forward` was covered, this path was not, so a wrong
+    index here would report generator 0's highlight through training while
+    validation reported generator 1's -- two numbers about one model that
+    disagree, which is a defect this project has already paid for once.
+    """
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+    model = Registry.from_key(GRU_MGR)
+    model.inference_head = 2
+    batch = InputData(
+        features=th.tensor([[1, 2, 3, 0], [4, 5, 0, 0]]),
+        mask=th.tensor([[1.0, 1.0, 1.0, 0.0], [1.0, 1.0, 0.0, 0.0]]),
+        sample_ids=th.arange(2),
+        y_true=th.tensor([0, 1]),
+        highlight_true=th.full((2, 4), -1),
+    )
+
+    model.eval()
+    with th.no_grad():
+        output = model(batch)
+    assert output.class_logits.shape[1] == 3
+
+    seen = {}
+    monkeypatch.setattr(
+        SPP,
+        "update_metrics",
+        lambda self, split, input_data, output_data: seen.update(output=output_data),
+    )
+    model.update_metrics("train", batch, output)
+
+    scored = seen["output"]
+    assert scored.class_logits.shape[1] == 1
+    assert th.equal(scored.class_logits, output.class_logits[:, 2:3])
+    assert th.equal(scored.highlight_mask, output.highlight_mask[:, 2:3])
 
 
 def test_a_task_refuses_two_embedding_sources_before_it_is_built():

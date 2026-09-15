@@ -105,6 +105,13 @@ class HighlightMetric(Metric):
 
 class BinaryHighlightF1Score(HighlightMetric):
     def compute(self) -> th.Tensor:
+        # `nan` on a metric that was never updated, deliberately. Returning 0.0
+        # -- which is what torchmetrics' own `zero_division` default does --
+        # would be a score, and a score of zero says the model got everything
+        # wrong rather than that nothing was asked. torchmetrics already warns
+        # when `compute` precedes `update`, so the case is loud either way.
+        # A row nobody annotated cannot reach here silently: it still counts a
+        # false positive, so the denominator is only zero when no row did.
         return (2 * self.tp) / (2 * self.tp + self.fp + self.fn)
 
 

@@ -369,6 +369,10 @@ class PredictionAnalyzer(Analyzer):
                 RegistrationKey.parse(registration_key=registration_key(preprocessor)),
                 expected_type=Preprocessor,
             ).process(splits)
+        if self.split not in splits:
+            raise KeyError(
+                f"the run's corpus has no {self.split!r} split; got {sorted(splits)}"
+            )
         frame = splits[self.split]
         return {int(row.sample_id): row for row in frame.itertuples(index=False)}
 
