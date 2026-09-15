@@ -254,7 +254,10 @@ class GenSPPTrainer:
 
         self._best_model = None
         self._best_fitness = -math.inf
+        # Before any pool exists. Left to the first candidate, two workers
+        # could both find it unset and each install its own model's state.
         self._initial_state = None
+        self._align_initial_state(Registry.from_key(self.model, expected_type=GenSPP))
         # Chromosomes first, drawn here from the search's own random state,
         # and scored after. Scoring cannot draw them: it does not read the
         # global generator at all, by the requirement several devices rest on,
@@ -334,15 +337,24 @@ class GenSPPTrainer:
     ) -> Tuple[_Individual, GenSPP]:
         """Score one candidate on one device.
 
-        **This must not read or advance the global random state**, which is
-        what lets several candidates run at once: torch's default generator is
-        process-wide, so a thread seeding it would be seeding every other
-        thread's dropout as well. Nothing here does — the model's own random
-        initialisation is entirely overwritten, by ``_initial_state`` outside
-        the chromosome and by the chromosome inside it, and the loaders are
-        re-iterable sequences rather than shuffling ones.
-        ``test_scoring_a_candidate_does_not_touch_the_global_random_state``
-        holds it, because a dropout rate above zero would quietly take it back.
+        **Nothing here may depend on the global random state**, which is what
+        lets several candidates run at once: torch's default generator is
+        process-wide, so what a thread drew from it would depend on how the
+        threads interleaved. Nothing does — the model's own initialisation is
+        entirely overwritten, by ``_initial_state`` outside the chromosome and
+        by the chromosome inside it, the loaders are re-iterable sequences
+        rather than shuffling ones, and the registered configurations set
+        ``dropout_rate`` to 0. A dropout rate above zero would take that back
+        silently, so
+        ``test_scoring_a_candidate_does_not_read_the_global_random_state``
+        asserts it.
+
+        It does **advance** that state, because building a model draws from it.
+        That is harmless here and measured rather than assumed: the search's
+        own randomness is on explicit generators -- ``self._random`` for
+        selection and crossover, ``self._torch_generator`` for mutation and
+        survival -- so no decision reads what scoring left behind, and
+        :meth:`fit` forks the global state so a caller's is restored.
         """
         model = Registry.from_key(self.model, expected_type=GenSPP)
         self._align_initial_state(model)
@@ -448,7 +460,9 @@ class GenSPPTrainer:
         return L.Trainer(
             max_epochs=self.predictor_epochs,
             accelerator="gpu" if cuda else device.type,
-            devices=[self._cuda_index(device)] if cuda else "auto",
+            # One, explicitly: this trainer is already inside a worker, and
+            # a candidate spread over more of them would fight its siblings.
+            devices=[self._cuda_index(device)] if cuda else 1,
             logger=False,
             enable_checkpointing=False,
             enable_progress_bar=False,

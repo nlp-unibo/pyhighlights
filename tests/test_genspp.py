@@ -326,18 +326,21 @@ def test_the_first_generation_is_not_one_point_repeated():
         assert not th.equal(chromosomes[0], other)
 
 
-def test_scoring_a_candidate_does_not_touch_the_global_random_state():
+def test_scoring_a_candidate_does_not_read_the_global_random_state():
     """The property several devices depend on.
 
-    torch's default generator is process-wide, so a worker that read or seeded
-    it would be reading and seeding every other worker's. Scoring must not:
-    the model's own initialisation is overwritten by `_initial_state` outside
-    the chromosome and by the chromosome inside it, the loaders are
-    re-iterable sequences rather than shuffling ones, and the registered
-    configurations set `dropout_rate` to 0.
+    torch's default generator is process-wide, so anything a worker drew from
+    it would depend on how the threads interleaved. No result may: the model's
+    own initialisation is overwritten by `_initial_state` outside the
+    chromosome and by the chromosome inside it, the loaders are re-iterable
+    sequences rather than shuffling ones, and the registered configurations
+    set `dropout_rate` to 0. A dropout rate above zero would take that back
+    silently, which is why this is asserted rather than assumed.
 
-    A dropout rate above zero would take this back silently, which is why the
-    property is asserted rather than assumed.
+    Scoring does *advance* that state -- building a model draws from it -- and
+    that is fine, which is the second assertion here: the search's own
+    randomness lives on explicit generators, so nothing reads what scoring
+    left behind.
     """
     model = register_tiny_genspp()
     search = trainer(model, seed=7, task_loss_limit=10.0)
@@ -351,19 +354,31 @@ def test_scoring_a_candidate_does_not_touch_the_global_random_state():
     assert before.fitness == after.fitness
     assert before.task_loss == after.task_loss
 
+    # It advances the state, so a test asserting otherwise would be wrong.
+    state = th.get_rng_state().clone()
+    search._score(train, val, [probe])
+    assert not th.equal(state, th.get_rng_state())
+
 
 def test_several_devices_give_the_same_population_as_one():
     """Threads change when a candidate is scored, never what it scores."""
     model = register_tiny_genspp()
     train, val = [batch(labels=(0, 1))], [batch(labels=(0, 1))]
 
-    sequential = trainer(model, n_generations=1, task_loss_limit=10.0)
+    # Eight candidates against four workers, so several are genuinely in
+    # flight at once: a population of two would leave the pool half idle and
+    # a race unexercised.
+    sequential = trainer(
+        model, n_generations=1, population_size=8, task_loss_limit=10.0
+    )
     sequential.fit(train, val)
 
-    # Four workers over one population of two, so a candidate's position no
-    # longer decides which thread runs it.
     parallel = trainer(
-        model, n_generations=1, task_loss_limit=10.0, devices=["cpu"] * 4
+        model,
+        n_generations=1,
+        population_size=8,
+        task_loss_limit=10.0,
+        devices=["cpu"] * 4,
     )
     parallel.fit(train, val)
 
@@ -414,12 +429,13 @@ def test_search_is_reproducible_and_keeps_only_candidate_chromosomes():
 
     first_search = trainer(model_key, n_generations=1)
     first_model = first_search.fit(train, validation)
-    # Two founders and two children evaluated, plus one build per founder to
-    # draw its generator at random -- that draw cannot happen inside the
-    # evaluation, whose seed is fixed. Six builds for a population of two over
-    # one generation, and the extra pair is paid once per run rather than once
-    # per generation.
-    assert CountingGenSPP.instances == 6
+    # Two founders and two children scored, one build per founder to draw its
+    # generator at random -- scoring cannot draw it, since no result there may
+    # read the global random state -- and one more to capture the shared
+    # initial state before any pool exists. Seven for a population of two over
+    # one generation, and the three extra are paid once per run rather than
+    # once per generation.
+    assert CountingGenSPP.instances == 7
     first_state = {
         name: value.detach().clone() for name, value in first_model.state_dict().items()
     }
