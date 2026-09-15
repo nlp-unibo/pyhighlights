@@ -185,6 +185,41 @@ def test_a_genspp_task_searches_scores_and_writes_down_its_generations(tmp_path)
     assert len(progress["training_progress"]) == 1
 
 
+def test_a_searched_model_reads_the_vectors_the_task_was_given(tmp_path):
+    """A GenSPP candidate is built by the search, which bypassed `build_model`.
+
+    That is where the table was loaded, so a searched model kept the random
+    one its configuration sized: on HateXplain, whose registered placeholder
+    is two rows against a corpus of sixteen thousand tokens, the first batch
+    raised `IndexError: index out of range in self`.
+    """
+    build_registry()
+    vectors = tmp_path / "vectors.txt"
+    # GENSPP_GRU_BACKBONE is 128-dimensional, and the file has to match it.
+    vectors.write_text(
+        "".join(
+            f"{token} {' '.join(['0.1'] * 128)}\n" for token in ("a", "great", "film")
+        )
+    )
+
+    task = Registry.from_key(
+        TOY_GENSPP_TASK,
+        save_path=str(tmp_path),
+        seeds=[0],
+        embeddings=str(vectors),
+    )
+    task.run()
+
+    directory = next((tmp_path / "toy-genspp").iterdir()) / "seed=0"
+    weights = th.load(directory / "best.ckpt", weights_only=True)["state_dict"]
+    table = weights["selector_backbones.0.embedding.weight"]
+    # One row per token in the file, plus row zero for the unknown id.
+    assert table.shape == (4, 128)
+    assert th.equal(table[1:], th.full((3, 128), 0.1))
+    # And the predictor's backbone reads the same table, as it does elsewhere.
+    assert th.equal(table, weights["predictor_backbone.embedding.weight"])
+
+
 def test_a_genspp_task_needs_a_validation_split(tmp_path):
     build_registry()
     task = Registry.from_key(TOY_GENSPP_TASK, save_path=str(tmp_path))

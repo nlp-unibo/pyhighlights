@@ -216,6 +216,7 @@ class GenSPPTrainer:
         self._best_model: GenSPP | None = None
         self._best_fitness = -math.inf
         self._initial_state: dict[str, th.Tensor] | None = None
+        self._embeddings: th.Tensor | None = None
         self._random = random.Random()
         self._torch_generator = th.Generator()
 
@@ -236,17 +237,28 @@ class GenSPPTrainer:
         self,
         train_loader: Iterable[InputData],
         val_loader: Iterable[InputData],
+        embeddings: th.Tensor | None = None,
     ) -> GenSPP:
+        """Search for a generator, and return the best model the search found.
+
+        ``embeddings`` is the corpus's token table, when the task read one. It
+        is passed rather than registered for the reason
+        :class:`~pyhighlights.components.tasks.SPPTask` passes it: a matrix is
+        data, and no configuration should carry one. Every candidate loads the
+        same table, before :meth:`_align_initial_state` sees it, so it is
+        shared state rather than part of a chromosome.
+        """
         if isinstance(train_loader, Iterator) or isinstance(val_loader, Iterator):
             raise ValueError("train and validation loaders must be re-iterable")
 
         with th.random.fork_rng(devices=self._cuda_indices()):
-            return self._fit(train_loader, val_loader)
+            return self._fit(train_loader, val_loader, embeddings)
 
     def _fit(
         self,
         train_loader: Iterable[InputData],
         val_loader: Iterable[InputData],
+        embeddings: th.Tensor | None = None,
     ) -> GenSPP:
         if self.seed is None:
             self._random.seed()
@@ -285,7 +297,8 @@ class GenSPPTrainer:
         # Before any pool exists. Left to the first candidate, two workers
         # could both find it unset and each install its own model's state.
         self._initial_state = None
-        self._align_initial_state(Registry.from_key(self.model, expected_type=GenSPP))
+        self._embeddings = embeddings
+        self._candidate()
         # Chromosomes first, drawn here from the search's own random state,
         # and scored after. Scoring cannot draw them: it does not read the
         # global generator at all, by the requirement several devices rest on,
@@ -308,11 +321,23 @@ class GenSPPTrainer:
         self._best_model.eval()
         return self._best_model
 
+    def _candidate(self) -> GenSPP:
+        """One model of the searched key, ready to carry a chromosome.
+
+        The embedding table is loaded before the shared state is aligned,
+        because the table is part of that shared state: a candidate built
+        after the first would otherwise be asked to load a state dict whose
+        embedding has a different number of rows.
+        """
+        model = Registry.from_key(self.model, expected_type=GenSPP)
+        if self._embeddings is not None:
+            model.load_embeddings(self._embeddings)
+        self._align_initial_state(model)
+        return model
+
     def _founder_chromosome(self) -> th.Tensor:
         """A generator drawn at random, for a member of the first generation."""
-        model = Registry.from_key(self.model, expected_type=GenSPP)
-        self._align_initial_state(model)
-        return self._chromosome(model).clone()
+        return self._chromosome(self._candidate()).clone()
 
     def _score(
         self,
@@ -384,8 +409,7 @@ class GenSPPTrainer:
         survival -- so no decision reads what scoring left behind, and
         :meth:`fit` forks the global state so a caller's is restored.
         """
-        model = Registry.from_key(self.model, expected_type=GenSPP)
-        self._align_initial_state(model)
+        model = self._candidate()
         parameters = model.generator_parameters()
         if not parameters:
             raise ValueError("GenSPP generator has no evolvable parameters")

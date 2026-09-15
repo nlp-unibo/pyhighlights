@@ -619,7 +619,12 @@ class GenSPPTask(SPPTask):
 
         seed_everything(seed=seed, workers=True)
         search = Registry.from_key(self.search, expected_type=GenSPPTrainer, seed=seed)
-        model = search.fit(loaders["train"], loaders["val"])
+        # The search builds its own candidates, so the table the tokenizer read
+        # has to reach it here: `build_model` is what hands it to every other
+        # model, and a searched one never goes through it.
+        model = search.fit(
+            loaders["train"], loaders["val"], embeddings=self._embedding_matrix
+        )
 
         # The search builds its candidates from the model key alone, so the
         # winner arrives without metrics; they are only ever read after it.

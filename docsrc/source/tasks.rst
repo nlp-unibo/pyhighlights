@@ -294,7 +294,10 @@ other respect -- same corpus, preprocessing, metrics, seeds and output files.
 Two things differ:
 
 * It names a **search**, not a model. The model key is the search's own; naming
-  it twice is a way for the two to disagree about which model was evolved.
+  it twice is a way for the two to disagree about which model was evolved. The
+  search builds its own candidates, so a vector file named through
+  ``embeddings`` reaches them through the search rather than through
+  ``build_model``, which a searched model never goes through.
 * A validation split is required. Fitness is task loss traded against selection
   rate, and both are measured there.
 
