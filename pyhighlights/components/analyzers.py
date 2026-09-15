@@ -254,7 +254,7 @@ class HighlightPositionAnalyzer(Analyzer):
     Reads the predictions a task stored. A selector that has learned nothing
     still selects *something*, and position is what tells the two apart: a
     model keying on the first tokens of every document scores like a model that
-    found the rationale, until you look at where it selected.
+    found the highlight, until you look at where it selected.
 
     Positions are word positions, since that is what a selection is made over.
 
@@ -474,7 +474,7 @@ class PredictionAnalyzer(Analyzer):
                     if words.size and words.max() >= len(tokens):
                         # The corpus places this sample's words differently
                         # than the run did. Folding the selection against it
-                        # anyway would print a rationale nothing selected.
+                        # anyway would print words nothing selected.
                         continue
                     selected = [int(word) for word in words]
                     rows.append(
@@ -486,7 +486,9 @@ class PredictionAnalyzer(Analyzer):
                             "predicted": int(predicted[index]),
                             "tokens": tokens,
                             "selected": selected,
-                            "rationale": " ".join(tokens[word] for word in selected),
+                            "selected_text": " ".join(
+                                tokens[word] for word in selected
+                            ),
                             "highlights": None
                             if example.highlights is None
                             else [

@@ -58,10 +58,10 @@ class EntailmentComparer(SPPComparer):
     """
 
     def __init__(self, input_size: int, hidden_sizes: List[int]):
-        from pyhighlights.components.models.spp.implementations import _mlp
+        from pyhighlights.components.models.spp.implementations import mlp
 
         super().__init__()
-        self.comparer = _mlp([4 * input_size, *hidden_sizes, 2])
+        self.comparer = mlp([4 * input_size, *hidden_sizes, 2])
 
     def forward(self, states: th.Tensor, knowledge: th.Tensor) -> th.Tensor:
         return self.comparer(
@@ -181,12 +181,12 @@ class GroundedSPP(SPP):
         entries_count, entry_width, _ = entries.shape
         shape = (batch, entries_count)
 
-        # ponytail: the conditioned states are materialised as [B, M, T, 2D].
-        # At the widths this library runs -- a GRU over a frozen transformer,
-        # D around 256, and ToS clauses well under 256 words -- that is on the
-        # order of a hundred megabytes. A wide backbone over long documents
-        # would need this chunked over M, or the concatenation replaced by a
-        # projected sum.
+        # The conditioned states are materialised as [B, M, T, 2D]. At the
+        # widths this library runs -- a GRU over a frozen transformer, D around
+        # 256, and ToS clauses well under 256 words -- that is on the order of
+        # a hundred megabytes. A wide backbone over long documents would need
+        # this chunked over M, or the concatenation replaced by a projected
+        # sum.
         pair_logits = selector(
             th.cat(
                 [

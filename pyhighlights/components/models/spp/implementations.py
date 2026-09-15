@@ -135,7 +135,8 @@ class TransformerBackbone(SPPBackbone):
         return (states * float_mask).sum(dim=1) / float_mask.sum(dim=1).clamp_min(1)
 
 
-def _mlp(sizes: List[int]) -> th.nn.Sequential:
+def mlp(sizes: List[int]) -> th.nn.Sequential:
+    """Linear layers with GELU between them and none after the last."""
     layers: List[th.nn.Module] = []
     for index, (source, target) in enumerate(zip(sizes, sizes[1:])):
         layers.append(th.nn.Linear(source, target))
@@ -146,6 +147,10 @@ def _mlp(sizes: List[int]) -> th.nn.Sequential:
 
 class StackedBackbone(SPPBackbone):
     """A pretrained encoder read by a recurrent one trained from scratch.
+
+    Registered as ``StackedBackboneConfig`` and available to any study; no
+    benchmark in this repository configures it, since the reproductions here
+    are the GloVe-and-GRU papers it generalises.
 
     The architecture the select-then-predict papers actually use, with a better
     frozen representation underneath it. FR, MCD, MGR and G-RAT all encode with
@@ -243,7 +248,7 @@ class StackedBackbone(SPPBackbone):
 class MLPSelector(SPPSelector):
     def __init__(self, input_size: int, hidden_sizes: List[int]):
         super().__init__()
-        self.selector = _mlp([input_size, *hidden_sizes, 2])
+        self.selector = mlp([input_size, *hidden_sizes, 2])
 
     def forward(self, states: th.Tensor) -> th.Tensor:
         return self.selector(states)
@@ -252,7 +257,7 @@ class MLPSelector(SPPSelector):
 class MLPPredictor(SPPPredictor):
     def __init__(self, input_size: int, hidden_sizes: List[int], num_classes: int):
         super().__init__()
-        self.predictor = _mlp([input_size, *hidden_sizes, num_classes])
+        self.predictor = mlp([input_size, *hidden_sizes, num_classes])
 
     def forward(self, states: th.Tensor) -> th.Tensor:
         return self.predictor(states)

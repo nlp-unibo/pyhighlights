@@ -219,7 +219,13 @@ class MaskedBinaryCrossEntropy(th.nn.Module):
 
 
 class SparsityPenalty(th.nn.Module):
-    """Distance between the selection rate and a target rate."""
+    """Distance between the selection rate and a target rate, over the batch.
+
+    One rate for the whole batch -- every kept token over every real token --
+    rather than a mean of per-document rates. A short document and a long one
+    pull on it in proportion to their length, so a batch can meet the target
+    with the long documents while the short ones keep everything.
+    """
 
     def __init__(self, threshold: float = 0.15):
         super().__init__()

@@ -76,6 +76,16 @@ class TokenizedExample:
 
 
 class HighlightTokenizer(Protocol):
+    """What the collator needs of a tokenizer, as a structural type.
+
+    A ``Protocol`` is not a base class anybody inherits: it lists an attribute
+    and a method, and any object carrying both satisfies it as far as a type
+    checker is concerned. :class:`VocabularyTokenizer` and
+    :class:`HuggingFaceTokenizer` inherit nothing and both pass, and so would a
+    tokenizer written outside this package -- which is the point, since one of
+    the two wraps an object this library does not own.
+    """
+
     pad_token_id: int
 
     def encode(
@@ -117,6 +127,7 @@ class HuggingFaceTokenizer:
         self,
         pretrained_model_card: str,
         add_special_tokens: bool = True,
+        use_fast: bool = True,
         **tokenizer_kwargs,
     ):
         """``add_special_tokens`` keeps ``[CLS]`` and ``[SEP]``, and it should.
@@ -136,7 +147,9 @@ class HuggingFaceTokenizer:
                 "HuggingFaceTokenizer requires pyhighlights[transformers]"
             ) from error
 
-        if tokenizer_kwargs.pop("use_fast", True) is not True:
+        # An argument rather than something fished out of `**kwargs`: it is
+        # not forwarded as given, it is refused unless it is `True`.
+        if use_fast is not True:
             raise ValueError("HuggingFaceTokenizer requires a fast tokenizer")
         self.add_special_tokens = add_special_tokens
         self.tokenizer = AutoTokenizer.from_pretrained(
@@ -151,14 +164,16 @@ class HuggingFaceTokenizer:
     def encode(
         self, tokens: Sequence[str], max_length: int | None = None
     ) -> TokenizedExample:
-        kwargs = {
-            "is_split_into_words": True,
-            "add_special_tokens": self.add_special_tokens,
-            "return_attention_mask": False,
-        }
-        if max_length is not None:
-            kwargs.update(truncation=True, max_length=max_length)
-        encoded = self.tokenizer(list(tokens), **kwargs)
+        # `truncation=False, max_length=None` is what omitting both means, so
+        # the unbounded case needs no separate call.
+        encoded = self.tokenizer(
+            list(tokens),
+            is_split_into_words=True,
+            add_special_tokens=self.add_special_tokens,
+            return_attention_mask=False,
+            truncation=max_length is not None,
+            max_length=max_length,
+        )
         try:
             word_ids = encoded.word_ids()
         except (AttributeError, ValueError) as error:
@@ -213,6 +228,11 @@ class HighlightCollator:
 
     def knowledge(self, examples: Sequence[HighlightExample]) -> th.Tensor | None:
         """The links as a multi-hot ``[B, M]``, or ``None`` without a base.
+
+        ``B`` is the batch and ``M`` is ``knowledge_size``, one column per
+        knowledge base entry -- the same two axes every knowledge-side tensor
+        in this library carries, against ``T`` for the token axis.
+
 
         A row is ``-1`` where the example carries no annotation and ``0``/``1``
         where it carries one, so a fair clause annotated with an empty set is
@@ -271,6 +291,10 @@ class HighlightCollator:
             # Every encoded position, special tokens included: they carry no
             # word, but the encoder was pretrained reading them.
             attention.append([True] * len(input_ids) + [False] * padding)
+            # `-1` where a position carries no word -- a special token, or
+            # padding. Distinct from `0`, which is the *first* word: collapsing
+            # the two would make every special token look like a selection of
+            # the opening word.
             sources.append(
                 [-1 if word_id is None else word_id for word_id in word_ids]
                 + [-1] * padding

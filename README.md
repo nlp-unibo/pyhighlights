@@ -97,7 +97,7 @@ which words the model kept:
 
 ```python
 PredictionAnalyzer(directory="results").analyze()[
-    ["seed", "sample_id", "label", "predicted", "rationale"]
+    ["seed", "sample_id", "label", "predicted", "selected_text"]
 ]
 ```
 

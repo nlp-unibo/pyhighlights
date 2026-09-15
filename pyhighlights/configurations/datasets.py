@@ -104,9 +104,12 @@ class ToyConfig(LoaderConfig):
     """Synthetic corpus for smoke tests and demos; no download."""
 
     sizes: Dict[str, int] | None = Param(None)
-    triggers: List[str] = Param(["a great film", "a dull film"])
-    length: int = Param(24, ge=1)
-    vocabulary_size: int = Param(32, ge=1)
+    #: Character patterns, one per class. Tokens are characters here, as they
+    #: are in every toy corpus of this line of work.
+    triggers: List[str] = Param(["aa", "bcd"])
+    length: int = Param(20, ge=1)
+    #: How many filler characters, drawn from the letters no trigger uses.
+    vocabulary_size: int = Param(20, ge=1)
     seed: int = Param(0)
 
 
