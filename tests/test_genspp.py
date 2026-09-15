@@ -252,7 +252,8 @@ def test_inner_training_changes_only_predictor_and_validation_scores_fitness():
         parameter.detach().clone() for parameter in model.predictor_parameters()
     ]
 
-    search._train_predictor(model, [batch(sample_ids=(10, 11), labels=(0, 0))])
+    cpu = th.device("cpu")
+    search._train_predictor(model, [batch(sample_ids=(10, 11), labels=(0, 0))], cpu)
 
     assert all(
         th.equal(before, after)
@@ -264,7 +265,7 @@ def test_inner_training_changes_only_predictor_and_validation_scores_fitness():
     )
 
     validation = batch(sample_ids=(20, 21), labels=(1, 1))
-    task_loss, selection_rate = search._evaluate(model, [validation])
+    task_loss, selection_rate = search._evaluate(model, [validation], cpu)
     with th.no_grad():
         output = model(validation)
         expected_loss = th.nn.functional.cross_entropy(
@@ -293,7 +294,6 @@ def test_a_candidate_scores_the_same_wherever_it_is_evaluated():
     search._random.seed(7)
     search._torch_generator.manual_seed(7)
     search._initial_state = None
-    search._evaluation_seed = 11
     train, val = [batch()], [batch()]
 
     probe = search._chromosome(Registry.from_key(model)).clone()
@@ -302,8 +302,8 @@ def test_a_candidate_scores_the_same_wherever_it_is_evaluated():
     scores = []
     for position in range(3):
         for _ in range(position):
-            search._new_individual(train, val, decoy)
-        scores.append(search._new_individual(train, val, probe).fitness)
+            search._score(train, val, [decoy])
+        scores.append(search._score(train, val, [probe])[0].fitness)
 
     assert scores[0] == scores[1] == scores[2]
 
@@ -324,6 +324,53 @@ def test_the_first_generation_is_not_one_point_repeated():
     assert len(chromosomes) == 4
     for other in chromosomes[1:]:
         assert not th.equal(chromosomes[0], other)
+
+
+def test_scoring_a_candidate_does_not_touch_the_global_random_state():
+    """The property several devices depend on.
+
+    torch's default generator is process-wide, so a worker that read or seeded
+    it would be reading and seeding every other worker's. Scoring must not:
+    the model's own initialisation is overwritten by `_initial_state` outside
+    the chromosome and by the chromosome inside it, the loaders are
+    re-iterable sequences rather than shuffling ones, and the registered
+    configurations set `dropout_rate` to 0.
+
+    A dropout rate above zero would take this back silently, which is why the
+    property is asserted rather than assumed.
+    """
+    model = register_tiny_genspp()
+    search = trainer(model, seed=7, task_loss_limit=10.0)
+    train, val = [batch(labels=(0, 1))], [batch(labels=(0, 1))]
+    probe = search._founder_chromosome()
+
+    before = search._score(train, val, [probe])[0]
+    th.rand(1000)
+    after = search._score(train, val, [probe])[0]
+
+    assert before.fitness == after.fitness
+    assert before.task_loss == after.task_loss
+
+
+def test_several_devices_give_the_same_population_as_one():
+    """Threads change when a candidate is scored, never what it scores."""
+    model = register_tiny_genspp()
+    train, val = [batch(labels=(0, 1))], [batch(labels=(0, 1))]
+
+    sequential = trainer(model, n_generations=1, task_loss_limit=10.0)
+    sequential.fit(train, val)
+
+    # Four workers over one population of two, so a candidate's position no
+    # longer decides which thread runs it.
+    parallel = trainer(
+        model, n_generations=1, task_loss_limit=10.0, devices=["cpu"] * 4
+    )
+    parallel.fit(train, val)
+
+    assert sequential.training_progress == parallel.training_progress
+    assert [individual.fitness for individual in sequential.population] == [
+        individual.fitness for individual in parallel.population
+    ]
 
 
 def test_search_rejects_single_pass_loaders():

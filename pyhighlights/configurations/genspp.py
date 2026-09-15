@@ -106,7 +106,10 @@ class GRUGenSPPTrainerConfig(Configuration):
     task_loss_limit: float = Param(0.1, ge=0.0)
     stop_threshold: float = Param(0.01, gt=0.0)
     seed: int | None = Param(None)
-    device: str = Param("cpu")
+    devices: List[str] = Param(["cpu"])
+    """One worker per device. ``["cpu"] * 8`` is the released implementation's
+    CPU thread pool; ``["cuda:0", "cuda:1"]`` is a node's cards. A candidate is
+    small enough that a device runs a whole one."""
 
 
 @register_class(

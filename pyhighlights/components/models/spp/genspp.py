@@ -5,7 +5,8 @@ import random
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from itertools import chain
-from typing import Iterable
+from multiprocessing.pool import ThreadPool
+from typing import Iterable, List, Tuple
 
 import lightning as L
 import torch as th
@@ -171,7 +172,7 @@ class GenSPPTrainer:
         task_loss_limit: float = 0.1,
         stop_threshold: float = 0.01,
         seed: int | None = None,
-        device: str = "cpu",
+        devices: Sequence[str] = ("cpu",),
     ):
         if n_generations < 0:
             raise ValueError("n_generations must be non-negative")
@@ -197,14 +198,20 @@ class GenSPPTrainer:
         self.task_loss_limit = task_loss_limit
         self.stop_threshold = stop_threshold
         self.seed = seed
-        self.device = th.device(device)
+        if not devices:
+            raise ValueError("devices must name at least one device")
+        # One worker per device, which is the same knob for both cases the
+        # search is run under: ``("cpu",) * 8`` is the released implementation's
+        # CPU thread pool, ``("cuda:0", "cuda:1")`` is a node's cards. A
+        # candidate is small enough that splitting one across devices would
+        # cost more than it saves, so a device runs a whole candidate.
+        self.devices = [th.device(device) for device in devices]
 
         self.population: list[_Individual] = []
         self.training_progress: list[float] = []
         self._best_model: GenSPP | None = None
         self._best_fitness = -math.inf
         self._initial_state: dict[str, th.Tensor] | None = None
-        self._evaluation_seed = 0
         self._random = random.Random()
         self._torch_generator = th.Generator()
 
@@ -229,7 +236,7 @@ class GenSPPTrainer:
         if isinstance(train_loader, Iterator) or isinstance(val_loader, Iterator):
             raise ValueError("train and validation loaders must be re-iterable")
 
-        with th.random.fork_rng(devices=self._devices()):
+        with th.random.fork_rng(devices=self._cuda_indices()):
             return self._fit(train_loader, val_loader)
 
     def _fit(
@@ -248,19 +255,13 @@ class GenSPPTrainer:
         self._best_model = None
         self._best_fitness = -math.inf
         self._initial_state = None
-        # One seed for every candidate, so an evaluation starts from the same
-        # random state whenever it runs. Drawn once here rather than fixed, so
-        # `seed=None` still varies between runs.
-        self._evaluation_seed = self._random.randrange(2**31)
-        # Chromosomes first, drawn from the search's own random state, then
-        # evaluated under the fixed one. Drawing them inside the evaluation
-        # would give every founder the same generator: the seed there is fixed
-        # precisely so that it cannot vary, and an initial population of one
-        # repeated point leaves mutation as the only source of diversity.
-        self.population = [
-            self._new_individual(train_loader, val_loader, self._founder_chromosome())
-            for _ in range(self.population_size)
-        ]
+        # Chromosomes first, drawn here from the search's own random state,
+        # and scored after. Scoring cannot draw them: it does not read the
+        # global generator at all, by the requirement several devices rest on,
+        # so every founder would come back with the model's shared initial
+        # state and the first generation would be one point repeated.
+        founders = [self._founder_chromosome() for _ in range(self.population_size)]
+        self.population = self._score(train_loader, val_loader, founders)
         self.training_progress.clear()
 
         for _ in range(self.n_generations):
@@ -282,25 +283,67 @@ class GenSPPTrainer:
         self._align_initial_state(model)
         return self._chromosome(model).clone()
 
-    def _best_individual(self) -> _Individual:
-        return max(self.population, key=lambda individual: individual.fitness)
-
-    def _new_individual(
+    def _score(
         self,
         train_loader: Iterable[InputData],
         val_loader: Iterable[InputData],
-        chromosome: th.Tensor | None = None,
-    ) -> _Individual:
-        with th.random.fork_rng(devices=self._devices()):
-            th.manual_seed(self._evaluation_seed)
-            return self._evaluate_individual(train_loader, val_loader, chromosome)
+        chromosomes: List[th.Tensor],
+    ) -> List[_Individual]:
+        """Score candidates, one device each, and record the best of them.
+
+        Threads rather than processes, as the released implementation does:
+        the work is inside torch, which releases the GIL, and a process would
+        have to ship a model back over a pipe. A candidate takes its device
+        from its position, so a run naming one device is the sequential search
+        and pays for no pool.
+        """
+        work = [
+            (chromosome, self.devices[index % len(self.devices)])
+            for index, chromosome in enumerate(chromosomes)
+        ]
+
+        def score(item):
+            return self._evaluate_individual(train_loader, val_loader, *item)
+
+        if len(self.devices) == 1:
+            scored = [score(item) for item in work]
+        else:
+            with ThreadPool(processes=len(self.devices)) as pool:
+                scored = pool.map(score, work)
+
+        # Sequentially, and after every worker has finished: `_best_fitness` is
+        # trainer state, and two workers improving on it at once would lose one
+        # of the two.
+        individuals = []
+        for individual, model in scored:
+            if individual.fitness > self._best_fitness:
+                self._best_fitness = individual.fitness
+                self._best_model = model
+            individuals.append(individual)
+        return individuals
+
+    def _best_individual(self) -> _Individual:
+        return max(self.population, key=lambda individual: individual.fitness)
 
     def _evaluate_individual(
         self,
         train_loader: Iterable[InputData],
         val_loader: Iterable[InputData],
-        chromosome: th.Tensor | None = None,
-    ) -> _Individual:
+        chromosome: th.Tensor | None,
+        device: th.device,
+    ) -> Tuple[_Individual, GenSPP]:
+        """Score one candidate on one device.
+
+        **This must not read or advance the global random state**, which is
+        what lets several candidates run at once: torch's default generator is
+        process-wide, so a thread seeding it would be seeding every other
+        thread's dropout as well. Nothing here does — the model's own random
+        initialisation is entirely overwritten, by ``_initial_state`` outside
+        the chromosome and by the chromosome inside it, and the loaders are
+        re-iterable sequences rather than shuffling ones.
+        ``test_scoring_a_candidate_does_not_touch_the_global_random_state``
+        holds it, because a dropout rate above zero would quietly take it back.
+        """
         model = Registry.from_key(self.model, expected_type=GenSPP)
         self._align_initial_state(model)
         parameters = model.generator_parameters()
@@ -318,8 +361,8 @@ class GenSPPTrainer:
                     )
                     offset += size
 
-        self._train_predictor(model, train_loader)
-        task_loss, selection_rate = self._evaluate(model, val_loader)
+        self._train_predictor(model, train_loader, device)
+        task_loss, selection_rate = self._evaluate(model, val_loader, device)
         fitness = self.compute_fitness(
             task_loss=task_loss,
             selection_rate=selection_rate,
@@ -331,16 +374,19 @@ class GenSPPTrainer:
             task_loss=task_loss,
             selection_rate=selection_rate,
         )
-        if fitness > self._best_fitness:
-            self._best_fitness = fitness
-            self._best_model = model
-        return individual
+        # The caller records the best, sequentially. Doing it here would be a
+        # race between workers on `_best_fitness`.
+        return individual, model
 
-    def _devices(self) -> list[int]:
-        if self.device.type != "cuda":
-            return []
-        index = self.device.index
-        return [index if index is not None else th.cuda.current_device()]
+    @staticmethod
+    def _cuda_index(device: th.device) -> int:
+        return device.index if device.index is not None else th.cuda.current_device()
+
+    def _cuda_indices(self) -> list[int]:
+        """The CUDA devices `fork_rng` has to save, which may be none."""
+        return [
+            self._cuda_index(device) for device in self.devices if device.type == "cuda"
+        ]
 
     def _align_initial_state(self, model: GenSPP) -> None:
         """Give every candidate the predictor the first one started from.
@@ -388,7 +434,7 @@ class GenSPPTrainer:
             if id(parameter) in evolving
         }
 
-    def _lightning(self) -> L.Trainer:
+    def _lightning(self, device: th.device) -> L.Trainer:
         """A throwaway trainer for one candidate.
 
         The search keeps nothing but the weights it ends up with, so logs,
@@ -398,11 +444,11 @@ class GenSPPTrainer:
         # One device, named: ``devices="auto"`` on a machine with several GPUs
         # would spread one candidate over all of them, and the search evaluates
         # thousands of candidates one after another.
-        cuda = self.device.type == "cuda"
+        cuda = device.type == "cuda"
         return L.Trainer(
             max_epochs=self.predictor_epochs,
-            accelerator="gpu" if cuda else self.device.type,
-            devices=self._devices() if cuda else "auto",
+            accelerator="gpu" if cuda else device.type,
+            devices=[self._cuda_index(device)] if cuda else "auto",
             logger=False,
             enable_checkpointing=False,
             enable_progress_bar=False,
@@ -411,7 +457,7 @@ class GenSPPTrainer:
         )
 
     def _train_predictor(
-        self, model: GenSPP, train_loader: Iterable[InputData]
+        self, model: GenSPP, train_loader: Iterable[InputData], device: th.device
     ) -> None:
         generator_parameters = model.generator_parameters()
         if not model.predictor_parameters():
@@ -428,15 +474,15 @@ class GenSPPTrainer:
                 if isinstance(train_loader, Sequence)
                 else train_loader
             )
-            self._lightning().fit(model, train_dataloaders=batches)
+            self._lightning(device).fit(model, train_dataloaders=batches)
         finally:
             for parameter in generator_parameters:
                 parameter.requires_grad_(True)
 
     def _evaluate(
-        self, model: GenSPP, val_loader: Iterable[InputData]
+        self, model: GenSPP, val_loader: Iterable[InputData], device: th.device
     ) -> tuple[float, float]:
-        model.to(self.device)
+        model.to(device)
         model.eval()
         total_loss = 0.0
         total_rate = 0.0
@@ -444,7 +490,7 @@ class GenSPPTrainer:
 
         with th.no_grad():
             for batch in val_loader:
-                batch = batch.to(self.device)
+                batch = batch.to(device)
                 output = model(batch)
                 batch_size = batch.y_true.shape[0]
                 loss, _ = model.compute_loss(batch, output)
@@ -471,18 +517,12 @@ class GenSPPTrainer:
                 self.population, weights=weights, k=2
             )
             child_1, child_2 = self._crossover(parent_1.chromosome, parent_2.chromosome)
-            children.extend(
-                [
-                    self._new_individual(
-                        train_loader, val_loader, self._mutate(child_1)
-                    ),
-                    self._new_individual(
-                        train_loader, val_loader, self._mutate(child_2)
-                    ),
-                ]
-            )
+            children.extend([self._mutate(child_1), self._mutate(child_2)])
 
-        self.population = self._select_survivors([*self.population, *children])
+        # One pool for the whole generation rather than one per couple: every
+        # child of a generation is independent of every other.
+        scored = self._score(train_loader, val_loader, children)
+        self.population = self._select_survivors([*self.population, *scored])
 
     def _select_survivors(self, candidates: list[_Individual]) -> list[_Individual]:
         candidates = sorted(
