@@ -301,6 +301,14 @@ Two things differ:
 * A validation split is required. Fitness is task loss traded against selection
   rate, and both are measured there.
 
+A generation draws ``int(selection_rate * population_size)`` couples by
+roulette wheel and crosses each into two children, so the default 0.5 adds one
+child per member: 25 couples and 50 children against a population of 50. The
+children compete with their parents rather than replacing them, and survival is
+half elitism -- the best half kept outright, the other half drawn from what is
+left, fitness-proportional and without replacement. The population that comes
+out of a generation is the size that went in.
+
 Each candidate's predictor is fitted by a throwaway Lightning trainer, so the
 inner training is the same code path every other model trains through --
 logging, checkpointing and sanity checks off, since a hundred generations build
