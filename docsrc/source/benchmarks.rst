@@ -24,6 +24,12 @@ are indexed so their namespaces can be referenced — the reproduction is what
 runs, the library is what it points at. Building only the library leaves the
 paper keys absent, which is the point.
 
+Each corpus is a package of its own — ``configurations/toy/`` and
+``configurations/hatexplain/`` — one module per kind of thing registered, and
+its keys beside them in ``<corpus>/keys.py``. Neither imports the other;
+``configurations/keys.py`` holds only what both need, the namespace and the
+seeds.
+
 Each reproduction takes its own namespace, so two papers over one corpus can
 prepare it differently without either becoming "the" version of it.
 
@@ -37,7 +43,7 @@ Genetic-based Learning* — `paper <https://aclanthology.org/2025.acl-long.59/>`
 
 .. code-block:: python
 
-   from pyhighlights_benchmarks.genspp2025.configurations.keys import TOY_BENCHMARK
+   from pyhighlights_benchmarks.genspp2025.configurations.toy.keys import TOY_BENCHMARK
 
    Registry.from_key(TOY_BENCHMARK, save_path="results").run()
 

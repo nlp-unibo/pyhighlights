@@ -10,14 +10,16 @@ from cinnamon.registry import Registry
 import pyhighlights
 import pyhighlights_benchmarks
 from pyhighlights.components.preprocessors import Preprocessor
-from pyhighlights_benchmarks.genspp2025.configurations.keys import (
+from pyhighlights_benchmarks.genspp2025.configurations.hatexplain.keys import (
     HATEXPLAIN_GENSPP,
     HATEXPLAIN_GENSPP_TRAINER,
     HATEXPLAIN_GRAT,
     HATEXPLAIN_PIPELINE,
     HATEXPLAIN_SPARSITY,
     HATEXPLAIN_SPARSITY_LOSS,
-    SEEDS,
+)
+from pyhighlights_benchmarks.genspp2025.configurations.keys import SEEDS
+from pyhighlights_benchmarks.genspp2025.configurations.toy.keys import (
     TOY_BENCHMARK,
     TOY_FR_TASK,
     TOY_GENSPP,
