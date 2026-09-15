@@ -8,6 +8,7 @@ import pytest
 import torch as th
 from cinnamon.configuration import Configuration, Param
 from cinnamon.registry import RegistrationKey, Registry
+from torch.utils.data import DataLoader
 
 import pyhighlights
 from pyhighlights.components.models import InputData
@@ -332,10 +333,11 @@ def test_scoring_a_candidate_does_not_read_the_global_random_state():
     torch's default generator is process-wide, so anything a worker drew from
     it would depend on how the threads interleaved. No result may: the model's
     own initialisation is overwritten by `_initial_state` outside the
-    chromosome and by the chromosome inside it, the loaders are re-iterable
-    sequences rather than shuffling ones, and the registered configurations
-    set `dropout_rate` to 0. A dropout rate above zero would take that back
-    silently, which is why this is asserted rather than assumed.
+    chromosome and by the chromosome inside it, the batches arrive as the list
+    `_fit` froze rather than as a loader that would shuffle them again, and the
+    registered configurations set `dropout_rate` to 0. A dropout rate above
+    zero would take that back silently, which is why this is asserted rather
+    than assumed.
 
     Scoring does *advance* that state -- building a model draws from it -- and
     that is fine, which is the second assertion here: the search's own
@@ -386,6 +388,53 @@ def test_several_devices_give_the_same_population_as_one():
     assert [individual.fitness for individual in sequential.population] == [
         individual.fitness for individual in parallel.population
     ]
+
+
+def test_every_candidate_trains_on_the_same_batch_order():
+    """A shuffling loader must not make fitness depend on evaluation order.
+
+    `GenSPPTask` hands the search the training `DataLoader` the task built,
+    which shuffles. Re-iterating it draws a new permutation, so before `_fit`
+    froze one the same chromosome scored differently depending on how many
+    candidates preceded it -- and with a pool, on how the workers interleaved.
+    """
+    orders: List[List[List[int]]] = []
+
+    class RecordingTrainer(GenSPPTrainer):
+        def _train_predictor(self, model, train_loader, device):
+            orders.append([list(item.sample_ids.tolist()) for item in train_loader])
+            super()._train_predictor(model, train_loader, device)
+
+    rows = [
+        InputData(
+            features=th.tensor([[1, 2, 3]]),
+            mask=th.tensor([[1.0, 1.0, 1.0]]),
+            sample_ids=th.tensor([index]),
+            y_true=th.tensor([index % 2]),
+            highlight_true=th.full((1, 3), -1),
+        )
+        for index in range(8)
+    ]
+    shuffling = DataLoader(rows, batch_size=None, shuffle=True)
+
+    search = RecordingTrainer(
+        model=register_tiny_genspp(),
+        n_generations=1,
+        population_size=4,
+        predictor_epochs=1,
+        task_loss_limit=10.0,
+        seed=7,
+    )
+    search.fit(shuffling, rows)
+
+    # One founder and one child per candidate of a two-generation search, so
+    # this is not one candidate compared with itself.
+    assert len(orders) == 8
+    assert all(order == orders[0] for order in orders[1:])
+    # The frozen order is one the loader shuffled, not the order it was
+    # written in: a loader that happened not to shuffle would pass the
+    # assertion above without proving anything.
+    assert orders[0] != [[index] for index in range(8)]
 
 
 def test_search_rejects_single_pass_loaders():

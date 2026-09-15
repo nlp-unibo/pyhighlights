@@ -250,6 +250,30 @@ class GenSPPTrainer:
             self._torch_generator.manual_seed(self.seed)
             th.manual_seed(self.seed)
 
+        # Drawn once, here, and handed to every candidate as a list. A
+        # `DataLoader` over a training split shuffles, so re-iterating it draws
+        # a new permutation from the global random state: the same chromosome
+        # then scores differently depending on how many candidates came before
+        # it, which is the defect `_align_initial_state` closes on the other
+        # side. Threads make it worse rather than introducing it -- with a pool
+        # the permutation a candidate gets depends on how the workers
+        # interleaved. One order, fixed before the search starts, is what makes
+        # a fitness a property of its chromosome.
+        #
+        # After the seeding above, so the order is the seed's and a rerun
+        # repeats it.
+        #
+        # The validation batches are held for a different reason: `_evaluate`
+        # sums over all of them, so their order never mattered, but a loader
+        # re-collates the split once per candidate and a search has thousands
+        # of those.
+        # ponytail: both splits stay in memory for the search; stream them
+        # again if a corpus arrives that does not fit.
+        train_batches = list(train_loader)
+        val_batches = list(val_loader)
+        if not train_batches:
+            raise ValueError("training loader must contain at least one batch")
+
         self._best_model = None
         self._best_fitness = -math.inf
         # Before any pool exists. Left to the first candidate, two workers
@@ -262,11 +286,11 @@ class GenSPPTrainer:
         # so every founder would come back with the model's shared initial
         # state and the first generation would be one point repeated.
         founders = [self._founder_chromosome() for _ in range(self.population_size)]
-        self.population = self._score(train_loader, val_loader, founders)
+        self.population = self._score(train_batches, val_batches, founders)
         self.training_progress.clear()
 
         for _ in range(self.n_generations):
-            self._run_generation(train_loader, val_loader)
+            self._run_generation(train_batches, val_batches)
             best_loss = 1.0 / self._best_individual().fitness
             self.training_progress.append(best_loss)
             if best_loss <= self.stop_threshold:
@@ -340,10 +364,10 @@ class GenSPPTrainer:
         process-wide, so what a thread drew from it would depend on how the
         threads interleaved. Nothing does — the model's own initialisation is
         entirely overwritten, by ``_initial_state`` outside the chromosome and
-        by the chromosome inside it, the loaders are re-iterable sequences
-        rather than shuffling ones, and the registered configurations set
-        ``dropout_rate`` to 0. A dropout rate above zero would take that back
-        silently, so
+        by the chromosome inside it, the batches arrive as the list :meth:`_fit`
+        froze rather than as a loader that would shuffle them again, and the
+        registered configurations set ``dropout_rate`` to 0. A dropout rate
+        above zero would take that back silently, so
         ``test_scoring_a_candidate_does_not_read_the_global_random_state``
         asserts it.
 
