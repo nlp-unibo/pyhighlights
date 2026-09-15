@@ -197,10 +197,9 @@ def test_a_searched_model_reads_the_vectors_the_task_was_given(tmp_path):
     build_registry()
     vectors = tmp_path / "vectors.txt"
     # GENSPP_GRU_BACKBONE is 128-dimensional, and the file has to match it.
+    # The toy corpus is characters, so its vocabulary is letters.
     vectors.write_text(
-        "".join(
-            f"{token} {' '.join(['0.1'] * 128)}\n" for token in ("a", "great", "film")
-        )
+        "".join(f"{token} {' '.join(['0.1'] * 128)}\n" for token in ("e", "f", "g"))
     )
 
     task = Registry.from_key(
