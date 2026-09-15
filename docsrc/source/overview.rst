@@ -33,7 +33,11 @@ which is what every architecture below is a different answer to.
 The architectures
 -----------------
 
-All eight are registered for both a GRU and a Transformer backbone. The
+All eight are registered for both a GRU and a Transformer backbone.
+:class:`~pyhighlights.components.models.spp.grounded.GroundedSPP` is not a
+ninth. It grounds its highlights in a corpus's knowledge base rather than
+answering the discrete-choice problem differently, and it leaves the
+select-then-predict guarantee as it is, so it is an extension. The
 algorithms never mention either: a backbone is anything implementing
 ``encode`` / ``pool`` / ``output_size``, and swapping one for the other is a
 key, not a code change.

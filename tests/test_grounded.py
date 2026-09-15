@@ -1,7 +1,7 @@
 """Grounded SPP: a highlight pair per knowledge entry, and the subset named.
 
-The decisions these pin are in ``DESIGN_knowledge_grounding``. Two of them are
-load-bearing and neither is visible from the shapes: the union the predictor
+Two of the decisions these pin are load-bearing, and neither is visible from
+the shapes: the union the predictor
 reads is **ungated**, and the gate is **not** repaired when it comes out empty.
 """
 

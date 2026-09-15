@@ -13,7 +13,9 @@ that match the input. A comparer scores each pair, and those scores name the
 subset ``K_x``. The predictor reads the union of the input-side highlights and
 classifies from that alone, so the select-then-predict guarantee is unchanged.
 
-See ``DESIGN_knowledge_grounding`` for why each piece is the shape it is.
+Why each piece is the shape it is was settled in the project's design notes,
+which are not part of this repository. What a reader needs in order to use
+these classes is here and in ``docsrc/source/models.rst``.
 """
 
 from __future__ import annotations

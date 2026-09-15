@@ -28,7 +28,14 @@ from typing import Any, Dict, Mapping, Sequence
 
 from cinnamon.registry import RegistrationKey, Registry
 
-__all__ = ["ANNOTATIONS", "PACKAGES", "describe", "resolve", "versions"]
+__all__ = [
+    "ANNOTATIONS",
+    "PACKAGES",
+    "describe",
+    "registration_key",
+    "resolve",
+    "versions",
+]
 
 #: The packages whose version can change a number. Anything else installed
 #: alongside them is noise in a file somebody has to read.

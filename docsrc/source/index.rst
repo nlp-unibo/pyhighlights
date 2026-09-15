@@ -17,7 +17,7 @@ produces a worse prediction, which is measurable rather than arguable.
    object, so a paper's ``r`` is this library's ``h``. Metric names stay as
    published, so a reported column still matches the paper it comes from.
 
-Five architectures over two backbones, five corpora, and a whole experiment
+Eight architectures over two backbones, five corpora, and a whole experiment
 behind one key:
 
 .. code-block:: python
@@ -65,7 +65,7 @@ manifest naming the key and the arguments that produced them, and — when asked
    roadmap
    contributing
 
-- :doc:`overview` — what select-then-predict is, how the five architectures
+- :doc:`overview` — what select-then-predict is, how the eight architectures
   differ, and what the library deliberately does not ship.
 - :doc:`quickstart` — a tutorial that runs: one experiment end to end, then
   reading the results back.

@@ -179,7 +179,8 @@ def test_a_genspp_task_searches_scores_and_writes_down_its_generations(tmp_path)
         predictions[0]
     )
 
-    # One entry per generation: the best fitness the search reached in it.
+    # One entry per generation: the best objective the search reached in it,
+    # which is `1 / fitness` and falls rather than climbs.
     progress = json.loads((directory / "search.json").read_text())
     assert len(progress["training_progress"]) == 1
 

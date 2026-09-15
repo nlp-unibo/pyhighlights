@@ -206,6 +206,12 @@ class GenSPPTrainer:
         self.devices = [th.device(device) for device in devices]
 
         self.population: list[_Individual] = []
+        #: One entry per generation: the best **objective** reached in it,
+        #: which is ``1 / fitness`` and therefore falls as the search
+        #: improves. It is what ``stop_threshold`` is compared against. The
+        #: name is the released implementation's rather than a description,
+        #: and it is serialized under itself inside ``search.json``, so it is
+        #: left alone rather than renamed under existing readers.
         self.training_progress: list[float] = []
         self._best_model: GenSPP | None = None
         self._best_fitness = -math.inf

@@ -315,9 +315,12 @@ how the workers interleaved. The whole training split is held in memory for
 the duration of the search as a result.
 
 Alongside the usual per-seed files, a GenSPP run writes ``best.ckpt`` -- the
-weights the search settled on -- and ``search.json``, the best fitness of every
-generation. A search that stopped improving in its tenth generation and one
-still climbing when the budget ran out report the same metrics otherwise.
+weights the search settled on -- and ``search.json``, one entry per generation
+under ``training_progress``. The entry is the best **objective** the search
+reached in that generation, ``1 / fitness``, so it falls as the search improves
+and it is what ``stop_threshold`` is compared against. A search that stopped
+improving in its tenth generation and one still descending when the budget ran
+out report the same metrics otherwise.
 
 Class weights
 -------------

@@ -591,9 +591,11 @@ class GenSPPTask(SPPTask):
     search over a population of two dozen is the noisiest part of the run.
 
     Each seed leaves behind the weights the search settled on and
-    ``search.json``, the best fitness of every generation: a search that
-    stopped improving in its tenth generation and one that was still climbing
-    when the budget ran out report the same number otherwise.
+    ``search.json``, one entry per generation under ``training_progress``: the
+    best objective the search reached in it, which is ``1 / fitness`` and so
+    **falls** as the search improves. A search that stopped improving in its
+    tenth generation and one that was still descending when the budget ran out
+    report the same number otherwise.
     """
 
     def __init__(self, search: RegistrationKey[GenSPPTrainer], **kwargs):

@@ -8,8 +8,8 @@ import nox
 PYTHON_VERSIONS = ["3.10", "3.11", "3.12", "3.13"]
 LINT_VERSION = "3.12"
 
-#: Test workers. The suite is 153 mostly independent tests of well under a
-#: second each, so it spent most of its wall clock on per-test setup rather
+#: Test workers. The suite is a few hundred mostly independent tests of well
+#: under a second each, so it spent most of its wall clock on per-test setup rather
 #: than on arithmetic -- 23s serial under coverage, 10s across eight workers.
 #: Capped rather than left at ``-n auto``: every worker pays the torch import
 #: and coverage startup again, so past eight the fixed cost outgrows what

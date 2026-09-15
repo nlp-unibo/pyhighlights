@@ -129,7 +129,9 @@ a loader does, so two studies over one corpus can prepare it differently.
 
 **Reproductions** live in `pyhighlights_benchmarks`, beside the library rather
 than inside it, so nothing here carries one paper's values. GenSPP (ACL 2025)
-is the first: two corpora against all five architectures.
+is the first: two corpora against the five architectures that paper compares —
+FR, MCD, MGR, G-RAT and GenSPP — rather than against all eight the library
+ships.
 
 ## Where it is going
 
