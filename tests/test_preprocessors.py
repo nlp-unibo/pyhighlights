@@ -3,6 +3,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 from cinnamon.registry import Registry
+from pydantic import ValidationError
 
 import pyhighlights
 from pyhighlights.components.leakage import LeakageDetector
@@ -23,6 +24,7 @@ from pyhighlights.configurations.keys import (
     LEAKAGE_REMOVER,
     PIPELINE,
 )
+from pyhighlights.configurations.preprocessors import ClassWeightsConfig
 from tests.corpora import UNPINNED, hatexplain, r2a
 
 HATEXPLAIN_LABELS = ("hatespeech", "normal", "offensive")
@@ -261,6 +263,25 @@ def test_class_weights_refuse_what_is_not_a_class_index():
         class_weights([])
     with pytest.raises(ValueError, match="non-negative"):
         class_weights([0, -1])
+
+
+def test_class_weights_refuse_a_count_the_split_contradicts():
+    """A class count smaller than the labels is not a count, and said so late.
+
+    `classes=1` over a binary split returned `[2.0]` -- one weight, the other
+    class dropped without a word -- and a non-positive count returned `[]`.
+    Either one reaches training as a weight vector shorter than the model's
+    output layer, and fails there about a shape.
+    """
+    with pytest.raises(ValueError, match="label 1 is not a class of 1"):
+        class_weights([0, 1], classes=1)
+    for impossible in (0, -1):
+        with pytest.raises(ValueError, match="at least one class"):
+            class_weights([0], classes=impossible)
+
+    # And the configuration refuses it before a split is ever read.
+    with pytest.raises(ValidationError):
+        ClassWeightsConfig(classes=0)
 
 
 def test_the_class_weights_step_reads_a_split_and_changes_nothing():

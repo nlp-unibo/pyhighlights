@@ -437,6 +437,28 @@ def test_every_candidate_trains_on_the_same_batch_order():
     assert orders[0] != [[index] for index in range(8)]
 
 
+def test_a_diverged_candidate_is_refused_where_it_diverged():
+    """A NaN loss must not be found a generation later by the roulette wheel.
+
+    `compute_fitness` compares the loss against its limit, and a NaN compares
+    false, so the candidate came back with a NaN fitness instead of the floor.
+    That survives into the population and fails inside `random.choices` with
+    `Total of weights must be finite` -- which names neither the candidate nor
+    the device that trained it.
+    """
+    assert math.isnan(
+        GenSPPTrainer.compute_fitness(
+            task_loss=float("nan"), selection_rate=0.3, task_loss_limit=10.0
+        )
+    )
+
+    search = trainer(register_tiny_genspp())
+    search._evaluate = lambda *arguments: (float("nan"), 0.3)
+
+    with pytest.raises(ValueError, match="non-finite fitness"):
+        search.fit([batch()], [batch()])
+
+
 def test_search_rejects_single_pass_loaders():
     search = trainer(register_tiny_genspp())
     with pytest.raises(ValueError, match="re-iterable"):
