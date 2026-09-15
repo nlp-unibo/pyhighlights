@@ -44,6 +44,30 @@ def _checked_names(names: List[str]) -> List[str]:
     return names
 
 
+def _checked_members(members: List[tarfile.TarInfo]) -> List[tarfile.TarInfo]:
+    """Only files and directories, on top of the name check.
+
+    Checking names is not enough for a tar, because a name is checked against
+    the archive and extraction happens against the filesystem. A member may be
+    a symlink, and ``extractall`` creates it: ``link -> ../outside`` followed by
+    ``link/payload`` writes outside the staging directory through a path that
+    holds no ``..`` of its own. Python 3.14 refuses that by default and every
+    version this package supports does not, so the refusal is here rather than
+    in an extraction filter.
+
+    A corpus archive needs nothing else -- the released ERASER movies tar is
+    2006 files and 2 directories -- so refusing the rest costs nothing and
+    leaves no link semantics to reason about.
+    """
+    for member in members:
+        if not (member.isfile() or member.isdir()):
+            raise ValueError(
+                f"refusing to extract archive member {member.name}: "
+                "a corpus archive holds only files and directories"
+            )
+    return members
+
+
 def extract(archive: Path, directory: Path) -> Path:
     """Unpack ``archive`` into ``directory`` once; return ``directory``."""
     if directory.exists():
@@ -57,8 +81,9 @@ def extract(archive: Path, directory: Path) -> Path:
             source.extractall(staging, members=_checked_names(source.namelist()))
     elif tarfile.is_tarfile(archive):
         with tarfile.open(archive) as source:
-            _checked_names(source.getnames())
-            source.extractall(staging)
+            members = source.getmembers()
+            _checked_names([member.name for member in members])
+            source.extractall(staging, members=_checked_members(members))
     else:
         raise ValueError(f"{archive} is neither a zip nor a tar archive")
     staging.replace(directory)
