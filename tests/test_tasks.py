@@ -314,6 +314,54 @@ def test_a_task_can_embed_its_tokens_with_a_vector_file(tmp_path):
     assert "embedding_matrix" not in written["settings"]
 
 
+def test_a_task_can_take_the_vector_file_s_own_vocabulary(tmp_path):
+    """The released HateXplain collator embeds from all of GloVe, not the corpus.
+
+    ``vocabulary_from="vectors"`` is that: a token the training split never saw
+    keeps its vector, where the default drops it to the unknown id. On the
+    GenSPP splits the difference is 5.4% of validation tokens.
+    """
+    build_registry()
+    vectors = tmp_path / "vectors.txt"
+    # One token the toy corpus uses and one it never does.
+    vectors.write_text(
+        "".join(f"{token} {' '.join(['0.1'] * 128)}\n" for token in ("film", "unseen"))
+    )
+
+    corpus = SPPTask(
+        loader=TOY,
+        model=GRU_FR,
+        save_path=str(tmp_path),
+        embeddings=str(vectors),
+    )
+    assert set(corpus.tokenizer(corpus.splits()).vocabulary) == {"film"}
+
+    whole = SPPTask(
+        loader=TOY,
+        model=GRU_FR,
+        save_path=str(tmp_path),
+        embeddings=str(vectors),
+        vocabulary_from="vectors",
+    )
+    assert set(whole.tokenizer(whole.splits()).vocabulary) == {"film", "unseen"}
+    # The model's table is sized to whichever vocabulary it was handed.
+    assert whole.build_model().selector_backbone.embedding.num_embeddings == 3
+
+
+def test_a_task_that_embeds_from_a_file_refuses_to_run_without_one():
+    """Forgetting the vector file is a run, not a crash, unless this refuses.
+
+    The registered HateXplain task declared a vocabulary of two, so a build
+    without ``embeddings=`` produced ``{'the': 1}`` and trained on it.
+    """
+    with pytest.raises(ValueError, match="given none"):
+        SPPTask(loader=TOY, model=GRU_FR, vocabulary_from="vectors")
+    with pytest.raises(ValueError, match="given none"):
+        SPPTask(loader=TOY, model=GRU_FR, requires_embeddings=True)
+    with pytest.raises(ValueError, match="'corpus' or 'vectors'"):
+        SPPTask(loader=TOY, model=GRU_FR, vocabulary_from="glove")
+
+
 def test_a_task_embeds_its_tokens_one_way_or_the_other(tmp_path):
     with pytest.raises(ValueError, match="not both"):
         SPPTask(

@@ -10,14 +10,21 @@ the numbers:
   annotators split three ways gets a different label;
 * the surviving votes and rationales are reduced by majority.
 
-Tokens are embedded with GloVe ``twitter.27B`` at 25 dimensions, frozen, and
-the vocabulary is restricted to what the release covers. That file is a
-1.4 GB download the paper expects you to fetch yourself, so it is a path the
-task is given rather than a URL it fetches::
+Tokens are embedded with GloVe ``twitter.27B`` at 25 dimensions, frozen.
+
+**The vocabulary is GloVe's, not the corpus's.** The released collator is
+built with ``use_pretrained_only=True``, under which it ignores the dataframe
+it is handed and takes the whole of ``twitter.27B`` as its vocabulary. So no
+evaluation token is unknown that GloVe covers, and that is what
+``vocabulary_from="vectors"`` reproduces. Fitting on the training split
+instead leaves 5.4% of validation tokens and 5.6% of test tokens embedded as
+zero.
+
+That file is a 1.4 GB download the paper expects you to fetch yourself, so it
+is a path the task is given rather than a URL it fetches::
 
     Registry.from_key(HATEXPLAIN_FR_TASK, embeddings="glove.twitter.27B.25d.txt")
-"""
 
-#: GloVe twitter covers what it covers; the table is replaced on load, so this
-#: is a placeholder rather than a number anybody has to get right.
-VOCABULARY_SIZE = 2
+Leaving it out is refused rather than run: without the file there is no
+vocabulary to take.
+"""

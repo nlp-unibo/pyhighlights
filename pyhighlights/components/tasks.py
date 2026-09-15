@@ -20,7 +20,7 @@ import logging
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Sequence
+from typing import Any, Dict, Iterable, List, Literal, Mapping, Sequence
 
 import lightning as L
 import numpy as np
@@ -205,6 +205,8 @@ class SPPTask(Task):
         add_special_tokens: bool = True,
         embeddings: str | Path | None = None,
         pretrained_tokens_only: bool = True,
+        vocabulary_from: Literal["corpus", "vectors"] = "corpus",
+        requires_embeddings: bool = False,
         one_hot_embeddings: int | None = None,
         callbacks: List[RegistrationKey[Callback]] | None = None,
         store_predictions: bool = False,
@@ -236,6 +238,26 @@ class SPPTask(Task):
         self.add_special_tokens = add_special_tokens
         self.embeddings = Path(embeddings) if embeddings is not None else None
         self.pretrained_tokens_only = pretrained_tokens_only
+        if vocabulary_from not in ("corpus", "vectors"):
+            raise ValueError(
+                f"vocabulary_from is 'corpus' or 'vectors', not {vocabulary_from!r}"
+            )
+        #: Where the token ids come from when a vector file is read. ``corpus``
+        #: keeps the training vocabulary and lets the file cover it; ``vectors``
+        #: takes the file's own vocabulary whole, so a token absent from
+        #: training still has its vector. See :meth:`tokenizer`.
+        self.vocabulary_from = vocabulary_from
+        #: Whether the task is meaningless without ``embeddings``. A
+        #: reproduction of a run that embeds from a released vector file is:
+        #: the file is a download the task is given rather than fetches, and
+        #: forgetting it otherwise trains on whatever vocabulary the corpus
+        #: happens to produce and reports numbers for it.
+        self.requires_embeddings = requires_embeddings or vocabulary_from == "vectors"
+        if self.requires_embeddings and self.embeddings is None:
+            raise ValueError(
+                f"{self.name}: this task embeds from a vector file and was "
+                "given none; pass embeddings= when building it"
+            )
         #: Width of a one-hot table, or ``None`` for a learned one. A corpus of
         #: symbols has nothing to pretrain and nothing to learn: see
         #: :func:`~pyhighlights.utility.embeddings.one_hot_table`.
@@ -295,6 +317,22 @@ class SPPTask(Task):
         vector file instead, and the matrix that comes back is handed to the
         model, which sizes its table to it. ``one_hot_embeddings`` builds that
         matrix rather than reading one, for a corpus whose tokens are symbols.
+
+        ``vocabulary_from`` decides what "against a vector file" means, and the
+        two answers are different experiments:
+
+        - ``"corpus"`` keeps the training vocabulary and drops the tokens the
+          file has no vector for. A token the training split never saw is
+          unknown at evaluation whatever the file covers.
+        - ``"vectors"`` takes the file's vocabulary whole. Nothing is unknown
+          that the file covers, which is what a released implementation
+          embedding from a fixed pretrained vocabulary does -- and it is not a
+          leak, because the file is external and says nothing about the splits.
+
+        The choice is worth the flag. On the GenSPP HateXplain splits, 5.4% of
+        validation tokens and 5.6% of test tokens are absent from the training
+        vocabulary, so ``"corpus"`` hands the model a zero vector for one
+        evaluation token in eighteen that ``"vectors"`` embeds.
         """
         if self.pretrained_model_card is not None:
             return HuggingFaceTokenizer(
@@ -305,12 +343,16 @@ class SPPTask(Task):
         # corpus has none: a vocabulary that saw the evaluation text leaks it.
         training = [splits["train"]] if "train" in splits else []
         if self.embeddings is not None:
-            words = {
-                token
-                for frame in training
-                for tokens in frame["tokens"]
-                for token in tokens
-            }
+            words = (
+                None
+                if self.vocabulary_from == "vectors"
+                else {
+                    token
+                    for frame in training
+                    for tokens in frame["tokens"]
+                    for token in tokens
+                }
+            )
             table, self._embedding_matrix = load_vectors(
                 self.embeddings,
                 tokens=words,
