@@ -274,7 +274,7 @@ def test_the_prediction_analyzer_reports_what_the_selector_kept(tmp_path):
         "predicted",
         "tokens",
         "selected",
-        "rationale",
+        "selected_text",
         "highlights",
     ]
     # One row per test sample, and the words are words rather than ids.
@@ -284,9 +284,9 @@ def test_the_prediction_analyzer_reports_what_the_selector_kept(tmp_path):
     for row in report.itertuples(index=False):
         assert all(isinstance(token, str) for token in row.tokens)
         # A selection names positions in the words it selected from, and the
-        # rationale is those words.
+        # selected_text is those words.
         assert all(0 <= word < len(row.tokens) for word in row.selected)
-        assert row.rationale == " ".join(row.tokens[word] for word in row.selected)
+        assert row.selected_text == " ".join(row.tokens[word] for word in row.selected)
         assert row.label in (0, 1)
         assert row.predicted in (0, 1)
 
@@ -496,7 +496,7 @@ def test_a_padded_position_is_nobody_s_word(tmp_path):
     (row,) = PredictionAnalyzer(directory=tmp_path).analyze().itertuples(index=False)
 
     assert row.selected == []
-    assert row.rationale == ""
+    assert row.selected_text == ""
 
 
 def test_offsets_span_the_text_the_tokens_join_into():

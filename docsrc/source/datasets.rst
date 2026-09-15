@@ -63,7 +63,7 @@ configuration instead of in code.
    records the count per split.
 
 :class:`~pyhighlights.components.preprocessors.AnnotationAggregator`
-   Reduces per-annotator labels and rationales to one of each. See HateXplain
+   Reduces per-annotator labels and highlights to one of each. See HateXplain
    below.
 
 :class:`~pyhighlights.components.preprocessors.LengthFilter`
@@ -323,7 +323,9 @@ differently:
 
 ``highlights``
    ``rationale="majority"`` keeps a token marked by more than half of the
-   rationale vectors, ``"union"`` by any of them, ``"intersection"`` by all.
+   annotators, ``"union"`` by any of them, ``"intersection"`` by all. The
+   argument keeps HateXplain's word for its own field; the result is a
+   highlight like any other.
 
 :data:`~pyhighlights.configurations.keys.HATEXPLAIN_PIPELINE` chains the
 aggregator with a

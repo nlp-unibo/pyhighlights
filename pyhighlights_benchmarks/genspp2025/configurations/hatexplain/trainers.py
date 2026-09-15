@@ -20,7 +20,11 @@ from pyhighlights_benchmarks.genspp2025.configurations.keys import (
     component="pyhighlights.components.models.spp.genspp.GenSPPTrainer",
 )
 class HateXplainGenSPPTrainerConfig(GRUGenSPPTrainerConfig):
-    """A looser expected cross entropy than the toy corpus: 0.6 against 0.1."""
+    """The genetic search over GenSPP's generator, at the paper's settings."""
 
     model: RegistrationKey[GenSPP] = Param(HATEXPLAIN_GENSPP)
+    #: Cross entropy above which a candidate scores the fitness floor whatever
+    #: it selected, so sparsity cannot be bought with a model that has stopped
+    #: classifying. Real-world text does not reach the loss a synthetic corpus
+    #: does, so the bar is set where a working classifier actually sits.
     task_loss_limit: float = Param(0.6, ge=0.0)

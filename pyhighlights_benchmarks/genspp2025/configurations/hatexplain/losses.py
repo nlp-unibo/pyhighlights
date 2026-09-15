@@ -30,7 +30,7 @@ LOSS_COMPONENT = "pyhighlights.utility.losses.Loss"
     component="pyhighlights.utility.losses.SparsityPenalty",
 )
 class HateXplainSparsityConfig(SparsityPenaltyConfig):
-    """A higher selection target than the toy corpus asks for."""
+    """The share of a post the paper asks a selector to keep."""
 
     threshold: float = Param(0.22, ge=0.0, le=1.0)
 

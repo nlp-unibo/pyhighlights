@@ -77,7 +77,10 @@ class SPP(Model[SPPOutput]):
     #: ``current_epoch >= pretrain_epochs``, so its early epochs train a guider
     #: and leave the thing a monitor watches untouched. Read by the monitoring
     #: callbacks, which is why it lives on the model -- a task repeating the
-    #: number is a second place for it to disagree.
+    #: number is a second place for it to disagree. Declared on the family
+    #: rather than on G-RAT alone so the contract is stated: the callbacks
+    #: reach it with ``getattr``, which would otherwise be the only place it
+    #: is named.
     warmup_epochs: int = 0
 
     def __init__(
@@ -97,6 +100,9 @@ class SPP(Model[SPPOutput]):
         encoder_lr: float | None = None,
         supervise_highlights: bool = False,
         highlight_loss: RegistrationKey[Loss] | None = None,
+        # `Loss.coefficient`, set from here rather than from the registration:
+        # it is passed into `Registry.from_key` below, so weighting the term
+        # differently does not mean registering a second loss for each weight.
         highlight_coefficient: float = 1.0,
         **kwargs,
     ):

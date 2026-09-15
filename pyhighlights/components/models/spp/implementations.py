@@ -147,6 +147,10 @@ def _mlp(sizes: List[int]) -> th.nn.Sequential:
 class StackedBackbone(SPPBackbone):
     """A pretrained encoder read by a recurrent one trained from scratch.
 
+    Registered as ``StackedBackboneConfig`` and available to any study; no
+    benchmark in this repository configures it, since the reproductions here
+    are the GloVe-and-GRU papers it generalises.
+
     The architecture the select-then-predict papers actually use, with a better
     frozen representation underneath it. FR, MCD, MGR and G-RAT all encode with
     a bidirectional GRU over a **frozen** embedding table -- GloVe, in every
