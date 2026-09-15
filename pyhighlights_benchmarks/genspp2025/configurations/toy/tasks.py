@@ -14,7 +14,10 @@ from pyhighlights_benchmarks.genspp2025.configurations.common import (
 from pyhighlights_benchmarks.genspp2025.configurations.keys import (
     NAMESPACE,
 )
-from pyhighlights_benchmarks.genspp2025.configurations.toy import VOCABULARY_SIZE
+from pyhighlights_benchmarks.genspp2025.configurations.toy import (
+    EMBEDDING_DIM,
+    VOCABULARY_SIZE,
+)
 from pyhighlights_benchmarks.genspp2025.configurations.toy.keys import (
     TOY,
     TOY_FR,
@@ -34,10 +37,9 @@ class ToyTaskConfig(PaperTaskConfig):
     val_metrics: List[RegistrationKey] = Param(THREE_CLASS_METRICS)
     test_metrics: List[RegistrationKey] = Param(THREE_CLASS_METRICS)
     vocabulary_size: int = Param(VOCABULARY_SIZE, ge=2)
-    #: One-hot inputs, as the release reads this corpus. The width is the
-    #: vocabulary's own size here, and has to match the backbone's
-    #: ``embedding_dim``.
-    one_hot_embeddings: int = Param(25, ge=1)
+    #: One-hot inputs, as the release reads this corpus. One column per
+    #: character, matching the backbone's ``embedding_dim``.
+    one_hot_embeddings: int = Param(EMBEDDING_DIM, ge=1)
 
 
 @register_class(
@@ -102,6 +104,6 @@ class ToyGenSPPTaskConfig(PaperGenSPPTaskConfig):
     val_metrics: List[RegistrationKey] = Param(THREE_CLASS_METRICS)
     test_metrics: List[RegistrationKey] = Param(THREE_CLASS_METRICS)
     vocabulary_size: int = Param(VOCABULARY_SIZE, ge=2)
-    #: Twenty-six, which is the width the genetic half declares -- two
-    #: columns wider than the corpus has characters.
-    one_hot_embeddings: int = Param(26, ge=1)
+    #: The same table the baselines read. The genetic half of the release
+    #: declares 26 columns for the same twenty-four characters.
+    one_hot_embeddings: int = Param(EMBEDDING_DIM, ge=1)
