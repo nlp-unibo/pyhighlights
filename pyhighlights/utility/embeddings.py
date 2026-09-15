@@ -55,9 +55,15 @@ def load_vectors(
     The file is one line per token: the token, then its vector, whitespace
     separated -- the format GloVe, fastText and word2vec's text export share.
 
-    ``tokens`` restricts the result to a corpus, and should be the training
-    vocabulary: keeping vectors for words only the test split uses costs
-    memory and tells the model which words those are.
+    ``tokens`` restricts the result to a corpus, and is usually the training
+    vocabulary: reading every row of a released file costs memory, and a token
+    the training split never saw is one the run has no reason to embed.
+
+    ``None`` reads the file whole, which is what a reproduction of a run
+    embedding from a fixed pretrained vocabulary needs -- see
+    :meth:`~pyhighlights.components.tasks.SPPTask.tokenizer` and its
+    ``vocabulary_from``. It leaks nothing: which words a released vector file
+    holds says nothing about which split uses them.
 
     ``pretrained_only`` decides what happens to a corpus token the file has no
     vector for. ``True`` drops it, so every row is a released vector and the

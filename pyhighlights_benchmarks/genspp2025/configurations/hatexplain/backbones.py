@@ -4,7 +4,6 @@ from cinnamon.configuration import Param
 from cinnamon.registry import register_class
 
 from pyhighlights.configurations.backbones import GRUBackboneConfig
-from pyhighlights_benchmarks.genspp2025.configurations.hatexplain import VOCABULARY_SIZE
 from pyhighlights_benchmarks.genspp2025.configurations.keys import (
     NAMESPACE,
 )
@@ -21,7 +20,14 @@ GRU_BACKBONE_COMPONENT = (
     component=GRU_BACKBONE_COMPONENT,
 )
 class HateXplainBackboneConfig(GRUBackboneConfig):
-    vocab_size: int = Param(VOCABULARY_SIZE, ge=1)
+    """The baselines' encoder, embedding from the GloVe table the task reads."""
+
+    #: A placeholder. The task reads GloVe and hands the matrix to the model,
+    #: and :meth:`GRUBackbone.load_embeddings` **replaces** the table rather
+    #: than copying into it, so the size declared here is never the size used.
+    #: ``embedding_dim`` below is not a placeholder: the replacement is refused
+    #: if its width disagrees.
+    vocab_size: int = Param(2, ge=1)
     embedding_dim: int = Param(25, ge=1)
     hidden_size: int = Param(16, ge=1)
     freeze_embeddings: bool = Param(True)
