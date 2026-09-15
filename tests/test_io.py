@@ -1,4 +1,5 @@
 import hashlib
+import io
 import tarfile
 import zipfile
 from pathlib import Path
@@ -53,6 +54,50 @@ def test_unsafe_archive_members_are_refused(tmp_path):
         extract(tar, tmp_path / "tar-out")
 
     assert not (tmp_path / "escaped.txt").exists()
+
+
+def test_a_tar_symlink_cannot_carry_a_write_outside_the_target(tmp_path):
+    """Neither member name holds ``..``; together they escape without the fix.
+
+    ``link -> ../outside`` is a name the name check accepts, and so is
+    ``link/pwned.txt``. ``extractall`` creates the first and then follows it,
+    which put the payload in ``outside/`` on every Python this package
+    supports: 3.14 refuses it through its own default filter, 3.10 to 3.13 do
+    not.
+    """
+    archive = tmp_path / "escape.tar"
+    with tarfile.open(archive, "w") as target:
+        link = tarfile.TarInfo("link")
+        link.type = tarfile.SYMTYPE
+        link.linkname = "../outside"
+        target.addfile(link)
+        payload = b"owned"
+        member = tarfile.TarInfo("link/pwned.txt")
+        member.size = len(payload)
+        target.addfile(member, io.BytesIO(payload))
+    (tmp_path / "outside").mkdir()
+
+    with pytest.raises(ValueError, match="only files and directories"):
+        extract(archive, tmp_path / "out")
+
+    assert not (tmp_path / "outside" / "pwned.txt").exists()
+
+
+def test_a_tar_of_files_and_directories_still_unpacks(tmp_path):
+    """What a corpus archive actually holds is untouched by the refusal."""
+    archive = tmp_path / "corpus.tar.gz"
+    with tarfile.open(archive, "w:gz") as target:
+        directory = tarfile.TarInfo("docs")
+        directory.type = tarfile.DIRTYPE
+        directory.mode = 0o755
+        target.addfile(directory)
+        payload = b"a row"
+        member = tarfile.TarInfo("docs/rows.txt")
+        member.size = len(payload)
+        target.addfile(member, io.BytesIO(payload))
+
+    unpacked = extract(archive, tmp_path / "out")
+    assert (unpacked / "docs" / "rows.txt").read_text() == "a row"
 
 
 def test_only_zip_and_tar_archives_are_understood(tmp_path):
