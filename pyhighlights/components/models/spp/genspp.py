@@ -159,8 +159,6 @@ class _Individual:
 class GenSPPTrainer:
     """External search matching released GenSPP's selection-rate objective."""
 
-    # ponytail: fitness is sequential; add device-aware workers when measured.
-
     def __init__(
         self,
         model: RegistrationKey[GenSPP],
