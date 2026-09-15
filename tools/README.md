@@ -51,8 +51,8 @@ is what a reviewer checks a run against.
   `23fcb4cac883ec1de86d83a7747294d7fdae10061d3803fd4c34c930e66f25de`
 - ERASER movies — `https://www.eraserbenchmark.com/zipped/movies.tar.gz`,
   `66e18d4e6c9df9e9f5544572b0bfe92a39673f74ecbfc3859b46cedb2f5b2dee`. The
-  benchmark does not publish this digest and `ERASERLoader` still defaults
-  `sha256` to `None`.
+  benchmark does not publish this digest; `ERASERLoader` computed it once and
+  defaults `sha256` to it.
 - GenSPP toy — `nlp-unibo/gen-spp`, `genetic/data/toy_dataset.pkl`,
   `2ee223d8aecd6ee9a585aa695a6fd5fd6f4c10c39fe6046ffb833d7ab44fb064`
 
