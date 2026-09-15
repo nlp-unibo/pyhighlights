@@ -41,7 +41,10 @@ def tests(session: nox.Session) -> None:
         "--cov=pyhighlights",
         "--cov=pyhighlights_benchmarks",
         "--cov-branch",
-        "--cov-fail-under=75",
+        # Measured at 95% on 2026-09-14. A gate far under the real number
+        # gates nothing: at 75 a regression could delete a fifth of the
+        # covered branches and CI would stay green.
+        "--cov-fail-under=92",
         "--cov-report=term-missing",
     )
 

@@ -313,6 +313,20 @@ def write_run(
     return run
 
 
+def test_a_split_the_corpus_does_not_have_is_named(tmp_path):
+    """The analyzer runs after training, so its errors have to be readable.
+
+    `ClassWeights` already says which split it wanted and which it got. This
+    said `KeyError: 'dev'` at the end of a run that had already spent its GPU.
+    """
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+    run = write_run(tmp_path, {"highlight_mask": [[1.0]], "mask": [[1.0]]})
+    analyzer = PredictionAnalyzer(directory=tmp_path, split="dev")
+
+    with pytest.raises(KeyError, match="no 'dev' split"):
+        analyzer.corpus(run)
+
+
 def test_a_selected_subtoken_selects_its_whole_word(tmp_path):
     """Selections are made over subtokens and reported over words."""
     Registry.build(directory=Path(pyhighlights.__file__).parent)
