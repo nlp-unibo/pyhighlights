@@ -328,7 +328,13 @@ def test_a_split_the_corpus_does_not_have_is_named(tmp_path):
 
 
 def test_a_selected_subtoken_selects_its_whole_word(tmp_path):
-    """Selections are made over subtokens and reported over words."""
+    """Selections are made over subtokens and reported over words.
+
+    The two axes are different widths, and the batch says so: ``mask`` is the
+    word axis, ``word_ids`` and a subtoken selection are the encoding's. This
+    fixture used to give ``mask`` the encoding's width, which no run writes --
+    and which hid that combining the two raised rather than folding them.
+    """
     Registry.build(directory=Path(pyhighlights.__file__).parent)
     sample_id = int(Registry.from_key(TOY).load()["test"]["sample_id"].iloc[0])
     write_run(
@@ -337,7 +343,7 @@ def test_a_selected_subtoken_selects_its_whole_word(tmp_path):
             # Four positions over two words, then a padded one. The second
             # subtoken of word 1 is selected and nothing else is.
             "word_ids": [[0, 0, 1, 1, -1]],
-            "mask": [[1.0, 1.0, 1.0, 1.0, 0.0]],
+            "mask": [[1.0, 1.0]],
             "highlight_mask": [[0.0, 0.0, 0.0, 1.0, 1.0]],
             "class_logits": [[0.1, 0.9]],
             "sample_ids": [sample_id],
@@ -353,6 +359,58 @@ def test_a_selected_subtoken_selects_its_whole_word(tmp_path):
     # Word 1 selected once, word 0 never, and the padded position is nobody's.
     assert row.selected == [1]
     assert row.predicted == 1
+
+
+def test_a_position_is_a_word_position_on_either_axis(tmp_path):
+    """A subtoken selection is folded before it is binned, not truncated.
+
+    The position analyzer read the subtoken mask but sliced it to the word
+    count, so a selection past that count vanished and one before it landed on
+    the wrong word. Here word 2 of three is selected through its second
+    subtoken, at index 4 of a five-wide encoding: sliced to three, nothing was
+    selected at all and the document reported a rate of zero.
+    """
+    run = tmp_path / "2026-01-01T00-00-00"
+    run.mkdir()
+    pd.to_pickle(
+        [
+            {
+                "word_ids": [[-1, 0, 1, 2, 2]],
+                "mask": [[1.0, 1.0, 1.0]],
+                "highlight_mask": [[0.0, 0.0, 0.0, 0.0, 1.0]],
+            }
+        ],
+        run / "predictions-seed=0.pkl",
+    )
+
+    report = HighlightPositionAnalyzer(directory=tmp_path, bins=3).analyze()
+
+    assert report.loc[0, "samples"] == 1
+    # One word of three, and the third one.
+    assert report.loc[0, "selection_rate"] == pytest.approx(1 / 3)
+    assert report.loc[0, "bin_0"] == pytest.approx(0.0)
+    assert report.loc[0, "bin_2"] == pytest.approx(1.0)
+
+
+def test_a_word_split_in_two_is_still_one_word(tmp_path):
+    """Both pieces selected is one word kept, not two."""
+    run = tmp_path / "2026-01-01T00-00-00"
+    run.mkdir()
+    pd.to_pickle(
+        [
+            {
+                "word_ids": [[0, 1, 1, -1]],
+                "mask": [[1.0, 1.0]],
+                "highlight_mask": [[0.0, 1.0, 1.0, 0.0]],
+            }
+        ],
+        run / "predictions-seed=0.pkl",
+    )
+
+    report = HighlightPositionAnalyzer(directory=tmp_path, bins=2).analyze()
+
+    assert report.loc[0, "selection_rate"] == pytest.approx(0.5)
+    assert report.loc[0, "bin_1"] == pytest.approx(1.0)
 
 
 def test_a_sample_the_corpus_no_longer_holds_is_skipped(tmp_path):

@@ -496,6 +496,11 @@ analyzer serves a notebook, a test and a LaTeX table.
    mask per head; the analysis reads the head its aggregator keeps, which is
    the one every reported metric scored.
 
+   Positions are word positions on either selection axis: a selection made
+   over subtokens is folded through ``word_ids`` first, exactly as
+   ``PredictionAnalyzer`` folds it, and a word split into several pieces is
+   one word however many of its pieces were selected.
+
    ``absolute`` asks the other question. A model keying on the first three
    words of every document does that regardless of how long the document is,
    and a share hides it — in the first bin of a short document, and in the
