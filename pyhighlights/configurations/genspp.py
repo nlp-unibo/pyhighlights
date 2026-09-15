@@ -100,6 +100,9 @@ class GRUGenSPPTrainerConfig(Configuration):
     model: RegistrationKey[GenSPP] = Param(GRU_GENSPP)
     n_generations: int = Param(100, ge=0)
     population_size: int = Param(50, ge=2)
+    #: Couples per generation as a share of the population. Each crosses into
+    #: two children, so the release's 0.5 adds one child per member.
+    selection_rate: float = Param(0.5, gt=0.0, le=1.0)
     mutation_probability: float = Param(1.0, gt=0.0, le=1.0)
     mutation_std: float = Param(0.05, gt=0.0)
     predictor_epochs: int = Param(3, ge=1)

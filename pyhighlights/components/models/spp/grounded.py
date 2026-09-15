@@ -181,12 +181,12 @@ class GroundedSPP(SPP):
         entries_count, entry_width, _ = entries.shape
         shape = (batch, entries_count)
 
-        # ponytail: the conditioned states are materialised as [B, M, T, 2D].
-        # At the widths this library runs -- a GRU over a frozen transformer,
-        # D around 256, and ToS clauses well under 256 words -- that is on the
-        # order of a hundred megabytes. A wide backbone over long documents
-        # would need this chunked over M, or the concatenation replaced by a
-        # projected sum.
+        # The conditioned states are materialised as [B, M, T, 2D]. At the
+        # widths this library runs -- a GRU over a frozen transformer, D around
+        # 256, and ToS clauses well under 256 words -- that is on the order of
+        # a hundred megabytes. A wide backbone over long documents would need
+        # this chunked over M, or the concatenation replaced by a projected
+        # sum.
         pair_logits = selector(
             th.cat(
                 [
