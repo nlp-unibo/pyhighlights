@@ -12,7 +12,6 @@ from pyhighlights_benchmarks.genspp2025.configurations.common import (
     PaperGenSPPTaskConfig,
     PaperTaskConfig,
 )
-from pyhighlights_benchmarks.genspp2025.configurations.hatexplain import VOCABULARY_SIZE
 from pyhighlights_benchmarks.genspp2025.configurations.hatexplain.keys import (
     HATEXPLAIN_FR,
     HATEXPLAIN_GENSPP_TRAINER,
@@ -33,9 +32,12 @@ class HateXplainTaskConfig(PaperTaskConfig):
 
     loader: RegistrationKey = Param(HATEXPLAIN)
     preprocessor: RegistrationKey[Preprocessor] | None = Param(HATEXPLAIN_PIPELINE)
+    #: The GloVe file, which the task is given rather than fetching. Building
+    #: without it is refused.
     embeddings: str | None = Param(None)
-    pretrained_tokens_only: bool = Param(True)
-    vocabulary_size: int = Param(VOCABULARY_SIZE, ge=2)
+    #: GloVe's whole vocabulary, as the released collator's
+    #: ``use_pretrained_only=True`` takes it.
+    vocabulary_from: str = Param("vectors")
 
 
 @register_class(
@@ -94,10 +96,25 @@ class HateXplainGRATTaskConfig(HateXplainTaskConfig):
     run_method="run",
 )
 class HateXplainGenSPPTaskConfig(PaperGenSPPTaskConfig):
+    """GenSPP over HateXplain, which embeds unlike the four baselines.
+
+    The genetic half of the release builds its vocabulary from the training
+    split and looks a token id back up in a detokenizer built from it
+    (``genetic/src/preprocessing/dataset_reader/dataset.py``). A token the
+    training split never saw resolves to ``None`` and is embedded as zeros, so
+    this half is ``vocabulary_from="corpus"`` where the baselines are
+    ``"vectors"``.
+
+    One difference is left standing: a *training* token GloVe has no vector for
+    is dropped here and embedded as a fixed ``uniform(-0.05, 0.05)`` placeholder
+    there.
+    """
+
     name: str = Param("hatexplain-genspp")
     loader: RegistrationKey = Param(HATEXPLAIN)
     preprocessor: RegistrationKey[Preprocessor] | None = Param(HATEXPLAIN_PIPELINE)
     search: RegistrationKey = Param(HATEXPLAIN_GENSPP_TRAINER)
     embeddings: str | None = Param(None)
     pretrained_tokens_only: bool = Param(True)
-    vocabulary_size: int = Param(VOCABULARY_SIZE, ge=2)
+    vocabulary_from: str = Param("corpus")
+    requires_embeddings: bool = Param(True)

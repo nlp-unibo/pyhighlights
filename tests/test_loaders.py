@@ -105,8 +105,11 @@ def test_toy_corpus_marks_its_trigger_and_repeats_for_a_seed():
 
     row = splits["train"].iloc[0]
     marked = [token for token, flag in zip(row.tokens, row.highlights) if flag]
-    assert " ".join(marked) == "a great film"
-    assert len(row.highlights) == len(row.tokens) == 9
+    # Tokens are characters, and the trigger is a character pattern.
+    assert "".join(marked) == "aa"
+    assert all(len(token) == 1 for token in row.tokens)
+    assert row.text == "".join(row.tokens)
+    assert len(row.highlights) == len(row.tokens) == 8
     assert sorted(splits["train"]["label"].unique()) == [0, 1]
 
     assert ToyLoader(seed=3).load()["train"].equals(ToyLoader(seed=3).load()["train"])
@@ -116,6 +119,32 @@ def test_toy_corpus_marks_its_trigger_and_repeats_for_a_seed():
 
     with pytest.raises(ValueError, match="one trigger per class"):
         ToyLoader(triggers=["only one"])
+
+
+def test_the_toy_filler_can_never_spell_a_trigger():
+    """The one property the corpus has to have: the trigger is where it was put.
+
+    The released generator reaches it by cleaning the sequence and rejecting a
+    sample that satisfies another class; this reaches it by drawing filler from
+    the letters no trigger uses.
+    """
+    loader = ToyLoader(sizes={"train": 200}, triggers=("aa", "bcd"), seed=11)
+    frame = loader.load()["train"]
+
+    assert not set(loader.alphabet) & set("abcd")
+    for row in frame.itertuples():
+        marked = "".join(
+            token for token, flag in zip(row.tokens, row.highlights) if flag
+        )
+        assert marked == loader.triggers[row.label]
+        # Its own trigger appears once, and no other class's appears at all.
+        assert row.text.count(marked) == 1
+        for other in loader.triggers:
+            if other != marked:
+                assert other not in row.text
+
+    with pytest.raises(ValueError, match="triggers leave"):
+        ToyLoader(triggers=("abcdefghijklm", "nopqrstuvwxyz"), vocabulary_size=1)
 
 
 def test_hatexplain_keeps_every_annotator_judgement(tmp_path):

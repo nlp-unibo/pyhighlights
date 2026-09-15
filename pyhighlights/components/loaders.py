@@ -4,6 +4,7 @@ import abc
 import csv
 import json
 import random
+import string
 from pathlib import Path
 from typing import Dict, List, Mapping, Sequence
 
@@ -249,27 +250,60 @@ class HotelLoader(R2ALoader):
 
 
 class ToyLoader(HighlightLoader):
-    """Synthetic corpus: one trigger phrase per class inside filler tokens.
+    """Synthetic corpus: one character pattern per class inside filler characters.
+
+    **Tokens are characters**, as they are in every toy corpus of this line of
+    work: ``GenSPPToyLoader`` reads a released one with ``list(row.text)``, and
+    the generator it comes from samples an alphabet. A trigger is therefore a
+    string of characters like ``"aa"``, not a phrase.
 
     Every split is annotated, the highlights are exactly the trigger, and no
-    download is involved — which makes it the cheap way to exercise a model,
-    a configuration or a training loop end to end.
+    download is involved — which makes it the cheap way to exercise a model, a
+    configuration or a training loop end to end.
+
+    **It is a smoke test, not the paper's corpus.** The released generator
+    places several patterns per class at positions a constraint solver picks,
+    then contaminates the sequence with partial chunks of other classes'
+    patterns. Nothing here does: one contiguous trigger, one class. A
+    reproduction reads the released pickle through
+    :class:`~pyhighlights_benchmarks.genspp2025.corpora.GenSPPToyLoader`.
     """
+
+    #: Where filler characters come from, minus whatever the triggers use.
+    ALPHABET = string.ascii_lowercase
 
     def __init__(
         self,
         sizes: Mapping[str, int] | None = None,
-        triggers: Sequence[str] = ("a great film", "a dull film"),
-        length: int = 24,
-        vocabulary_size: int = 32,
+        triggers: Sequence[str] = ("aa", "bcd"),
+        length: int = 20,
+        vocabulary_size: int = 20,
         seed: int = 0,
         **kwargs,
     ):
+        """``vocabulary_size`` is how many filler characters there are.
+
+        They are drawn from the letters no trigger uses, so a trigger can only
+        appear where this put one: two adjacent filler characters can never
+        spell ``"aa"`` if ``a`` is not a filler character. The released
+        generator reaches the same end by cleaning the sequence and rejecting
+        any sample that accidentally satisfies another class.
+        """
         super().__init__(**kwargs)
         if len(triggers) < 2:
             raise ValueError("ToyLoader needs one trigger per class")
         if length < 1 or vocabulary_size < 1:
             raise ValueError("length and vocabulary_size must be positive")
+        if any(not trigger for trigger in triggers):
+            raise ValueError("a trigger is at least one character")
+        used = {character for trigger in triggers for character in trigger}
+        self.alphabet = [letter for letter in self.ALPHABET if letter not in used]
+        if len(self.alphabet) < vocabulary_size:
+            raise ValueError(
+                f"{vocabulary_size} filler characters were asked for and the "
+                f"triggers leave {len(self.alphabet)} of {len(self.ALPHABET)}"
+            )
+        self.alphabet = self.alphabet[:vocabulary_size]
         self.sizes = dict(sizes or {"train": 64, "val": 16, "test": 16})
         self.triggers = list(triggers)
         self.length = length
@@ -280,17 +314,14 @@ class ToyLoader(HighlightLoader):
         rows = []
         for index in range(size):
             label = index % len(self.triggers)
-            trigger = self.triggers[label].split()
-            filler = [
-                f"w{generator.randrange(self.vocabulary_size)}"
-                for _ in range(self.length)
-            ]
+            trigger = list(self.triggers[label])
+            filler = [generator.choice(self.alphabet) for _ in range(self.length)]
             at = generator.randrange(len(filler) + 1)
             tokens = filler[:at] + trigger + filler[at:]
             rows.append(
                 {
                     "sample_id": index,
-                    "text": " ".join(tokens),
+                    "text": "".join(tokens),
                     "tokens": tokens,
                     "label": label,
                     "highlights": [0] * at
