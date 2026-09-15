@@ -104,18 +104,33 @@ class HighlightMetric(Metric):
 
 
 class BinaryHighlightF1Score(HighlightMetric):
+    """``nan`` where there is nothing to score, deliberately.
+
+    The denominator is zero when no annotated position was marked, either by
+    the corpus or by the model. Two ways to reach it: the metric was never
+    updated, or every position it saw was a true negative -- a split with no
+    annotations, or one whose rows annotate that nothing is a highlight and a
+    model that selected nothing on them.
+
+    Both are the same statement -- no highlight was asked for and none was
+    offered -- and ``nan`` is what says it. Returning 0.0, which is what
+    torchmetrics' own ``zero_division`` default does, would be a *score*, and a
+    score of zero says the model got everything wrong. Returning 1.0 would say
+    it got everything right for selecting nothing. Neither happened.
+
+    An earlier comment here claimed an unannotated row still counts a false
+    positive, so that only an unused metric could divide by zero. It does not:
+    :meth:`HighlightMetric.update` masks predictions by ``valid``, so a row the
+    corpus does not annotate contributes to no counter at all.
+    """
+
     def compute(self) -> th.Tensor:
-        # `nan` on a metric that was never updated, deliberately. Returning 0.0
-        # -- which is what torchmetrics' own `zero_division` default does --
-        # would be a score, and a score of zero says the model got everything
-        # wrong rather than that nothing was asked. torchmetrics already warns
-        # when `compute` precedes `update`, so the case is loud either way.
-        # A row nobody annotated cannot reach here silently: it still counts a
-        # false positive, so the denominator is only zero when no row did.
         return (2 * self.tp) / (2 * self.tp + self.fp + self.fn)
 
 
 class BinaryHighlightIoU(HighlightMetric):
+    """``nan`` where there is nothing to score; see :class:`BinaryHighlightF1Score`."""
+
     def compute(self) -> th.Tensor:
         return self.tp / (self.tp + self.fp + self.fn)
 
