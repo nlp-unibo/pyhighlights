@@ -203,7 +203,8 @@ class GenSPPTrainer:
         self.training_progress: list[float] = []
         self._best_model: GenSPP | None = None
         self._best_fitness = -math.inf
-        self._frozen_state: list[th.Tensor] | None = None
+        self._initial_state: dict[str, th.Tensor] | None = None
+        self._evaluation_seed = 0
         self._random = random.Random()
         self._torch_generator = th.Generator()
 
@@ -228,14 +229,7 @@ class GenSPPTrainer:
         if isinstance(train_loader, Iterator) or isinstance(val_loader, Iterator):
             raise ValueError("train and validation loaders must be re-iterable")
 
-        devices = []
-        if self.device.type == "cuda":
-            devices = [
-                self.device.index
-                if self.device.index is not None
-                else th.cuda.current_device()
-            ]
-        with th.random.fork_rng(devices=devices):
+        with th.random.fork_rng(devices=self._devices()):
             return self._fit(train_loader, val_loader)
 
     def _fit(
@@ -253,9 +247,18 @@ class GenSPPTrainer:
 
         self._best_model = None
         self._best_fitness = -math.inf
-        self._frozen_state = None
+        self._initial_state = None
+        # One seed for every candidate, so an evaluation starts from the same
+        # random state whenever it runs. Drawn once here rather than fixed, so
+        # `seed=None` still varies between runs.
+        self._evaluation_seed = self._random.randrange(2**31)
+        # Chromosomes first, drawn from the search's own random state, then
+        # evaluated under the fixed one. Drawing them inside the evaluation
+        # would give every founder the same generator: the seed there is fixed
+        # precisely so that it cannot vary, and an initial population of one
+        # repeated point leaves mutation as the only source of diversity.
         self.population = [
-            self._new_individual(train_loader, val_loader)
+            self._new_individual(train_loader, val_loader, self._founder_chromosome())
             for _ in range(self.population_size)
         ]
         self.training_progress.clear()
@@ -273,6 +276,12 @@ class GenSPPTrainer:
         self._best_model.eval()
         return self._best_model
 
+    def _founder_chromosome(self) -> th.Tensor:
+        """A generator drawn at random, for a member of the first generation."""
+        model = Registry.from_key(self.model, expected_type=GenSPP)
+        self._align_initial_state(model)
+        return self._chromosome(model).clone()
+
     def _best_individual(self) -> _Individual:
         return max(self.population, key=lambda individual: individual.fitness)
 
@@ -282,8 +291,18 @@ class GenSPPTrainer:
         val_loader: Iterable[InputData],
         chromosome: th.Tensor | None = None,
     ) -> _Individual:
+        with th.random.fork_rng(devices=self._devices()):
+            th.manual_seed(self._evaluation_seed)
+            return self._evaluate_individual(train_loader, val_loader, chromosome)
+
+    def _evaluate_individual(
+        self,
+        train_loader: Iterable[InputData],
+        val_loader: Iterable[InputData],
+        chromosome: th.Tensor | None = None,
+    ) -> _Individual:
         model = Registry.from_key(self.model, expected_type=GenSPP)
-        self._align_frozen_state(model)
+        self._align_initial_state(model)
         parameters = model.generator_parameters()
         if not parameters:
             raise ValueError("GenSPP generator has no evolvable parameters")
@@ -315,32 +334,59 @@ class GenSPPTrainer:
         if fitness > self._best_fitness:
             self._best_fitness = fitness
             self._best_model = model
-            self._frozen_state = self._frozen_tensors(model)
         return individual
 
-    @staticmethod
-    def _frozen_tensors(model: GenSPP) -> list[th.Tensor]:
-        return [
-            *(
-                parameter
-                for parameter in model.parameters()
-                if not parameter.requires_grad
-            ),
-            *model.buffers(),
-        ]
+    def _devices(self) -> list[int]:
+        if self.device.type != "cuda":
+            return []
+        index = self.device.index
+        return [index if index is not None else th.cuda.current_device()]
 
-    def _align_frozen_state(self, model: GenSPP) -> None:
-        tensors = self._frozen_tensors(model)
-        if self._frozen_state is None:
-            self._frozen_state = tensors
+    def _align_initial_state(self, model: GenSPP) -> None:
+        """Give every candidate the predictor the first one started from.
+
+        A candidate's fitness has to be a property of its chromosome. It is
+        not, if each candidate trains a predictor drawn fresh from the global
+        random state: the same chromosome then scores differently depending on
+        how many candidates were evaluated before it, and the search ranks
+        initialisations alongside genes.
+
+        The released implementation reaches the same place from the other
+        side. It keeps a pool of models and resets each reused one to *that
+        slot's* initial weights, so a candidate's predictor depends on which
+        slot it was given. One shared state removes the dependency entirely.
+
+        The generator is overwritten by the chromosome immediately after this,
+        so what this fixes is the predictor, the frozen tensors and the
+        buffers.
+        """
+        evolving = self._generator_names(model)
+        if self._initial_state is None:
+            self._initial_state = {
+                name: tensor.detach().clone()
+                for name, tensor in model.state_dict().items()
+                if name not in evolving
+            }
             return
-        if len(tensors) != len(self._frozen_state):
-            raise ValueError("GenSPP candidates have incompatible frozen state")
-        with th.no_grad():
-            for tensor, initial in zip(tensors, self._frozen_state):
-                if tensor.shape != initial.shape:
-                    raise ValueError("GenSPP candidates have incompatible frozen state")
-                tensor.copy_(initial)
+        missing, unexpected = model.load_state_dict(self._initial_state, strict=False)
+        if unexpected or set(missing) != evolving:
+            raise ValueError("GenSPP candidates have incompatible state")
+
+    @staticmethod
+    def _generator_names(model: GenSPP) -> set:
+        """The state-dict keys the chromosome owns.
+
+        Everything else is shared, so these are the only entries a candidate
+        may differ in. By identity rather than by name prefix: which modules
+        count as the generator is the model's answer, in
+        ``generator_parameters``, and a prefix would be a second one.
+        """
+        evolving = {id(parameter) for parameter in model.generator_parameters()}
+        return {
+            name
+            for name, parameter in model.named_parameters()
+            if id(parameter) in evolving
+        }
 
     def _lightning(self) -> L.Trainer:
         """A throwaway trainer for one candidate.
@@ -353,13 +399,10 @@ class GenSPPTrainer:
         # would spread one candidate over all of them, and the search evaluates
         # thousands of candidates one after another.
         cuda = self.device.type == "cuda"
-        index = self.device.index
         return L.Trainer(
             max_epochs=self.predictor_epochs,
             accelerator="gpu" if cuda else self.device.type,
-            devices=[index if index is not None else th.cuda.current_device()]
-            if cuda
-            else "auto",
+            devices=self._devices() if cuda else "auto",
             logger=False,
             enable_checkpointing=False,
             enable_progress_bar=False,
