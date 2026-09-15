@@ -197,10 +197,9 @@ def test_a_searched_model_reads_the_vectors_the_task_was_given(tmp_path):
     build_registry()
     vectors = tmp_path / "vectors.txt"
     # GENSPP_GRU_BACKBONE is 128-dimensional, and the file has to match it.
+    # The toy corpus is characters, so its vocabulary is letters.
     vectors.write_text(
-        "".join(
-            f"{token} {' '.join(['0.1'] * 128)}\n" for token in ("a", "great", "film")
-        )
+        "".join(f"{token} {' '.join(['0.1'] * 128)}\n" for token in ("e", "f", "g"))
     )
 
     task = Registry.from_key(
@@ -282,13 +281,11 @@ def test_genspp_refuses_highlight_supervision(tmp_path):
 
 def test_a_task_can_embed_its_tokens_with_a_vector_file(tmp_path):
     build_registry()
-    # Two of the toy corpus's own tokens, so the vocabulary covers something.
+    # Three of the toy corpus's own tokens, which are characters.
     vectors = tmp_path / "vectors.txt"
     # The file's width has to be the backbone's embedding_dim; GRU_FR uses 128.
     vectors.write_text(
-        "".join(
-            f"{token} {' '.join(['0.1'] * 128)}\n" for token in ("a", "great", "film")
-        )
+        "".join(f"{token} {' '.join(['0.1'] * 128)}\n" for token in ("e", "f", "g"))
     )
 
     task = SPPTask(
@@ -299,7 +296,7 @@ def test_a_task_can_embed_its_tokens_with_a_vector_file(tmp_path):
         embeddings=str(vectors),
     )
     tokenizer = task.tokenizer(task.splits())
-    assert set(tokenizer.vocabulary) <= {"a", "great", "film"}
+    assert set(tokenizer.vocabulary) == {"e", "f", "g"}
 
     model = task.build_model()
     # The table is sized to the file, not to vocabulary_size, and the ids the
@@ -324,9 +321,10 @@ def test_a_task_can_take_the_vector_file_s_own_vocabulary(tmp_path):
     """
     build_registry()
     vectors = tmp_path / "vectors.txt"
-    # One token the toy corpus uses and one it never does.
+    # One character the toy corpus uses and one it never does: its filler is
+    # drawn from `e` to `x` and its triggers spell "aa" and "bcd".
     vectors.write_text(
-        "".join(f"{token} {' '.join(['0.1'] * 128)}\n" for token in ("film", "unseen"))
+        "".join(f"{token} {' '.join(['0.1'] * 128)}\n" for token in ("e", "z"))
     )
 
     corpus = SPPTask(
@@ -335,7 +333,7 @@ def test_a_task_can_take_the_vector_file_s_own_vocabulary(tmp_path):
         save_path=str(tmp_path),
         embeddings=str(vectors),
     )
-    assert set(corpus.tokenizer(corpus.splits()).vocabulary) == {"film"}
+    assert set(corpus.tokenizer(corpus.splits()).vocabulary) == {"e"}
 
     whole = SPPTask(
         loader=TOY,
@@ -344,7 +342,7 @@ def test_a_task_can_take_the_vector_file_s_own_vocabulary(tmp_path):
         embeddings=str(vectors),
         vocabulary_from="vectors",
     )
-    assert set(whole.tokenizer(whole.splits()).vocabulary) == {"film", "unseen"}
+    assert set(whole.tokenizer(whole.splits()).vocabulary) == {"e", "z"}
     # The model's table is sized to whichever vocabulary it was handed.
     assert whole.build_model().selector_backbone.embedding.num_embeddings == 3
 
