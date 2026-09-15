@@ -418,13 +418,13 @@ class SPPTask(Task):
         callbacks are the default is a decision of the configuration layer and
         is stated once.
         """
-        built: List[Callback] = []
+        callbacks: List[Callback] = []
         for key in self.callbacks or []:
             callback = Registry.from_key(key, expected_type=Callback)
             if isinstance(callback, ModelCheckpoint):
                 callback.dirpath = str(checkpoints)
                 callback.save_weights_only = self.save_weights_only
-            built.append(callback)
+            callbacks.append(callback)
         # Everything that monitors has to monitor the same thing. Early
         # stopping decides when a run ends and the checkpoint decides which
         # epoch it is scored on, so two quantities mean the reported model is
@@ -433,7 +433,7 @@ class SPPTask(Task):
         # behind them. Refused here rather than left to a reader of a table.
         monitored = {
             (callback.monitor, callback.mode)
-            for callback in built
+            for callback in callbacks
             if getattr(callback, "monitor", None) is not None
             and getattr(callback, "mode", None) is not None
         }
@@ -453,7 +453,7 @@ class SPPTask(Task):
         # Lightning calls them in order. Sorted here rather than documented as
         # a rule about list order, which is the kind of rule a study gets
         # wrong once and then cannot see.
-        return sorted(built, key=lambda item: not isinstance(item, MonitoredScore))
+        return sorted(callbacks, key=lambda item: not isinstance(item, MonitoredScore))
 
     def build_model(self) -> Model:
         # Passed only when asked for, so an unsupervised run builds exactly the
@@ -508,13 +508,13 @@ class SPPTask(Task):
 
         checkpoints = self.directory / f"seed={seed}"
         checkpoints.mkdir(parents=True, exist_ok=True)
-        built = self.build_callbacks(checkpoints)
+        callbacks = self.build_callbacks(checkpoints)
         checkpoint = next(
-            (item for item in built if isinstance(item, ModelCheckpoint)), None
+            (item for item in callbacks if isinstance(item, ModelCheckpoint)), None
         )
         trainer = L.Trainer(
             **{"default_root_dir": checkpoints, **self.trainer_args},
-            callbacks=built,
+            callbacks=callbacks,
         )
         trainer.fit(
             model,

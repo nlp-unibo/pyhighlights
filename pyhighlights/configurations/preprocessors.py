@@ -23,10 +23,9 @@ PIPELINE_COMPONENT = "pyhighlights.components.preprocessors.Pipeline"
     component="pyhighlights.components.leakage.LeakageDetector",
 )
 class LeakageDetectorConfig(Configuration):
-    """Reports what splits share; raises above ``tolerance``."""
+    """Reports what splits share, and refuses a corpus that shares anything."""
 
     key: str = Param("text")
-    tolerance: float = Param(0.0, ge=0.0, le=1.0)
     normalize_keys: bool = Param(True)
 
 

@@ -120,3 +120,21 @@ def test_extract_unpacks_once(tmp_path):
     (directory / "data" / "rows.txt").write_text("edited")
     assert extract(archive, directory) == directory
     assert (directory / "data" / "rows.txt").read_text() == "edited"
+
+
+def test_a_failed_download_leaves_neither_a_corpus_nor_a_part_file(
+    tmp_path, monkeypatch
+):
+    """An interrupted fetch has to be a missing file, not a truncated one."""
+    target = tmp_path / "corpus.json"
+
+    def fail(url, filename):
+        Path(filename).write_bytes(b"half a corpus")
+        raise OSError("connection reset")
+
+    monkeypatch.setattr("urllib.request.urlretrieve", fail)
+    with pytest.raises(OSError, match="connection reset"):
+        download("https://example.invalid/corpus.json", target)
+
+    assert not target.exists()
+    assert list(tmp_path.iterdir()) == []

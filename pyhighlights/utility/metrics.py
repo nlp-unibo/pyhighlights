@@ -198,11 +198,18 @@ class SelectionMetric(Metric):
 
 
 class SelectionRate(SelectionMetric):
+    """Share of a document the selection kept, so bounded by zero and one."""
+
+    plot_lower_bound = 0.0
+    plot_upper_bound = 1.0
+
     def reduce(self, kept: th.Tensor, length: th.Tensor) -> th.Tensor:
         return kept / length
 
 
 class SelectionSize(SelectionMetric):
+    """How many tokens the selection kept, which nothing bounds above."""
+
     def reduce(self, kept: th.Tensor, length: th.Tensor) -> th.Tensor:
         return kept
 
@@ -279,4 +286,6 @@ class EmptySetAccuracy(KnowledgeSetMetric):
         predicted, expected = self.counts(preds, target)
         empty = ~expected.any(dim=-1)
         self.hits += (~predicted[empty].any(dim=-1)).sum()
-        self.examples += int(empty.sum())
+        # On the device, like the state it adds to: `int()` here forces a host
+        # synchronisation on every batch.
+        self.examples += empty.sum()
