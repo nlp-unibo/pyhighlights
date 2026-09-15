@@ -10,7 +10,9 @@ from cinnamon.registry import Registry
 
 import pyhighlights
 import pyhighlights_benchmarks
+from pyhighlights.components.models.spp.implementations import GRUBackbone
 from pyhighlights.components.preprocessors import Preprocessor
+from pyhighlights.utility.embeddings import one_hot_table
 from pyhighlights_benchmarks.genspp2025.configurations.hatexplain.keys import (
     HATEXPLAIN_FR_TASK,
     HATEXPLAIN_GENSPP,
@@ -22,6 +24,10 @@ from pyhighlights_benchmarks.genspp2025.configurations.hatexplain.keys import (
     HATEXPLAIN_SPARSITY_LOSS,
 )
 from pyhighlights_benchmarks.genspp2025.configurations.keys import SEEDS
+from pyhighlights_benchmarks.genspp2025.configurations.toy import (
+    EMBEDDING_DIM,
+    VOCABULARY_SIZE,
+)
 from pyhighlights_benchmarks.genspp2025.configurations.toy.keys import (
     TOY,
     TOY_BENCHMARK,
@@ -85,19 +91,22 @@ def test_the_released_hyperparameters_are_what_is_registered():
     assert task.trainer_args["max_epochs"] == 500
 
     # Three generators, and the baselines' hidden sizes: 8 for toy, 16 for
-    # HateXplain, both over 25-dimensional embeddings.
+    # HateXplain.
     mgr = Registry.from_key(TOY_MGR)
     assert len(mgr.selectors) == 3
-    assert mgr.selector_backbone.embedding.embedding_dim == 25
     assert mgr.selector_backbone.encoder.hidden_size == 8
 
-    # GenSPP's own encoder is the genetic half's, not the baselines': one
-    # direction, and 26 dimensions on toy against the baselines' 25. Both are
-    # one-hot widths rather than projection sizes: the corpus uses twenty-four
-    # characters, so the baselines' 25 is the vocabulary with its padding id
-    # and the genetic half's 26 leaves two columns always zero.
+    # On toy the embedding width is a one-hot width rather than a projection
+    # size, and the release gives two: 25 on the baselines, 26 on the genetic
+    # half, for the same twenty-four characters. Both carry dead columns, so
+    # both halves here read the alphabet's own width. HateXplain's 25 is a
+    # real GloVe dimension and is not touched.
+    assert mgr.selector_backbone.embedding.embedding_dim == 24
+
+    # GenSPP's own encoder is still the genetic half's in the way that counts:
+    # one direction against the baselines' two.
     toy_genspp = Registry.from_key(TOY_GENSPP)
-    assert toy_genspp.selector_backbone.embedding.embedding_dim == 26
+    assert toy_genspp.selector_backbone.embedding.embedding_dim == 24
     assert toy_genspp.selector_backbone.encoder.bidirectional is False
     hatexplain_genspp = Registry.from_key(HATEXPLAIN_GENSPP)
     assert hatexplain_genspp.selector_backbone.embedding.embedding_dim == 25
@@ -177,18 +186,23 @@ def test_the_toy_corpus_reaches_a_model_as_one_hot(tmp_path):
     build_registry()
     splits = GenSPPToyLoader(url=str(toy_pickle(tmp_path))).load()
 
-    for key, width in ((TOY_FR_TASK, 25), (TOY_GENSPP_TASK, 26)):
+    for key in (TOY_FR_TASK, TOY_GENSPP_TASK):
         task = Registry.from_key(key, save_path=str(tmp_path))
-        assert task.one_hot_embeddings == width
+        # One column per character. The release declares 25 on one half and 26
+        # on the other, for the same twenty-four characters.
+        assert task.one_hot_embeddings == 24
         task.tokenizer(splits)
         matrix = task._embedding_matrix
 
-        assert matrix.shape == (25, width)
+        assert matrix.shape == (25, 24)
         # Row zero is the unknown and padding id, and contributes nothing.
         assert not matrix[0].any()
         # Every other row is a distinct basis vector.
         assert th.equal(matrix[1:].sum(dim=1), th.ones(24))
         assert th.equal(matrix[1:] @ matrix[1:].T, th.eye(24))
+        # Every column is reachable, where the release's 25 and 26 each
+        # leave one and two that nothing can set.
+        assert (matrix.sum(dim=0) == 0).sum() == 0
 
     # And the table the baselines' model is built with is that matrix, rather
     # than the random one its `vocab_size` sized.
@@ -197,6 +211,57 @@ def test_the_toy_corpus_reaches_a_model_as_one_hot(tmp_path):
     table = task.build_model().selector_backbone.embedding.weight
     assert th.equal(table, task._embedding_matrix)
     assert table.requires_grad is False
+
+
+def test_a_dead_one_hot_column_changes_nothing_but_the_weight_count():
+    """Why the release's 25 and 26 are both fine, and neither is kept.
+
+    The corpus uses twenty-four characters, so a one-hot code needs twenty-four
+    columns -- id zero is the zero row and carries none. The baselines declare
+    25 and the genetic half 26, and the extra columns are never set, so their
+    input weights never receive a gradient.
+
+    Two backbones at the release's widest and at the alphabet's own, with the
+    same weights on the live columns and the same ids in, have to encode
+    identically. If they do not, the width is a hyperparameter after all and
+    unifying the two halves was wrong.
+    """
+    th.manual_seed(0)
+    wide = GRUBackbone(
+        vocab_size=VOCABULARY_SIZE,
+        embedding_dim=26,
+        hidden_size=8,
+        freeze_embeddings=True,
+    )
+    wide.load_embeddings(one_hot_table(VOCABULARY_SIZE, 26))
+    narrow = GRUBackbone(
+        vocab_size=VOCABULARY_SIZE,
+        embedding_dim=EMBEDDING_DIM,
+        hidden_size=8,
+        freeze_embeddings=True,
+    )
+    narrow.load_embeddings(one_hot_table(VOCABULARY_SIZE, EMBEDDING_DIM))
+
+    source = dict(wide.encoder.named_parameters())
+    with th.no_grad():
+        for name, parameter in narrow.encoder.named_parameters():
+            # The input projection loses the dead columns; everything else is
+            # the same shape.
+            parameter.copy_(
+                source[name][:, :EMBEDDING_DIM]
+                if name.startswith("weight_ih")
+                else source[name]
+            )
+        narrow.layer_norm.load_state_dict(wide.layer_norm.state_dict())
+
+    features = th.randint(0, VOCABULARY_SIZE, (4, 20))
+    mask = th.ones(4, 20)
+    assert th.equal(wide.encode(features, mask), narrow.encode(features, mask))
+
+    # What the release's widths cost: columns nothing can ever set.
+    assert (one_hot_table(VOCABULARY_SIZE, 26).sum(dim=0) == 0).sum() == 2
+    assert (one_hot_table(VOCABULARY_SIZE, 25).sum(dim=0) == 0).sum() == 1
+    assert (one_hot_table(VOCABULARY_SIZE, EMBEDDING_DIM).sum(dim=0) == 0).sum() == 0
 
 
 def test_the_toy_corpus_is_read_as_characters(tmp_path):
