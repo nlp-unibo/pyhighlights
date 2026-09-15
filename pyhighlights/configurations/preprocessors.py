@@ -70,7 +70,7 @@ class ClassWeightsConfig(Configuration):
     split: str = Param("train")
     #: Left unset, the number of classes is the largest label seen plus one.
     #: Set it wherever a split might not hold every class.
-    classes: int | None = Param(None)
+    classes: int | None = Param(None, ge=1)
 
 
 @register_class(

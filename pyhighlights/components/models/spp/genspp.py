@@ -408,6 +408,15 @@ class GenSPPTrainer:
             selection_rate=selection_rate,
             task_loss_limit=self.task_loss_limit,
         )
+        if not math.isfinite(fitness):
+            # Here, where the candidate and the device that trained it are
+            # still in hand. A non-finite fitness survives into the population
+            # and fails a generation later inside `random.choices` with
+            # `Total of weights must be finite`, which names neither.
+            raise ValueError(
+                f"candidate on {device} scored a non-finite fitness: "
+                f"task loss {task_loss}, selection rate {selection_rate}"
+            )
         individual = _Individual(
             chromosome=self._chromosome(model).clone(),
             fitness=fitness,

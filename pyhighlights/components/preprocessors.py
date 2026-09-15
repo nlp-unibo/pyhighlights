@@ -77,6 +77,15 @@ def class_weights(labels: Sequence[Any], classes: int | None = None) -> List[flo
         raise ValueError("class weights need at least one label")
     if min(values) < 0:
         raise ValueError("labels must be non-negative class indices")
+    if classes is not None and classes < 1:
+        raise ValueError(f"a task has at least one class, not {classes}")
+    if classes is not None and max(values) >= classes:
+        # Fewer classes than the split holds is not a split missing a class,
+        # which is the case below. It is a count that cannot be right, and
+        # weighting the classes it does cover would hand the model a shorter
+        # weight vector than its own output layer -- a shape error much later,
+        # about something else.
+        raise ValueError(f"label {max(values)} is not a class of {classes}")
 
     classes = max(values) + 1 if classes is None else classes
     counts = Counter(values)
