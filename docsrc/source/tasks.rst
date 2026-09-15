@@ -306,6 +306,14 @@ one trainer per candidate. Gradients reach the predictor only:
 generator is put back in evaluation mode at the start of every epoch so its
 dropout cannot score the same candidate two different ways.
 
+Every candidate trains on the same batches in the same order. The training
+loader shuffles, so the search draws one permutation from the seed before it
+starts and hands every candidate that: re-iterating the loader instead would
+give each candidate its own order, and a chromosome would score differently
+depending on how many candidates preceded it -- or, with several devices, on
+how the workers interleaved. The whole training split is held in memory for
+the duration of the search as a result.
+
 Alongside the usual per-seed files, a GenSPP run writes ``best.ckpt`` -- the
 weights the search settled on -- and ``search.json``, the best fitness of every
 generation. A search that stopped improving in its tenth generation and one

@@ -302,6 +302,11 @@ synthetic corpus, reproducibility, GenSPP, pyhighlights
    local `toy_dataset.pkl` still works, and `url=None` still refuses rather
    than synthesising a different corpus.
 
+The registered configurations name the same values, so a run built from a key
+is pinned too. They did not until 2026-09-15: `R2AConfig`, `MoviesConfig` and
+`ToyConfig` each passed `sha256=None`, which overrode the constructor default
+for every registered run while this file said otherwise.
+
 Both pins are opt-out: pass `sha256=None` to skip verification, which is what
 the test fixtures do, since they build stand-in corpora rather than the pinned
 releases.

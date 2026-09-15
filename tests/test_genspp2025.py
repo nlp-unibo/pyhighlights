@@ -20,6 +20,7 @@ from pyhighlights_benchmarks.genspp2025.configurations.hatexplain.keys import (
 )
 from pyhighlights_benchmarks.genspp2025.configurations.keys import SEEDS
 from pyhighlights_benchmarks.genspp2025.configurations.toy.keys import (
+    TOY,
     TOY_BENCHMARK,
     TOY_FR_TASK,
     TOY_GENSPP,
@@ -168,6 +169,19 @@ def test_the_toy_corpus_defaults_to_the_published_artifact():
     assert loader.sha256 == (
         "5b0886163b215b932b242ce4910cd8d60b46fa79cfdfdde41e9646d99d9ebc92"
     )
+
+
+def test_the_registered_toy_key_names_the_published_artifact():
+    """The documented reproduction key has to build without a private override.
+
+    Registered with `url=None`, it did not: `Registry.from_key(TOY)` returned
+    a loader with nowhere to read the corpus from, and `load()` refused.
+    """
+    build_registry()
+    loader = Registry.from_key(TOY, expected_type=GenSPPToyLoader)
+
+    assert loader.url == GenSPPToyLoader.URL
+    assert loader.sha256 == GenSPPToyLoader.SHA256
 
 
 def test_the_toy_corpus_refuses_when_it_is_given_nowhere_to_look():
