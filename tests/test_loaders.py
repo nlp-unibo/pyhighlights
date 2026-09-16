@@ -77,7 +77,7 @@ def test_frames_convert_to_highlight_examples(tmp_path):
     assert datasets["train"][0].highlights is None
 
 
-def test_misaligned_rationales_are_rejected(tmp_path):
+def test_misaligned_highlights_are_rejected(tmp_path):
     path = tmp_path / "broken.train"
     path.write_text(
         "task\tlabel\ttext\trationale\tpred_att\n"

@@ -543,7 +543,7 @@ analyzer serves a notebook, a test and a LaTeX table.
    document so lengths are comparable, and how much it kept. A selector that
    has learned nothing still selects something; position is what tells the two
    apart, since a model keying on the opening tokens of every document scores
-   like one that found the rationale. A model with several selectors stores one
+   like one that found the highlight. A model with several selectors stores one
    mask per head; the analysis reads the head its aggregator keeps, which is
    the one every reported metric scored.
 
@@ -561,7 +561,7 @@ analyzer serves a notebook, a test and a LaTeX table.
 
 :class:`~pyhighlights.components.analyzers.PredictionAnalyzer`
    What the selector kept, in words, one row per sample: the gold label and
-   the predicted one, the words the run selected, and the rationale they spell
+   the predicted one, the words the run selected, and the highlight they spell
    out. A stored prediction is token ids and masks — enough to score, and
    unreadable on its own — so the corpus is reloaded and joined back to it.
    The run's ``manifest.json`` names the loader and the preprocessor that
