@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import sys
 import zipfile
@@ -56,7 +57,7 @@ def configure(work_dir: Path) -> None:
     DIST = work_dir / "dist"
 
 
-VERSION = "v1"
+VERSION = "v2"
 
 # Pinned upstream sources. The R2A digest is the one the library's loaders and
 # the previous build both verified against.
@@ -124,6 +125,13 @@ def write_zip(target: Path, entries: List[Tuple[str, bytes]]) -> Path:
             info.compress_type = zipfile.ZIP_DEFLATED
             archive.writestr(info, payload)
     return target
+
+
+def pickle_bytes(frame: pd.DataFrame) -> bytes:
+    """A data frame as the bytes of a pickle, without a file in between."""
+    buffer = io.BytesIO()
+    frame.to_pickle(buffer)
+    return buffer.getvalue()
 
 
 def as_json(payload: dict) -> bytes:
@@ -257,22 +265,58 @@ def movies_artifact() -> Tuple[str, List[Tuple[str, bytes]]]:
     return name, entries
 
 
+def genspp_toy_corpus(pickle: Path) -> pd.DataFrame:
+    """The released pickle, in this library's columns.
+
+    The release stores ``structure_indexes``, the positions that are marked,
+    where this library stores a ``highlights`` vector, and it stores no
+    ``tokens`` because its tokens are the characters of its text. Converting
+    here rather than in a loader is what lets the published artifact be read
+    by :class:`~pyhighlights.components.loaders.ToyLoader` directly: the rows
+    are the same rows, and a difference in serialisation should not need a
+    class of its own to survive.
+
+    No ``split`` column, deliberately. The released baselines derive their
+    splits from a scheme rather than storing them, so storing them here would
+    freeze one reading of that scheme into the data.
+    """
+    released = pd.read_pickle(pickle)
+    return pd.DataFrame(
+        {
+            "sample_id": range(len(released)),
+            "text": released["text"],
+            "tokens": released["text"].map(list),
+            "label": released["label"].astype(int),
+            "highlights": [
+                [1 if position in set(marked) else 0 for position in range(len(text))]
+                for marked, text in zip(released["structure_indexes"], released["text"])
+            ],
+        }
+    )
+
+
 def genspp_toy_artifact() -> Tuple[str, List[Tuple[str, bytes]]]:
     """The complete toy corpus -- the one artifact that redistributes data."""
     name = f"pyhighlights-genspp-toy-{VERSION}"
     pickle = download(GENSPP_TOY_URL, SOURCES / "genspp-toy_dataset.pkl")
-    payload = pickle.read_bytes()
-    corpus = pd.read_pickle(pickle)
+    released = pickle.read_bytes()
+    corpus = genspp_toy_corpus(pickle)
+    payload = pickle_bytes(corpus)
     manifest = {
         "artifact": name,
-        "loader": "pyhighlights.components.loaders.GenSPPToyLoader",
+        "loader": "pyhighlights.components.loaders.ToyLoader",
         "pyhighlights_version": pyhighlights.__version__,
         "source": {
             "url": GENSPP_TOY_URL,
-            "sha256": digest(payload),
+            "sha256": digest(released),
             "file": "toy_dataset.pkl",
         },
-        "contents": "the complete dataset, as released",
+        "contents": (
+            "the complete dataset, converted to the library's columns: "
+            "`structure_indexes` becomes a `highlights` vector and `tokens` "
+            "is the text a character at a time. The rows, their order and "
+            "their labels are the release's, unchanged."
+        ),
         "rows": int(len(corpus)),
         "label_counts": {
             str(label): int(count)
@@ -283,7 +327,9 @@ def genspp_toy_artifact() -> Tuple[str, List[Tuple[str, bytes]]]:
             "note": (
                 "Splits are not stored: the loader derives them from the "
                 "released baselines' scheme, so the artifact is the corpus "
-                "and the split is code."
+                "and the split is code. A corpus ToyLoader.save() writes does "
+                "carry a `split` column; this one is converted from a release "
+                "that had none."
             ),
             "train_ratio": 0.8,
             "val_ratio": 0.2,
@@ -293,7 +339,7 @@ def genspp_toy_artifact() -> Tuple[str, List[Tuple[str, bytes]]]:
         "license": GENSPP_TOY_LICENSE,
     }
     entries = [
-        ("toy_dataset.pkl", payload),
+        ("corpus.pkl", payload),
         ("manifest.json", as_json(manifest)),
         (
             "README.md",
@@ -390,11 +436,14 @@ def build(dist: Path, include_r2a: bool = True) -> dict:
     lines = []
     if include_r2a:
         # Uploaded beside the zips: Zenodo serves each file of a record at its
-        # own URL, and ``GenSPPToyLoader`` reads a pickle rather than an
-        # archive, so the loader's default URL has to name this file directly.
-        loose = dist / "toy_dataset.pkl"
+        # own URL, so a loader pointed at the file rather than the archive has
+        # one to name. The converted corpus, not the released pickle -- what
+        # is published is what ``ToyLoader`` can read.
+        loose = dist / "corpus.pkl"
         loose.parent.mkdir(parents=True, exist_ok=True)
-        loose.write_bytes((SOURCES / "genspp-toy_dataset.pkl").read_bytes())
+        loose.write_bytes(
+            pickle_bytes(genspp_toy_corpus(SOURCES / "genspp-toy_dataset.pkl"))
+        )
         lines.append(f"{file_digest(loose)}  {loose.name}")
         report["loose_files"] = {
             loose.name: {"bytes": loose.stat().st_size, "sha256": file_digest(loose)}

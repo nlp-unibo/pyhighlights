@@ -11,7 +11,6 @@ from pyhighlights.components.loaders import (
     R2A_SHA256,
     BeerLoader,
     ERASERLoader,
-    GenSPPToyLoader,
     HateXplainLoader,
     HotelLoader,
     MoviesLoader,
@@ -359,84 +358,120 @@ def test_to_examples_needs_the_standard_columns(tmp_path):
         to_examples(frame)
 
 
-def genspp_toy_pickle(directory: Path, rows: int = 10) -> Path:
-    """The released corpus's schema: `text`, `label`, and marked positions."""
-    path = directory / "toy_dataset.pkl"
+def test_a_generated_toy_corpus_saves_and_reads_back_identical(tmp_path):
+    """The round trip that makes a second loader unnecessary.
+
+    A toy corpus is generated, published and read back by whoever reproduces
+    what it produced. If saving and reading are the same loader's two halves,
+    a published corpus is a URL and a digest in a configuration; if they are
+    not, it is a class somebody has to write for every dataset.
+    """
+    loader = ToyLoader(sizes={"train": 12, "val": 4, "test": 4}, seed=5)
+    path = loader.save(tmp_path / "corpus.pkl")
+
+    read = ToyLoader(url=str(path)).load()
+    generated = loader.load()
+
+    # The splits come back as they were generated, not re-cut by a ratio: the
+    # file carries a `split` column for exactly this reason.
+    assert list(read) == list(generated) == ["train", "val", "test"]
+    for name, frame in generated.items():
+        assert read[name]["text"].tolist() == frame["text"].tolist()
+        assert read[name]["highlights"].tolist() == frame["highlights"].tolist()
+        assert read[name]["label"].tolist() == frame["label"].tolist()
+
+
+def test_a_flat_corpus_is_divided_by_the_ratios(tmp_path):
+    """A corpus with no `split` column, which is what an older release is."""
+    path = tmp_path / "flat.pkl"
     pd.DataFrame(
         {
-            "text": ["abcdefghij"[:4] + f"{index:06d}" for index in range(rows)],
-            "label": [index % 3 for index in range(rows)],
-            "structure_indexes": [[0, 1, 2] for _ in range(rows)],
+            "sample_id": range(10),
+            "text": [f"aa{index:04d}" for index in range(10)],
+            "tokens": [list(f"aa{index:04d}") for index in range(10)],
+            "label": [index % 2 for index in range(10)],
+            "highlights": [[1, 1, 0, 0, 0, 0] for _ in range(10)],
         }
     ).to_pickle(path)
-    return path
 
+    splits = ToyLoader(url=str(path), train_ratio=0.8, val_ratio=0.2).load()
 
-def test_the_genspp_toy_corpus_is_read_as_characters(tmp_path):
-    """The released pickle, turned into the columns every loader returns.
-
-    It is not `ToyLoader` with a file attached: that one samples an alphabet,
-    this one reads ten thousand released sequences and reproduces the
-    baselines' splitter, and only these rows are what a published number is
-    for. `structure_indexes` is a list of marked positions rather than a
-    vector, which is the other half of what makes this a reader.
-    """
-    loader = GenSPPToyLoader(url=str(genspp_toy_pickle(tmp_path)))
-    splits = loader.load()
-
-    assert list(splits) == ["train", "val", "test"]
-    row = splits["train"].iloc[0]
-    assert row["tokens"] == list(row["text"])
-    assert sum(row["highlights"]) == 3
-    assert row["highlights"][:3] == [1, 1, 1]
-
-    # 80% train, a fifth of it held out for validation, the rest test.
+    # The GenSPP baselines' scheme: 80% train, a fifth of it held out, rest test.
     assert len(splits["test"]) == 2
     assert len(splits["train"]) + len(splits["val"]) == 8
-
-    # The validation draw is seeded, so two loads agree.
-    again = GenSPPToyLoader(url=str(genspp_toy_pickle(tmp_path))).load()
+    # Seeded, so two reads agree on which rows are validation.
+    again = ToyLoader(url=str(path)).load()
     assert splits["val"]["text"].tolist() == again["val"]["text"].tolist()
 
 
-def test_the_genspp_toy_corpus_reads_the_published_artifact(tmp_path):
-    """The Zenodo record holds the artifact, not a loose pickle.
+def test_a_corpus_older_than_these_columns_is_converted_by_parse(tmp_path):
+    """The hook a legacy schema overrides, rather than a loader of its own.
 
-    The artifact carries the manifest, the licence and the citation beside the
-    data, so a local copy of it has to read the same as the published one.
+    The released GenSPP corpus stores `structure_indexes` -- the positions that
+    are marked -- where this library stores a `highlights` vector. That is a
+    difference in serialisation, not in what the corpus is, so it is fifteen
+    lines of conversion rather than a second class.
     """
-    archive = tmp_path / "pyhighlights-genspp-toy-v1.zip"
+    path = tmp_path / "legacy.pkl"
+    pd.DataFrame(
+        {
+            "text": [f"abc{index:03d}" for index in range(10)],
+            "label": [index % 3 for index in range(10)],
+            "structure_indexes": [[0, 1, 2] for _ in range(10)],
+        }
+    ).to_pickle(path)
+
+    class LegacyToyLoader(ToyLoader):
+        def parse(self, frame):
+            frame = frame.copy()
+            frame["highlights"] = [
+                [1 if position in set(marked) else 0 for position in range(len(text))]
+                for marked, text in zip(frame["structure_indexes"], frame["text"])
+            ]
+            return super().parse(frame)
+
+    splits = LegacyToyLoader(url=str(path)).load()
+    row = splits["train"].iloc[0]
+
+    assert row["tokens"] == list(row["text"])
+    assert row["highlights"][:3] == [1, 1, 1]
+    assert sum(row["highlights"]) == 3
+
+    # Unconverted, it says which column it could not find rather than guessing.
+    with pytest.raises(ValueError, match="missing"):
+        ToyLoader(url=str(path)).load()
+
+
+def test_a_toy_corpus_reads_a_published_archive(tmp_path):
+    """A record holds the archive, not a loose file: it carries the manifest."""
+    inner = tmp_path / "corpus.pkl"
+    ToyLoader(sizes={"train": 6, "test": 2}, seed=1).save(inner)
+    archive = tmp_path / "toy-corpus.zip"
     with zipfile.ZipFile(archive, "w") as target:
-        target.write(genspp_toy_pickle(tmp_path), "toy_dataset.pkl")
+        target.write(inner, "corpus.pkl")
         target.writestr("README.md", "# artifact")
 
-    splits = GenSPPToyLoader(
+    splits = ToyLoader(
         url=str(archive), sha256=None, directory=tmp_path / "cache"
     ).load()
 
-    assert list(splits) == ["train", "val", "test"]
-    assert sum(len(frame) for frame in splits.values()) == 10
+    assert list(splits) == ["train", "test"]
+    assert sum(len(frame) for frame in splits.values()) == 8
 
 
-def test_the_genspp_toy_corpus_defaults_to_the_published_artifact():
-    loader = GenSPPToyLoader()
+def test_a_configured_source_is_never_fallen_back_on(tmp_path):
+    """The one thing the split into two loaders was protecting.
 
-    # The version record rather than the concept one: the digest pins these
-    # exact bytes, and a concept DOI resolves to whatever is newest.
-    assert loader.url.endswith("pyhighlights-genspp-toy-v1.zip/content")
-    assert "22711449" in loader.url
-    assert loader.sha256 == (
-        "5b0886163b215b932b242ce4910cd8d60b46fa79cfdfdde41e9646d99d9ebc92"
-    )
+    A `url` that cannot be read has to raise. Generating instead would hand
+    back a corpus of the right shape and different content, which is the
+    failure nothing downstream can see -- every metric still computes.
+    """
+    loader = ToyLoader(url=str(tmp_path / "absent.pkl"))
+
+    with pytest.raises((FileNotFoundError, OSError, ValueError)):
+        loader.load()
 
     with pytest.raises(ValueError, match="train_ratio"):
-        GenSPPToyLoader(train_ratio=1.0)
+        ToyLoader(train_ratio=1.0)
     with pytest.raises(ValueError, match="val_ratio"):
-        GenSPPToyLoader(val_ratio=1.0)
-
-
-def test_the_genspp_toy_corpus_refuses_when_given_nowhere_to_look():
-    # A clear refusal beats synthesising a corpus of the same shape and
-    # different content, which is exactly what `ToyLoader` would do.
-    with pytest.raises(ValueError, match="no download URL"):
-        GenSPPToyLoader(url=None).load()
+        ToyLoader(val_ratio=1.0)

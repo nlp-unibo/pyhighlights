@@ -48,7 +48,8 @@ G-RAT and GenSPP, with the container and the Slurm jobs that run them:
 the settings it registers and, more usefully, every place it is *not* the
 released implementation.
 
-The corpus that reproduction reads is a library loader rather than part of it,
-because it is a published corpus with a DOI like any other:
-:class:`~pyhighlights.components.loaders.GenSPPToyLoader`. See
-:doc:`datasets`.
+The corpus that reproduction reads is not a loader of its own. It is
+:class:`~pyhighlights.components.loaders.ToyLoader` with a ``url``, and the
+released pickle's older schema is handled by overriding ``parse`` in the
+reproduction — fifteen lines, because a difference in serialisation is not a
+difference in what the corpus is. See :doc:`datasets`.
