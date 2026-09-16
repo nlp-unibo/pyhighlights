@@ -283,11 +283,18 @@ class ToyLoader(HighlightLoader):
     download is involved -- which makes it the cheap way to exercise a model, a
     configuration or a training loop end to end.
 
-    **No contamination yet.** The released generator also splices partial
-    chunks of other classes' patterns into the sequence, so that a fragment of
-    a pattern is not enough to classify. Nothing here does. A reproduction
-    reads the released pickle through
+    ``contaminations`` scatters proper chunks of the patterns through the
+    filler, which is what stops a fragment from being enough to classify:
+    without it ``bc`` occurs nowhere but inside ``abc``, so detecting ``bc``
+    names that class exactly as well as detecting ``abc`` does. Off by default,
+    since the registered corpus is a smoke test and a cheap one is the point. A
+    reproduction of the published numbers reads the released pickle through
     :class:`~pyhighlights_benchmarks.genspp2025.corpora.GenSPPToyLoader`.
+
+    Whatever the settings,
+    :class:`~pyhighlights.components.shortcuts.ShortcutDetector` is what says
+    the corpus is a control: it removes the annotated positions and requires
+    that nothing left predicts the label.
     """
 
     #: Where filler characters come from, minus whatever the triggers use.
@@ -301,6 +308,8 @@ class ToyLoader(HighlightLoader):
         triggers: Sequence[str | Sequence[str]] = ("aa", "bc"),
         length: int = 20,
         vocabulary_size: int = 20,
+        contaminations: int = 0,
+        min_chunk: int = 2,
         seed: int = 0,
         **kwargs,
     ):
@@ -349,10 +358,41 @@ class ToyLoader(HighlightLoader):
                 f"triggers leave {len(self.alphabet)} of {len(self.ALPHABET)}"
             )
         self.alphabet = self.alphabet[:vocabulary_size]
+        if contaminations < 0 or min_chunk < 1:
+            raise ValueError("contaminations and min_chunk cannot be negative")
         self.sizes = dict(sizes or {"train": 64, "val": 16, "test": 16})
         self.length = length
         self.vocabulary_size = vocabulary_size
+        self.contaminations = contaminations
+        self.min_chunk = min_chunk
         self.seed = seed
+        # A chunk is a *proper* piece of a pattern -- strictly shorter, so it
+        # can never satisfy the class it was cut from. One that spells another
+        # class's pattern outright is dropped: every inserted run sits alone
+        # between filler characters, so a run that is a pattern *is* that
+        # pattern being present, and the sample would carry a class nobody
+        # annotated.
+        self.chunks = [
+            chunk
+            for trigger in self.triggers
+            for pattern in trigger
+            for width in range(min_chunk, len(pattern))
+            for start in range(len(pattern) - width + 1)
+            if not self.satisfied(chunk := pattern[start : start + width])
+        ]
+        if contaminations and not self.chunks:
+            raise ValueError(
+                f"no pattern is longer than min_chunk={min_chunk}, so there is "
+                f"nothing to contaminate with"
+            )
+        if contaminations:
+            widest += contaminations * (max(len(chunk) for chunk in self.chunks) + 1)
+            if widest > length:
+                raise ValueError(
+                    f"a class needs {widest} tokens for its patterns, "
+                    f"{contaminations} contaminations and the gaps between "
+                    f"them, and length is {length}"
+                )
 
     def satisfied(self, text: str) -> set:
         """Which classes' conjunctions ``text`` holds, as a set of labels.
@@ -374,26 +414,37 @@ class ToyLoader(HighlightLoader):
         order they were listed in is not a feature.
 
         The positions are drawn uniformly over the arrangements that fit. With
-        widths ``w`` and ``k`` patterns, ``length - sum(w) - (k - 1)`` tokens
-        of filler are free to sit in the ``k + 1`` gaps; choosing ``k`` cuts
-        out of ``slack + k`` picks one such arrangement, and each is equally
+        widths ``w`` and ``k`` runs, ``length - sum(w) - (k - 1)`` tokens of
+        filler are free to sit in the ``k + 1`` gaps; choosing ``k`` cuts out
+        of ``slack + k`` picks one such arrangement, and each is equally
         likely. Sampling each start independently and rejecting the overlaps
         would not be uniform, and where a pattern sits is a channel this corpus
         exists to keep shut.
+
+        **Contaminating chunks are placed in the same draw as the patterns.**
+        Placing them afterwards, or keeping only the samples that came out
+        valid, conditions the arrangement on the class: reject the draws where
+        a chunk completes a second copy of the pattern and the characters
+        *beside* the highlight stop being class-independent -- which survives
+        removing the highlight and is a shortcut. Here nothing is rejected,
+        because a filler character separates every run and no chunk spells a
+        pattern, so no arrangement can be invalid.
         """
         tokens = [generator.choice(self.alphabet) for _ in range(self.length)]
         highlights = [0] * self.length
 
-        patterns = list(trigger)
-        generator.shuffle(patterns)
-        widths = [len(pattern) for pattern in patterns]
-        slack = self.length - sum(widths) - (len(patterns) - 1)
-        cuts = sorted(generator.sample(range(slack + len(patterns)), len(patterns)))
+        runs = [(pattern, 1) for pattern in trigger]
+        runs += [(generator.choice(self.chunks), 0) for _ in range(self.contaminations)]
+        generator.shuffle(runs)
+        widths = [len(pattern) for pattern, _ in runs]
+        slack = self.length - sum(widths) - (len(runs) - 1)
+        cuts = sorted(generator.sample(range(slack + len(runs)), len(runs)))
 
-        for index, (cut, pattern) in enumerate(zip(cuts, patterns)):
+        for index, (cut, (pattern, gold)) in enumerate(zip(cuts, runs)):
             start = cut + sum(widths[:index])
             tokens[start : start + len(pattern)] = list(pattern)
-            highlights[start : start + len(pattern)] = [1] * len(pattern)
+            if gold:
+                highlights[start : start + len(pattern)] = [1] * len(pattern)
         return tokens, highlights
 
     def generate(self, size: int, generator: random.Random) -> pd.DataFrame:
@@ -405,15 +456,27 @@ class ToyLoader(HighlightLoader):
                 text = "".join(tokens)
                 # Placement cannot spell a pattern out of filler, but it can
                 # satisfy a second class outright when one class's patterns are
-                # a subset of another's. That is a corpus nobody can label, so
-                # the draw is repeated rather than recorded.
-                if self.satisfied(text) == {label}:
+                # a subset of another's, and contamination can spell one out of
+                # a chunk and the filler beside it. Both are corpora nobody can
+                # label, so the draw is repeated rather than recorded.
+                if self.satisfied(text) != {label}:
+                    continue
+                # The highlight also has to be the whole truth: a pattern the
+                # contamination reproduced elsewhere would sit unmarked.
+                marked = "".join(
+                    token for token, flag in zip(tokens, highlights) if flag
+                )
+                if all(
+                    text.count(pattern) == marked.count(pattern)
+                    for pattern in self.triggers[label]
+                ):
                     break
             else:
                 raise ValueError(
                     f"class {label} could not be placed without satisfying "
-                    f"another in {self.ATTEMPTS} attempts; its patterns "
-                    f"{self.triggers[label]} may cover another class's"
+                    f"another or repeating a pattern in {self.ATTEMPTS} "
+                    f"attempts; its patterns {self.triggers[label]} may cover "
+                    f"another class's"
                 )
             rows.append(
                 {

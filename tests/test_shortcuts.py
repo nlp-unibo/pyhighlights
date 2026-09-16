@@ -145,3 +145,72 @@ def test_the_gate_names_the_shortcut_it_refuses():
 
     with pytest.raises(ValueError, match="predict the label with the highlight"):
         ShortcutDetector(max_length=4).check(loader.load()["train"])
+
+
+def test_contamination_is_what_stops_a_fragment_from_classifying():
+    """`bc` occurs nowhere but inside `abc` until chunks are scattered about.
+
+    This is contamination's acceptance test, and the reason it is worth having
+    the scan: the released quality check reported that a truncated selection
+    scores badly against the *annotation*, which was never in doubt. What
+    matters is that it scores badly at the *task*, and only contamination makes
+    it do so.
+    """
+    detector = ShortcutDetector(max_length=4)
+    scores = []
+    for contaminations in (0, 4):
+        loader = ToyLoader(
+            sizes={"train": 900},
+            triggers=("aba", "baa", "abc"),
+            vocabulary_size=10,
+            contaminations=contaminations,
+            seed=1,
+        )
+        corpus = loader.load()["train"]
+        report = detector.report(corpus).set_index("feature")
+        scores.append((report.loc["abc", "accuracy"], report.loc["bc", "accuracy"]))
+        detector.check(corpus)
+
+    (gold_clean, partial_clean), (gold_dirty, partial_dirty) = scores
+    # Uncontaminated, the fragment is worth exactly as much as the pattern.
+    assert partial_clean == pytest.approx(gold_clean)
+    # Contaminated, the pattern is untouched and the fragment has lost a lot.
+    assert gold_dirty == pytest.approx(gold_clean)
+    assert partial_dirty < partial_clean - 0.1
+
+
+def test_contamination_leaves_the_highlight_and_the_length_alone():
+    """Chunks go in the filler: the annotation still marks exactly the patterns."""
+    loader = ToyLoader(
+        sizes={"train": 200},
+        triggers=("aba", "baa", "abc"),
+        vocabulary_size=10,
+        contaminations=4,
+        seed=2,
+    )
+
+    for row in loader.load()["train"].itertuples():
+        assert len(row.tokens) == 20
+        marked = "".join(t for t, flag in zip(row.tokens, row.highlights) if flag)
+        assert marked == loader.triggers[row.label][0]
+        # Exactly once, so the annotation is the whole truth about the pattern.
+        assert row.text.count(marked) == 1
+        assert loader.satisfied(row.text) == {row.label}
+
+
+def test_a_chunk_is_a_proper_piece_that_spells_no_pattern():
+    loader = ToyLoader(
+        triggers=("aba", "baa", "abc"), vocabulary_size=10, contaminations=1
+    )
+    patterns = {p for trigger in loader.triggers for p in trigger}
+
+    for chunk in loader.chunks:
+        assert any(chunk in pattern and chunk != pattern for pattern in patterns)
+        assert loader.satisfied(chunk) == set()
+
+    # Patterns of two characters leave nothing proper to cut at min_chunk=2.
+    with pytest.raises(ValueError, match="nothing to contaminate with"):
+        ToyLoader(triggers=("aa", "bc"), contaminations=1)
+
+    with pytest.raises(ValueError, match="contaminations and the gaps"):
+        ToyLoader(triggers=("aba", "baa"), length=8, contaminations=4)

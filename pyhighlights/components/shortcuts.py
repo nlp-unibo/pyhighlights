@@ -95,7 +95,7 @@ def scan(
     features: Mapping[str, Sequence[int]],
     labels: Sequence[int],
     seed: int = 0,
-    permutations: int = 3,
+    permutations: int = 30,
 ) -> pd.DataFrame:
     """Score every feature by the best rule over it, against a permuted control.
 
@@ -153,12 +153,14 @@ def ngrams(
     tokens: str = "tokens",
     label: str = "label",
     seed: int = 0,
+    permutations: int = 30,
 ) -> pd.DataFrame:
     """Every n-gram in the corpus, scored by how well its presence predicts."""
     return scan(
         incidence(frame[tokens], max_length=max_length, separator=separator),
         frame[label].to_numpy(),
         seed=seed,
+        permutations=permutations,
     )
 
 
@@ -167,6 +169,7 @@ def lengths(
     tokens: str = "tokens",
     label: str = "label",
     seed: int = 0,
+    permutations: int = 30,
 ) -> pd.DataFrame:
     """How well ``len(tokens) >= t`` predicts, over every threshold there is.
 
@@ -180,6 +183,7 @@ def lengths(
         {f"length >= {int(t)}": np.flatnonzero(sizes >= t) for t in thresholds},
         frame[label].to_numpy(),
         seed=seed,
+        permutations=permutations,
     )
 
 
@@ -219,16 +223,29 @@ class ShortcutDetector:
         tokens: str = "tokens",
         label: str = "label",
         seed: int = 0,
+        permutations: int = 30,
     ):
         self.max_length = max_length
         self.separator = separator
         self.tokens = tokens
         self.label = label
         self.seed = seed
+        #: Label shuffles the threshold is the best of. The threshold is the
+        #: largest score any feature reaches on any shuffle, which makes
+        #: :meth:`check` a permutation test on the maximum at a level of about
+        #: ``1 / permutations`` -- at 10 a clean corpus failed roughly a tenth
+        #: of the time. The n-grams are counted once whatever this is, so more
+        #: shuffles cost little.
+        self.permutations = permutations
 
     def report(self, frame: pd.DataFrame) -> pd.DataFrame:
         """Every n-gram and every length threshold, in one ranking."""
-        options = {"tokens": self.tokens, "label": self.label, "seed": self.seed}
+        options = {
+            "tokens": self.tokens,
+            "label": self.label,
+            "seed": self.seed,
+            "permutations": self.permutations,
+        }
         return pd.concat(
             [
                 ngrams(
@@ -260,15 +277,24 @@ class ShortcutDetector:
         which is the multiple-comparison control: with thousands of features the
         best of them beats the majority baseline by chance, and a real shortcut
         is one that beats what chance already offers.
+
+        That makes this a permutation test on the maximum, at a level of about
+        ``1 / permutations``, so **a small corpus fails it occasionally without
+        anything being wrong**. The message carries the margin for that reason:
+        a real shortcut clears the threshold by a distance and holds as the
+        corpus grows, where noise clears it by a hair and decays towards the
+        baseline. Re-run on more rows before believing a narrow failure.
         """
         report = self.report(ablated(frame))
         threshold = report["permuted"].max()
-        offending = report[report["accuracy"] > threshold]
+        offending = report[report["accuracy"] > threshold].copy()
         if not offending.empty:
+            offending["margin"] = offending["accuracy"] - threshold
             raise ValueError(
                 f"{len(offending)} features predict the label with the "
                 f"highlight removed, above the permuted best of "
-                f"{threshold:.4f}:\n"
+                f"{threshold:.4f} (baseline {report['baseline'].iloc[0]:.4f}, "
+                f"widest margin {offending['margin'].max():.4f}):\n"
                 f"{offending.head(10).to_string(index=False)}"
             )
         return report
