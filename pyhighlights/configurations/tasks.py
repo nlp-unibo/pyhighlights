@@ -24,11 +24,14 @@ from pyhighlights.configurations.keys import (
     HIGHLIGHT_F1_METRIC,
     HIGHLIGHT_IOU_METRIC,
     HIGHLIGHT_LOSS,
+    HIGHLIGHT_PRECISION_METRIC,
+    HIGHLIGHT_RECALL_METRIC,
     LOSS_CHECKPOINT,
     LOSS_EARLY_STOPPING,
     NAMESPACE,
     SELECTION_RATE_METRIC,
     SELECTION_SIZE_METRIC,
+    SELECTION_SPANS_METRIC,
     TOY,
     TOY_GENSPP_TRAINER,
 )
@@ -36,12 +39,18 @@ from pyhighlights.utility.losses import Loss
 from pyhighlights.utility.metrics import BoundMetric
 
 #: What every select-then-predict run reports, whatever the corpus: how much
-#: of the document was kept, and how well what was kept matches the annotation.
+#: of the document was kept, where it sits, and how well what was kept matches
+#: the annotation. Precision and recall are reported beside their F1 because a
+#: sparsity target moves them apart, and spans because a size alone does not
+#: say whether the kept words sit together.
 HIGHLIGHT_METRICS = [
     HIGHLIGHT_F1_METRIC,
     HIGHLIGHT_IOU_METRIC,
+    HIGHLIGHT_PRECISION_METRIC,
+    HIGHLIGHT_RECALL_METRIC,
     SELECTION_RATE_METRIC,
     SELECTION_SIZE_METRIC,
+    SELECTION_SPANS_METRIC,
 ]
 
 #: Binary corpora: Beer, Hotel, Movies, Toy.
