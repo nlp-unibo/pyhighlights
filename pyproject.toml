@@ -54,7 +54,7 @@ docs = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["pyhighlights*", "pyhighlights_benchmarks*"]
+include = ["pyhighlights*"]
 
 [tool.setuptools.dynamic]
 version = { attr = "pyhighlights.__version__" }
@@ -67,7 +67,7 @@ lint.select = ["E", "F", "I", "W"]
 
 [tool.coverage.run]
 branch = true
-source = ["pyhighlights", "pyhighlights_benchmarks"]
+source = ["pyhighlights"]
 
 [tool.coverage.report]
 exclude_also = [

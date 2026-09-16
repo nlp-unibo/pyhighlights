@@ -1,8 +1,7 @@
 # tools
 
 Maintenance scripts. Nothing here is packaged — `[tool.setuptools.packages.find]`
-includes only `pyhighlights*` and `pyhighlights_benchmarks*`, so none of this
-ships in the wheel.
+includes only `pyhighlights*`, so none of this ships in the wheel.
 
 ## `build_datasets.py`
 

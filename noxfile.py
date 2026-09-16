@@ -39,7 +39,6 @@ def tests(session: nox.Session) -> None:
         "-n",
         WORKERS,
         "--cov=pyhighlights",
-        "--cov=pyhighlights_benchmarks",
         "--cov-branch",
         # Measured at 95% on 2026-09-14. A gate far under the real number
         # gates nothing: at 75 a regression could delete a fifth of the

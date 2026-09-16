@@ -139,8 +139,8 @@ an experiment.
 It does not ship an experiment. Which metrics to log, which aspect of Beer to
 train on, which sparsity target to aim at, which embedding matrix to freeze —
 all of that depends on a specific study, so all of it stays a configuration
-the study writes. Published numbers live in ``pyhighlights_benchmarks``,
-:doc:`beside the library rather than inside it <benchmarks>`, so nothing here
+the study writes. Published numbers live in
+:doc:`a repository of their own, one per paper <benchmarks>`, so nothing here
 carries one paper's values.
 
 Where to go next

@@ -1,6 +1,8 @@
 import json
+import zipfile
 from pathlib import Path
 
+import pandas as pd
 import pytest
 from cinnamon.registry import Registry
 
@@ -9,6 +11,7 @@ from pyhighlights.components.loaders import (
     R2A_SHA256,
     BeerLoader,
     ERASERLoader,
+    GenSPPToyLoader,
     HateXplainLoader,
     HotelLoader,
     MoviesLoader,
@@ -354,3 +357,86 @@ def test_to_examples_needs_the_standard_columns(tmp_path):
 
     with pytest.raises(KeyError):
         to_examples(frame)
+
+
+def genspp_toy_pickle(directory: Path, rows: int = 10) -> Path:
+    """The released corpus's schema: `text`, `label`, and marked positions."""
+    path = directory / "toy_dataset.pkl"
+    pd.DataFrame(
+        {
+            "text": ["abcdefghij"[:4] + f"{index:06d}" for index in range(rows)],
+            "label": [index % 3 for index in range(rows)],
+            "structure_indexes": [[0, 1, 2] for _ in range(rows)],
+        }
+    ).to_pickle(path)
+    return path
+
+
+def test_the_genspp_toy_corpus_is_read_as_characters(tmp_path):
+    """The released pickle, turned into the columns every loader returns.
+
+    It is not `ToyLoader` with a file attached: that one samples an alphabet,
+    this one reads ten thousand released sequences and reproduces the
+    baselines' splitter, and only these rows are what a published number is
+    for. `structure_indexes` is a list of marked positions rather than a
+    vector, which is the other half of what makes this a reader.
+    """
+    loader = GenSPPToyLoader(url=str(genspp_toy_pickle(tmp_path)))
+    splits = loader.load()
+
+    assert list(splits) == ["train", "val", "test"]
+    row = splits["train"].iloc[0]
+    assert row["tokens"] == list(row["text"])
+    assert sum(row["highlights"]) == 3
+    assert row["highlights"][:3] == [1, 1, 1]
+
+    # 80% train, a fifth of it held out for validation, the rest test.
+    assert len(splits["test"]) == 2
+    assert len(splits["train"]) + len(splits["val"]) == 8
+
+    # The validation draw is seeded, so two loads agree.
+    again = GenSPPToyLoader(url=str(genspp_toy_pickle(tmp_path))).load()
+    assert splits["val"]["text"].tolist() == again["val"]["text"].tolist()
+
+
+def test_the_genspp_toy_corpus_reads_the_published_artifact(tmp_path):
+    """The Zenodo record holds the artifact, not a loose pickle.
+
+    The artifact carries the manifest, the licence and the citation beside the
+    data, so a local copy of it has to read the same as the published one.
+    """
+    archive = tmp_path / "pyhighlights-genspp-toy-v1.zip"
+    with zipfile.ZipFile(archive, "w") as target:
+        target.write(genspp_toy_pickle(tmp_path), "toy_dataset.pkl")
+        target.writestr("README.md", "# artifact")
+
+    splits = GenSPPToyLoader(
+        url=str(archive), sha256=None, directory=tmp_path / "cache"
+    ).load()
+
+    assert list(splits) == ["train", "val", "test"]
+    assert sum(len(frame) for frame in splits.values()) == 10
+
+
+def test_the_genspp_toy_corpus_defaults_to_the_published_artifact():
+    loader = GenSPPToyLoader()
+
+    # The version record rather than the concept one: the digest pins these
+    # exact bytes, and a concept DOI resolves to whatever is newest.
+    assert loader.url.endswith("pyhighlights-genspp-toy-v1.zip/content")
+    assert "22711449" in loader.url
+    assert loader.sha256 == (
+        "5b0886163b215b932b242ce4910cd8d60b46fa79cfdfdde41e9646d99d9ebc92"
+    )
+
+    with pytest.raises(ValueError, match="train_ratio"):
+        GenSPPToyLoader(train_ratio=1.0)
+    with pytest.raises(ValueError, match="val_ratio"):
+        GenSPPToyLoader(val_ratio=1.0)
+
+
+def test_the_genspp_toy_corpus_refuses_when_given_nowhere_to_look():
+    # A clear refusal beats synthesising a corpus of the same shape and
+    # different content, which is exactly what `ToyLoader` would do.
+    with pytest.raises(ValueError, match="no download URL"):
+        GenSPPToyLoader(url=None).load()

@@ -265,7 +265,7 @@ def genspp_toy_artifact() -> Tuple[str, List[Tuple[str, bytes]]]:
     corpus = pd.read_pickle(pickle)
     manifest = {
         "artifact": name,
-        "loader": "pyhighlights_benchmarks.genspp2025.corpora.GenSPPToyLoader",
+        "loader": "pyhighlights.components.loaders.GenSPPToyLoader",
         "pyhighlights_version": pyhighlights.__version__,
         "source": {
             "url": GENSPP_TOY_URL,
