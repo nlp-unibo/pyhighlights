@@ -255,9 +255,9 @@ class ToyLoader(HighlightLoader):
     """Synthetic corpus: each class is a set of character patterns to be found.
 
     **Tokens are characters**, as they are in every toy corpus of this line of
-    work: ``GenSPPToyLoader`` reads a released one with ``list(row.text)``, and
-    the generator it comes from samples an alphabet. A trigger is therefore a
-    string of characters like ``"aa"``, not a phrase.
+    work: the generator samples an alphabet, and a released one is read back a
+    character at a time. A trigger is therefore a string of characters like
+    ``"aa"``, not a phrase.
 
     A class's trigger is a **conjunction**: every pattern in it has to appear
     for the class to hold. One pattern is the short spelling of a conjunction
@@ -281,22 +281,37 @@ class ToyLoader(HighlightLoader):
     A generated sample must satisfy its own class and no other; one that does
     not is drawn again.
 
-    Every split is annotated, the highlights are exactly the patterns, and no
-    download is involved -- which makes it the cheap way to exercise a model, a
-    configuration or a training loop end to end.
+    Every split is annotated and the highlights are exactly the patterns,
+    which makes it the cheap way to exercise a model, a configuration or a
+    training loop end to end.
+
+    **It also reads.** A toy corpus has a life: it is generated, published, and
+    read back by whoever reproduces the numbers it produced. Those are the same
+    corpus at three moments rather than three kinds of thing, so they are one
+    loader. ``ToyLoader(...).save(path)`` writes what ``ToyLoader(url=...)``
+    reads, in this library's own columns, and a published toy corpus is then a
+    URL and a digest in a configuration rather than a loader somebody has to
+    write. :meth:`parse` is the hook for a corpus older than those columns.
+
+    ``url`` decides which half runs, and **a configured source is never fallen
+    back on**: a loader given a ``url`` it cannot read raises rather than
+    generating, because a corpus of the right shape and the wrong content is
+    the one failure nothing downstream can see.
 
     ``contaminations`` scatters proper chunks of the patterns through the
     filler, which is what stops a fragment from being enough to classify:
     without it ``bc`` occurs nowhere but inside ``abc``, so detecting ``bc``
     names that class exactly as well as detecting ``abc`` does. Off by default,
-    since the registered corpus is a smoke test and a cheap one is the point. A
-    reproduction of the published numbers reads the released pickle through
-    :class:`GenSPPToyLoader`.
+    since the registered corpus is a smoke test and a cheap one is the point.
+    A reproduction of published numbers points ``url`` at the corpus those
+    numbers are for, rather than generating one of the same shape.
 
     Whatever the settings,
     :class:`~pyhighlights.components.shortcuts.ShortcutDetector` is what says
     the corpus is a control: it removes the annotated positions and requires
-    that nothing left predicts the label.
+    that nothing left predicts the label. Run it on a corpus that was read as
+    readily as on one that was generated -- being published is no evidence of
+    being sound, and the released GenSPP corpus was audited this way.
     """
 
     #: Where filler characters come from, minus whatever the triggers use.
@@ -313,6 +328,13 @@ class ToyLoader(HighlightLoader):
         contaminations: int = 0,
         min_chunk: int = 2,
         seed: int = 0,
+        url: str | None = None,
+        sha256: str | None = None,
+        member: str = "corpus.pkl",
+        archive_name: str | None = None,
+        train_ratio: float = 0.8,
+        val_ratio: float = 0.2,
+        split_seed: int = 0,
         **kwargs,
     ):
         """``length`` is the document's length, patterns included.
@@ -368,6 +390,17 @@ class ToyLoader(HighlightLoader):
         self.contaminations = contaminations
         self.min_chunk = min_chunk
         self.seed = seed
+        if not 0.0 < train_ratio < 1.0:
+            raise ValueError("train_ratio must be between zero and one")
+        if not 0.0 <= val_ratio < 1.0:
+            raise ValueError("val_ratio must be between zero and one")
+        self.url = url
+        self.sha256 = sha256
+        self.member = member
+        self.archive_name = archive_name or "toy-corpus.zip"
+        self.train_ratio = train_ratio
+        self.val_ratio = val_ratio
+        self.split_seed = split_seed
         # A chunk is a *proper* piece of a pattern -- strictly shorter, so it
         # can never satisfy the class it was cut from. One that spells another
         # class's pattern outright is dropped: every inserted run sits alone
@@ -491,11 +524,103 @@ class ToyLoader(HighlightLoader):
             )
         return pd.DataFrame(rows, columns=list(COLUMNS))
 
-    def read(self) -> Dict[str, pd.DataFrame]:
+    def fetch(self) -> Path:
+        """The corpus file, downloading and unpacking the artifact if needed.
+
+        ``url`` may be an archive -- published or local -- or a bare corpus
+        file. A record usually holds the archive rather than a loose file,
+        because the archive is what carries the manifest, the licence and the
+        citation beside the data.
+        """
+        root = self.directory / "toy"
+        source = Path(self.url)
+        if not source.is_file():
+            source = download(self.url, root / self.archive_name, sha256=self.sha256)
+        if not zipfile.is_zipfile(source):
+            return source
+        return extract(source, root / "corpus") / self.member
+
+    def parse(self, frame: pd.DataFrame) -> pd.DataFrame:
+        """A freshly read frame, as this library's columns.
+
+        The hook a corpus older than those columns overrides. Everything
+        :meth:`save` writes arrives here already in them, so the default only
+        fills in what is derivable and says which column is missing otherwise
+        -- a corpus that has to be guessed at is one nobody can check.
+        """
+        frame = frame.copy()
+        if "tokens" not in frame:
+            frame["tokens"] = frame["text"].map(list)
+        if "sample_id" not in frame:
+            frame["sample_id"] = range(len(frame))
+        missing = [name for name in COLUMNS if name not in frame]
+        if missing:
+            raise ValueError(
+                f"{self.url} is missing {missing}; a corpus older than these "
+                f"columns is converted by overriding ToyLoader.parse"
+            )
+        return frame
+
+    def divide(self, frame: pd.DataFrame) -> Dict[str, pd.DataFrame]:
+        """The splits the corpus carries, or the ones the ratios cut into it.
+
+        A corpus :meth:`save` wrote carries a ``split`` column, so it comes
+        back divided exactly as it was generated -- regenerating a corpus and
+        re-splitting a corpus are different operations and only one of them is
+        reproducible from the file.
+
+        A flat corpus has no such column. It is divided the way the GenSPP
+        baselines divide theirs: the first ``train_ratio`` is train, the rest
+        test, and ``val_ratio`` of train is sampled off it under
+        ``split_seed``.
+        """
+        if "split" in frame:
+            return {
+                str(name): part.drop(columns="split").reset_index(drop=True)
+                for name, part in frame.groupby("split", sort=False)
+            }
+        train_count = int(len(frame) * self.train_ratio)
+        train, test = frame[:train_count], frame[train_count:]
+        val = train.sample(
+            n=int(train_count * self.val_ratio),
+            random_state=np.random.RandomState(self.split_seed),
+        )
+        train = train[~train.index.isin(val.index)]
         return {
-            name: self.generate(size, random.Random(f"{self.seed}-{name}"))
-            for name, size in self.sizes.items()
+            name: part.reset_index(drop=True)
+            for name, part in (("train", train), ("val", val), ("test", test))
         }
+
+    def save(self, path: str | Path) -> Path:
+        """Write the corpus to ``path``, splits and all, for reading back.
+
+        The file this writes is what :meth:`read` reads: the library's own
+        columns plus a ``split``, so a generated corpus can be published and
+        then loaded by URL without anyone writing a second loader for it.
+        """
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        frame = pd.concat(
+            [part.assign(split=name) for name, part in self.load().items()],
+            ignore_index=True,
+        )
+        frame.to_pickle(path)
+        return path
+
+    def read(self) -> Dict[str, pd.DataFrame]:
+        """Generate a corpus, or read the one ``url`` names.
+
+        **A configured source is never fallen back on.** A loader given a
+        ``url`` it cannot read raises, where generating instead would hand back
+        a corpus of the right shape and different content -- the one failure a
+        synthetic corpus cannot afford, because nothing downstream can see it.
+        """
+        if self.url is None:
+            return {
+                name: self.generate(size, random.Random(f"{self.seed}-{name}"))
+                for name, size in self.sizes.items()
+            }
+        return self.divide(self.parse(pd.read_pickle(self.fetch())))
 
 
 class HateXplainLoader(HighlightLoader):
@@ -728,117 +853,3 @@ class MoviesLoader(ERASERLoader):
 
     def __init__(self, task: str = "movies", **kwargs):
         super().__init__(task=task, **kwargs)
-
-
-class GenSPPToyLoader(HighlightLoader):
-    """The 10,000 sequences the GenSPP paper trained on.
-
-    Each row is a twenty-character string over the lowercase alphabet with a
-    three-character pattern hidden in it; the class is which pattern, and the
-    highlight is exactly where it sits. **Tokens are characters**, so the
-    vocabulary is the alphabet and an embedding table of 26 rows covers it.
-
-    :class:`ToyLoader` generates a corpus of the same shape and not this one.
-    The two are not alternatives: one samples an alphabet, this one reads ten
-    thousand released sequences, and only these are the rows the paper's
-    numbers are for. Nothing here can be regenerated -- with ``url=None`` it
-    refuses rather than synthesising a corpus that would look right and be
-    different.
-
-    Published at `10.5281/zenodo.22711449
-    <https://doi.org/10.5281/zenodo.22711449>`_ under CC-BY-4.0 by both authors
-    of the paper, so the loader fetches it rather than being handed it.
-
-    Splits follow the released baselines -- the first 80% train, the rest
-    test, and a fifth of train sampled off for validation, drawn from
-    ``split_seed`` because the released script seeds everything at 15000
-    before sampling.
-    """
-
-    #: The published artifact, `10.5281/zenodo.22711449
-    #: <https://doi.org/10.5281/zenodo.22711449>`_. The version record rather
-    #: than the concept one, because :attr:`SHA256` pins these exact bytes.
-    URL: str | None = (
-        "https://zenodo.org/api/records/22711449/files/"
-        "pyhighlights-genspp-toy-v1.zip/content"
-    )
-    #: Digest of the artifact :attr:`URL` names.
-    SHA256 = "5b0886163b215b932b242ce4910cd8d60b46fa79cfdfdde41e9646d99d9ebc92"
-    #: The corpus inside that archive.
-    MEMBER = "toy_dataset.pkl"
-
-    def __init__(
-        self,
-        url: str | None = URL,
-        sha256: str | None = SHA256,
-        member: str = MEMBER,
-        archive_name: str = "pyhighlights-genspp-toy-v1.zip",
-        train_ratio: float = 0.8,
-        val_ratio: float = 0.2,
-        split_seed: int = 15000,
-        **kwargs,
-    ):
-        super().__init__(**kwargs)
-        if not 0.0 < train_ratio < 1.0:
-            raise ValueError("train_ratio must be between zero and one")
-        if not 0.0 <= val_ratio < 1.0:
-            raise ValueError("val_ratio must be between zero and one")
-        self.url = url
-        self.sha256 = sha256
-        self.member = member
-        self.archive_name = archive_name
-        self.train_ratio = train_ratio
-        self.val_ratio = val_ratio
-        self.split_seed = split_seed
-
-    def download(self) -> Path:
-        """The corpus pickle, fetching and unpacking the artifact if needed.
-
-        ``url`` may be the published archive, a local copy of it, or a local
-        ``toy_dataset.pkl`` -- the Zenodo record holds the artifact rather than
-        a loose pickle, and the artifact is what carries the manifest, the
-        licence and the citation alongside the data.
-        """
-        if self.url is None:
-            raise ValueError(
-                "the GenSPP toy corpus has no download URL: pass url= with the "
-                "published artifact, or point it at a local toy_dataset.pkl"
-            )
-        root = self.directory / "genspp2025"
-        source = Path(self.url)
-        if not source.is_file():
-            source = download(self.url, root / self.archive_name, sha256=self.sha256)
-        if not zipfile.is_zipfile(source):
-            return source
-        return extract(source, root / "toy") / self.member
-
-    def read(self) -> Dict[str, pd.DataFrame]:
-        frame = pd.read_pickle(self.download())
-        rows = []
-        for index, row in enumerate(frame.itertuples()):
-            tokens = list(row.text)
-            highlights = [0] * len(tokens)
-            for position in row.structure_indexes:
-                highlights[position] = 1
-            rows.append(
-                {
-                    "sample_id": index,
-                    "text": row.text,
-                    "tokens": tokens,
-                    "label": int(row.label),
-                    "highlights": highlights,
-                }
-            )
-        corpus = pd.DataFrame(rows, columns=list(COLUMNS))
-
-        train_count = int(len(corpus) * self.train_ratio)
-        train, test = corpus[:train_count], corpus[train_count:]
-        val = train.sample(
-            n=int(train_count * self.val_ratio),
-            random_state=np.random.RandomState(self.split_seed),
-        )
-        train = train[~train.index.isin(val.index)]
-        return {
-            name: frame.reset_index(drop=True)
-            for name, frame in (("train", train), ("val", val), ("test", test))
-        }

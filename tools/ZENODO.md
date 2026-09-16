@@ -216,7 +216,7 @@ The one artifact that redistributes a dataset rather than indexing one, so it
 is the one whose licence is the authors' to set. Both have agreed.
 
 **This record holds the archive alone.** The plan had been to upload the loose
-`toy_dataset.pkl` beside it, because `GenSPPToyLoader` read a pickle rather
+`corpus.pkl` beside it, because a loader pointed at the file rather
 than an archive and Zenodo serves each file of a record at its own URL. It was
 published with the zip only, and the loader was taught to unpack instead —
 which is the better end anyway: the artifact carries the manifest, the licence
@@ -276,7 +276,7 @@ synthetic corpus, reproducibility, GenSPP, pyhighlights
 > sampled off for validation at seed 15000 — so the artifact is the corpus and
 > the split is code.
 >
-> `pyhighlights.components.loaders.GenSPPToyLoader` reads
+> `pyhighlights.components.loaders.ToyLoader` reads
 > `toy_dataset.pkl` directly. SHA-256:
 > `2ee223d8aecd6ee9a585aa695a6fd5fd6f4c10c39fe6046ffb833d7ab44fb064`.
 >
@@ -297,7 +297,7 @@ synthetic corpus, reproducibility, GenSPP, pyhighlights
    `66e18d4e6c9df9e9f5544572b0bfe92a39673f74ecbfc3859b46cedb2f5b2dee` and is
    the `sha256` default. One constant serves because `TASKS` is one task; a
    second would want it keyed by task.
-3. `GenSPPToyLoader.URL` names the toy record's archive and `SHA256` pins it.
+3. The reproduction's `ToyLoader` configuration names the toy record's archive and pins its digest.
    `download()` unpacks a zip and returns the member; a local archive or a
    local `toy_dataset.pkl` still works, and `url=None` still refuses rather
    than synthesising a different corpus.

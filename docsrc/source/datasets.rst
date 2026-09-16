@@ -406,11 +406,13 @@ Every split is annotated, a seed makes the corpus reproducible, and there is
 nothing to fetch — which makes it the cheap way to exercise a model, a
 configuration or a training loop before pointing it at a real corpus.
 
-It is a smoke test rather than the GenSPP paper's toy corpus. That one places
-several patterns per class at positions a constraint solver picks and
-contaminates the sequence with partial chunks of other classes' patterns; a
-reproduction reads the released pickle through
-:class:`~pyhighlights.components.loaders.GenSPPToyLoader`.
+The registered configuration is a smoke test rather than the GenSPP paper's
+toy corpus, which is longer, contaminated, and has three classes. Both are
+:class:`~pyhighlights.components.loaders.ToyLoader`: the difference is
+settings, and reading the released one rather than generating a new one is
+``url``. ``save()`` writes a generated corpus in the same form that ``url``
+reads, so publishing one needs no loader of its own; a corpus older than these
+columns is converted by overriding ``parse``.
 
 Corpus statistics
 -----------------

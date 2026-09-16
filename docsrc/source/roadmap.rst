@@ -285,7 +285,7 @@ as manifests — Beer at `10.5281/zenodo.22703544
 GenSPP toy corpus at `10.5281/zenodo.22711449
 <https://doi.org/10.5281/zenodo.22711449>`_, all CC-BY-4.0.
 
-``GenSPPToyLoader`` fetches its corpus instead of refusing, and
+A toy corpus given a ``url`` fetches it instead of refusing, and
 :class:`~pyhighlights.components.loaders.R2ALoader` and
 :class:`~pyhighlights.components.loaders.ERASERLoader` pin the upstream
 archives they were built against, so a changed upstream fails loudly rather
