@@ -250,32 +250,51 @@ class HotelLoader(R2ALoader):
 
 
 class ToyLoader(HighlightLoader):
-    """Synthetic corpus: one character pattern per class inside filler characters.
+    """Synthetic corpus: each class is a set of character patterns to be found.
 
     **Tokens are characters**, as they are in every toy corpus of this line of
     work: ``GenSPPToyLoader`` reads a released one with ``list(row.text)``, and
     the generator it comes from samples an alphabet. A trigger is therefore a
     string of characters like ``"aa"``, not a phrase.
 
-    Every split is annotated, the highlights are exactly the trigger, and no
-    download is involved — which makes it the cheap way to exercise a model, a
+    A class's trigger is a **conjunction**: every pattern in it has to appear
+    for the class to hold. One pattern is the short spelling of a conjunction
+    of one, so both of these are triggers::
+
+        triggers = ["aa", "bcd"]                          # a pattern per class
+        triggers = [["aba", "baa"], ["baa", "abb"]]       # two, both required
+
+    The second form is the one worth having. When no pattern belongs to a
+    single class -- ``baa`` sits in both classes above -- no single n-gram
+    identifies a class, and a model that memorises one cannot pass. It also
+    makes the gold highlight **several disjoint spans** rather than one run,
+    which is the shape a real highlight has.
+
+    Patterns are placed at distinct positions in a random order, so at least
+    one filler character separates them and the order they were listed in
+    carries nothing. A generated sample must satisfy its own class and no
+    other; one that does not is drawn again.
+
+    Every split is annotated, the highlights are exactly the patterns, and no
+    download is involved -- which makes it the cheap way to exercise a model, a
     configuration or a training loop end to end.
 
-    **It is a smoke test, not the paper's corpus.** The released generator
-    places several patterns per class at positions a constraint solver picks,
-    then contaminates the sequence with partial chunks of other classes'
-    patterns. Nothing here does: one contiguous trigger, one class. A
-    reproduction reads the released pickle through
+    **No contamination yet.** The released generator also splices partial
+    chunks of other classes' patterns into the sequence, so that a fragment of
+    a pattern is not enough to classify. Nothing here does. A reproduction
+    reads the released pickle through
     :class:`~pyhighlights_benchmarks.genspp2025.corpora.GenSPPToyLoader`.
     """
 
     #: Where filler characters come from, minus whatever the triggers use.
     ALPHABET = string.ascii_lowercase
+    #: Draws allowed per sample before the placement is called impossible.
+    ATTEMPTS = 100
 
     def __init__(
         self,
         sizes: Mapping[str, int] | None = None,
-        triggers: Sequence[str] = ("aa", "bcd"),
+        triggers: Sequence[str | Sequence[str]] = ("aa", "bcd"),
         length: int = 20,
         vocabulary_size: int = 20,
         seed: int = 0,
@@ -283,7 +302,7 @@ class ToyLoader(HighlightLoader):
     ):
         """``vocabulary_size`` is how many filler characters there are.
 
-        They are drawn from the letters no trigger uses, so a trigger can only
+        They are drawn from the letters no trigger uses, so a pattern can only
         appear where this put one: two adjacent filler characters can never
         spell ``"aa"`` if ``a`` is not a filler character. The released
         generator reaches the same end by cleaning the sequence and rejecting
@@ -292,11 +311,30 @@ class ToyLoader(HighlightLoader):
         super().__init__(**kwargs)
         if len(triggers) < 2:
             raise ValueError("ToyLoader needs one trigger per class")
+        self.triggers = [
+            (trigger,) if isinstance(trigger, str) else tuple(trigger)
+            for trigger in triggers
+        ]
         if length < 1 or vocabulary_size < 1:
             raise ValueError("length and vocabulary_size must be positive")
-        if any(not trigger for trigger in triggers):
+        if any(not pattern for trigger in self.triggers for pattern in trigger):
             raise ValueError("a trigger is at least one character")
-        used = {character for trigger in triggers for character in trigger}
+        if any(not trigger for trigger in self.triggers):
+            raise ValueError("a trigger is at least one pattern")
+        # Distinct insertion points, so a filler character always separates two
+        # patterns and the highlight is as many spans as there are patterns.
+        widest = max(len(trigger) for trigger in self.triggers)
+        if widest > length + 1:
+            raise ValueError(
+                f"{widest} patterns cannot be placed apart in {length} "
+                f"filler characters"
+            )
+        used = {
+            character
+            for trigger in self.triggers
+            for pattern in trigger
+            for character in pattern
+        }
         self.alphabet = [letter for letter in self.ALPHABET if letter not in used]
         if len(self.alphabet) < vocabulary_size:
             raise ValueError(
@@ -305,28 +343,73 @@ class ToyLoader(HighlightLoader):
             )
         self.alphabet = self.alphabet[:vocabulary_size]
         self.sizes = dict(sizes or {"train": 64, "val": 16, "test": 16})
-        self.triggers = list(triggers)
         self.length = length
         self.vocabulary_size = vocabulary_size
         self.seed = seed
+
+    def satisfied(self, text: str) -> set:
+        """Which classes' conjunctions ``text`` holds, as a set of labels.
+
+        A valid sample satisfies exactly its own. Public because it is what the
+        corpus means -- a shortcut scan asks it about texts this never wrote.
+        """
+        return {
+            label
+            for label, trigger in enumerate(self.triggers)
+            if all(pattern in text for pattern in trigger)
+        }
+
+    def place(self, trigger, generator: random.Random):
+        """One sample's tokens and highlight, from a class's patterns.
+
+        The patterns go in at distinct offsets in a random order: distinct so
+        that a filler character separates them, random so that the order they
+        were listed in is not a feature.
+        """
+        filler = [generator.choice(self.alphabet) for _ in range(self.length)]
+        offsets = sorted(generator.sample(range(len(filler) + 1), len(trigger)))
+        patterns = list(trigger)
+        generator.shuffle(patterns)
+
+        tokens: List[str] = []
+        highlights: List[int] = []
+        previous = 0
+        for offset, pattern in zip(offsets, patterns):
+            tokens.extend(filler[previous:offset])
+            highlights.extend([0] * (offset - previous))
+            tokens.extend(pattern)
+            highlights.extend([1] * len(pattern))
+            previous = offset
+        tokens.extend(filler[previous:])
+        highlights.extend([0] * (len(filler) - previous))
+        return tokens, highlights
 
     def generate(self, size: int, generator: random.Random) -> pd.DataFrame:
         rows = []
         for index in range(size):
             label = index % len(self.triggers)
-            trigger = list(self.triggers[label])
-            filler = [generator.choice(self.alphabet) for _ in range(self.length)]
-            at = generator.randrange(len(filler) + 1)
-            tokens = filler[:at] + trigger + filler[at:]
+            for _ in range(self.ATTEMPTS):
+                tokens, highlights = self.place(self.triggers[label], generator)
+                text = "".join(tokens)
+                # Placement cannot spell a pattern out of filler, but it can
+                # satisfy a second class outright when one class's patterns are
+                # a subset of another's. That is a corpus nobody can label, so
+                # the draw is repeated rather than recorded.
+                if self.satisfied(text) == {label}:
+                    break
+            else:
+                raise ValueError(
+                    f"class {label} could not be placed without satisfying "
+                    f"another in {self.ATTEMPTS} attempts; its patterns "
+                    f"{self.triggers[label]} may cover another class's"
+                )
             rows.append(
                 {
                     "sample_id": index,
-                    "text": "".join(tokens),
+                    "text": text,
                     "tokens": tokens,
                     "label": label,
-                    "highlights": [0] * at
-                    + [1] * len(trigger)
-                    + [0] * (len(filler) - at),
+                    "highlights": highlights,
                 }
             )
         return pd.DataFrame(rows, columns=list(COLUMNS))
