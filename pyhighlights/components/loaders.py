@@ -32,12 +32,12 @@ R2A_SPLITS = {
 
 
 def _aligned_highlights(flags: str, width: int) -> List[int]:
-    """Parse one rationale, dropping the stray trailing zeros some rows carry.
+    """Parse one highlight, dropping the stray trailing zeros some rows carry.
 
     Three rows of the R2A release (``hotel_Location`` 59,
     ``hotel_Cleanliness`` 198 and ``beer1`` 119) end with one flag more than
     the text has tokens, and every surplus flag is 0. Trimming those keeps the
-    tasks usable. A surplus holding a 1, or a rationale shorter than the text,
+    tasks usable. A surplus holding a 1, or a highlight shorter than the text,
     is left alone so the caller reports it: a real misalignment shifts every
     label after the offending position.
     """
