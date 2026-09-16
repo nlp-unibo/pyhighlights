@@ -410,7 +410,7 @@ It is a smoke test rather than the GenSPP paper's toy corpus. That one places
 several patterns per class at positions a constraint solver picks and
 contaminates the sequence with partial chunks of other classes' patterns; a
 reproduction reads the released pickle through
-:class:`pyhighlights_benchmarks.genspp2025.corpora.GenSPPToyLoader`.
+:class:`~pyhighlights.components.loaders.GenSPPToyLoader`.
 
 Corpus statistics
 -----------------

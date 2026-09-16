@@ -127,9 +127,10 @@ a loader does, so two studies over one corpus can prepare it differently.
 **Metrics** per corpus, by output classes and by highlights, plus faithfulness
 — sufficiency and comprehensiveness — over the test split.
 
-**Reproductions** live in `pyhighlights_benchmarks`, beside the library rather
-than inside it, so nothing here carries one paper's values. GenSPP (ACL 2025)
-is the first: two corpora against the five architectures that paper compares —
+**Reproductions** live in a repository of their own, one per paper, rather
+than inside it, so nothing here carries one paper's values.
+[GenSPP (ACL 2025)](https://github.com/nlp-unibo/pyhighlights-genspp2025) is
+the first: two corpora against the five architectures that paper compares —
 FR, MCD, MGR, G-RAT and GenSPP — rather than against all eight the library
 ships.
 

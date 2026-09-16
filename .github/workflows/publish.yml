@@ -51,3 +51,10 @@ jobs:
           name: distributions
           path: dist/
       - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
+        with:
+          # A tag that is re-pushed -- moved onto the merge commit it should
+          # have been on, most likely -- re-runs this workflow against a
+          # version PyPI already holds. Without this the upload is rejected
+          # and the run goes red for having nothing to do, which is a failure
+          # that means the opposite of one.
+          skip-existing: true

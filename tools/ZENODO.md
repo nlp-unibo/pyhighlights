@@ -276,7 +276,7 @@ synthetic corpus, reproducibility, GenSPP, pyhighlights
 > sampled off for validation at seed 15000 — so the artifact is the corpus and
 > the split is code.
 >
-> `pyhighlights_benchmarks.genspp2025.corpora.GenSPPToyLoader` reads
+> `pyhighlights.components.loaders.GenSPPToyLoader` reads
 > `toy_dataset.pkl` directly. SHA-256:
 > `2ee223d8aecd6ee9a585aa695a6fd5fd6f4c10c39fe6046ffb833d7ab44fb064`.
 >
