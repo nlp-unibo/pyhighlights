@@ -135,6 +135,34 @@ class BinaryHighlightIoU(HighlightMetric):
         return self.tp / (self.tp + self.fp + self.fn)
 
 
+class BinaryHighlightPrecision(HighlightMetric):
+    """Of the positions the selection marked, the share the corpus annotates.
+
+    Reported beside recall because a sparsity target moves the two in opposite
+    directions and their F1 hides it: a selector squeezed below the annotation's
+    own length buys precision with recall, and a column of F1 alone reads as a
+    model that got slightly worse rather than one that changed what it does.
+
+    ``nan`` where there is nothing to score; see :class:`BinaryHighlightF1Score`.
+    Here the denominator is zero when the model marked no annotated position,
+    which is a different statement from marking the wrong ones.
+    """
+
+    def compute(self) -> th.Tensor:
+        return self.tp / (self.tp + self.fp)
+
+
+class BinaryHighlightRecall(HighlightMetric):
+    """Of the positions the corpus annotates, the share the selection marked.
+
+    ``nan`` where there is nothing to score; see :class:`BinaryHighlightF1Score`.
+    The denominator is zero on a split that annotates nothing.
+    """
+
+    def compute(self) -> th.Tensor:
+        return self.tp / (self.tp + self.fn)
+
+
 class SelectionMetric(Metric):
     """Per-sample selection statistic over the tokens a document actually has.
 
@@ -164,12 +192,14 @@ class SelectionMetric(Metric):
             name="samples", default=th.tensor(0, dtype=th.float), dist_reduce_fx="sum"
         )
 
-    def reduce(self, kept: th.Tensor, length: th.Tensor) -> th.Tensor:
+    def reduce(self, selected: th.Tensor, length: th.Tensor) -> th.Tensor:
         """One statistic per document, from what it kept and how long it is.
 
-        Both arguments are ``[B]`` and cover only the documents that have a
-        token: ``kept`` is how many of them the selection marked, ``length``
-        how many there are. A subclass divides or does not.
+        ``selected`` is ``[B, T]`` with every padded position already zeroed,
+        and ``length`` is ``[B]``; both cover only the documents that have a
+        token. A subclass sums, divides, or reads the positions themselves --
+        a count of spans is not recoverable from a total, which is why this
+        takes the row rather than its sum.
         """
         raise NotImplementedError
 
@@ -187,8 +217,8 @@ class SelectionMetric(Metric):
         # `where` rather than a multiply: a padded position is dropped whatever
         # it holds, and `0 * nan` is `nan`. The loop this replaces never looked
         # at those positions, so neither does this.
-        kept = th.where(valid, preds, th.zeros_like(preds)).sum(dim=-1)
-        self.value += self.reduce(kept[counted], length[counted]).sum().detach()
+        selected = th.where(valid, preds, th.zeros_like(preds))
+        self.value += self.reduce(selected[counted], length[counted]).sum().detach()
         # On the device, like the states themselves: `int()` here would force a
         # host synchronisation on every batch, which the loop never did.
         self.samples += counted.sum()
@@ -203,15 +233,44 @@ class SelectionRate(SelectionMetric):
     plot_lower_bound = 0.0
     plot_upper_bound = 1.0
 
-    def reduce(self, kept: th.Tensor, length: th.Tensor) -> th.Tensor:
-        return kept / length
+    def reduce(self, selected: th.Tensor, length: th.Tensor) -> th.Tensor:
+        return selected.sum(dim=-1) / length
 
 
 class SelectionSize(SelectionMetric):
     """How many tokens the selection kept, which nothing bounds above."""
 
-    def reduce(self, kept: th.Tensor, length: th.Tensor) -> th.Tensor:
-        return kept
+    def reduce(self, selected: th.Tensor, length: th.Tensor) -> th.Tensor:
+        return selected.sum(dim=-1)
+
+
+class SelectionSpans(SelectionMetric):
+    """How many contiguous runs the selection falls into.
+
+    Contiguity is a penalty in :mod:`pyhighlights.utility.losses` and was never
+    a reported number, so a run said how much it kept and never whether the
+    kept words sit together. Six words in one span and six scattered over a
+    clause are the same selection size and not the same highlight: the first
+    can be read as a phrase, the second is what a model keying on punctuation
+    produces.
+
+    A run of ones is counted at its first position, so a document that selects
+    nothing scores zero and one that selects everything scores one.
+
+    **The mask has to be hard.** Every positive entry opens or continues a run,
+    so a probability of 0.01 counts as kept. :class:`SelectionRate` and
+    :class:`SelectionSize` sum their input and stay meaningful on a soft mask;
+    this one does not, and reports the number of runs of non-zero entries
+    rather than anything about the highlight a threshold would produce.
+    """
+
+    def reduce(self, selected: th.Tensor, length: th.Tensor) -> th.Tensor:
+        kept = selected > 0
+        # A position starts a run when it is kept and its predecessor is not.
+        # The pad supplies the missing predecessor of column zero as "not
+        # kept", so a selection beginning at the first token is one span.
+        previous = th.nn.functional.pad(kept, (1, 0))[..., :-1]
+        return (kept & ~previous).sum(dim=-1).to(selected.dtype)
 
 
 class KnowledgeSetMetric(Metric):

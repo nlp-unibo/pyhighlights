@@ -181,7 +181,7 @@ The companion question is *where* it selected:
 
 A selector that has learned nothing still selects something. Position is what
 tells the two apart: a model keying on the opening tokens of every document
-scores like one that found the rationale, until you look at where it selected.
+scores like one that found the highlight, until you look at where it selected.
 
 6. Swap the corpus, swap the model
 ----------------------------------

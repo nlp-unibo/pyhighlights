@@ -28,6 +28,8 @@ from pyhighlights.configurations.keys import (
     F1,
     HIGHLIGHT_F1,
     HIGHLIGHT_IOU,
+    HIGHLIGHT_PRECISION,
+    HIGHLIGHT_RECALL,
     LINK_F1,
     LINK_MACRO_F1,
     MULTICLASS_ACCURACY,
@@ -35,6 +37,7 @@ from pyhighlights.configurations.keys import (
     NAMESPACE,
     SELECTION_RATE,
     SELECTION_SIZE,
+    SELECTION_SPANS,
 )
 
 #: Classes the multiclass variants score. HateXplain is the corpus that needs
@@ -139,6 +142,26 @@ class HighlightIoUConfig(HighlightMetricConfig):
 
 @register_class(
     name="torchmetric",
+    tags={"highlight", "precision"},
+    namespace=NAMESPACE,
+    component="pyhighlights.utility.metrics.BinaryHighlightPrecision",
+)
+class HighlightPrecisionConfig(HighlightMetricConfig):
+    pass
+
+
+@register_class(
+    name="torchmetric",
+    tags={"highlight", "recall"},
+    namespace=NAMESPACE,
+    component="pyhighlights.utility.metrics.BinaryHighlightRecall",
+)
+class HighlightRecallConfig(HighlightMetricConfig):
+    pass
+
+
+@register_class(
+    name="torchmetric",
     tags={"selection_rate"},
     namespace=NAMESPACE,
     component="pyhighlights.utility.metrics.SelectionRate",
@@ -160,6 +183,16 @@ class SelectionRateConfig(Configuration):
 )
 class SelectionSizeConfig(SelectionRateConfig):
     """Tokens the selector kept, averaged over samples."""
+
+
+@register_class(
+    name="torchmetric",
+    tags={"selection_spans"},
+    namespace=NAMESPACE,
+    component="pyhighlights.utility.metrics.SelectionSpans",
+)
+class SelectionSpansConfig(SelectionRateConfig):
+    """Contiguous runs the selection falls into, averaged over samples."""
 
 
 @register_class(
@@ -243,6 +276,28 @@ class HighlightIoUMetricConfig(HighlightF1MetricConfig):
 
 @register_class(
     name="metric",
+    tags={"highlight", "precision"},
+    namespace=NAMESPACE,
+    component=BOUND_METRIC_COMPONENT,
+)
+class HighlightPrecisionMetricConfig(HighlightF1MetricConfig):
+    name: str = Param("highlight_precision")
+    metric: RegistrationKey[Metric] = Param(HIGHLIGHT_PRECISION)
+
+
+@register_class(
+    name="metric",
+    tags={"highlight", "recall"},
+    namespace=NAMESPACE,
+    component=BOUND_METRIC_COMPONENT,
+)
+class HighlightRecallMetricConfig(HighlightF1MetricConfig):
+    name: str = Param("highlight_recall")
+    metric: RegistrationKey[Metric] = Param(HIGHLIGHT_RECALL)
+
+
+@register_class(
+    name="metric",
     tags={"selection_rate"},
     namespace=NAMESPACE,
     component=BOUND_METRIC_COMPONENT,
@@ -271,6 +326,17 @@ class SelectionSizeMetricConfig(SelectionRateMetricConfig):
     metric: RegistrationKey[Metric] = Param(SELECTION_SIZE)
 
 
+@register_class(
+    name="metric",
+    tags={"selection_spans"},
+    namespace=NAMESPACE,
+    component=BOUND_METRIC_COMPONENT,
+)
+class SelectionSpansMetricConfig(SelectionRateMetricConfig):
+    name: str = Param("selection_spans")
+    metric: RegistrationKey[Metric] = Param(SELECTION_SPANS)
+
+
 __all__: List[str] = [
     "AccuracyConfig",
     "ClassF1Config",
@@ -284,6 +350,10 @@ __all__: List[str] = [
     "HighlightF1Config",
     "HighlightF1MetricConfig",
     "HighlightIoUConfig",
+    "HighlightPrecisionConfig",
+    "HighlightPrecisionMetricConfig",
+    "HighlightRecallConfig",
+    "HighlightRecallMetricConfig",
     "HighlightIoUMetricConfig",
     "HighlightMetricConfig",
     "KnowledgeMetricConfig",
@@ -299,6 +369,8 @@ __all__: List[str] = [
     "SelectionRateConfig",
     "SelectionRateMetricConfig",
     "SelectionSizeConfig",
+    "SelectionSpansConfig",
+    "SelectionSpansMetricConfig",
     "SelectionSizeMetricConfig",
 ]
 

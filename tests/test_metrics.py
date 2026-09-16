@@ -14,18 +14,24 @@ from pyhighlights.configurations.keys import (
     F1_METRIC,
     HIGHLIGHT_F1_METRIC,
     HIGHLIGHT_IOU_METRIC,
+    HIGHLIGHT_PRECISION_METRIC,
+    HIGHLIGHT_RECALL_METRIC,
     MULTICLASS_ACCURACY_METRIC,
     MULTICLASS_F1_METRIC,
     SELECTION_RATE_METRIC,
     SELECTION_SIZE_METRIC,
+    SELECTION_SPANS_METRIC,
 )
 from pyhighlights.utility.metrics import (
     BinaryHighlightF1Score,
     BinaryHighlightIoU,
+    BinaryHighlightPrecision,
+    BinaryHighlightRecall,
     BoundMetric,
     ClassF1Score,
     SelectionRate,
     SelectionSize,
+    SelectionSpans,
     build_metrics,
 )
 
@@ -189,8 +195,8 @@ def test_a_selection_metric_reduces_the_batch_at_once(monkeypatch):
     monkeypatch.setattr(
         SelectionRate,
         "reduce",
-        lambda self, kept, length: (
-            calls.append(len(kept)) or original(self, kept, length)
+        lambda self, selected, length: (
+            calls.append(len(selected)) or original(self, selected, length)
         ),
     )
     SelectionRate().update(preds, target)
@@ -330,3 +336,132 @@ def test_class_f1_reports_the_rare_class_where_macro_reports_the_other_one():
 def test_class_f1_refuses_a_class_it_cannot_score():
     with pytest.raises(ValueError, match="pos_label"):
         ClassF1Score(pos_label=2, num_classes=2)
+
+
+def test_precision_and_recall_split_what_the_f1_averages():
+    """A selector that keeps too little is precise and does not recall.
+
+    The point of reporting the pair: F1 alone reads as one slightly worse
+    model, where the two say the selection changed shape.
+    """
+    # Four annotated positions, of which the model marks one, and nothing else.
+    preds = th.tensor([[1.0, 0.0, 0.0, 0.0]])
+    target = th.tensor([[1, 1, 1, 1]])
+
+    precision = BinaryHighlightPrecision()
+    precision.update(preds, target)
+    recall = BinaryHighlightRecall()
+    recall.update(preds, target)
+
+    assert precision.compute() == pytest.approx(1.0)
+    assert recall.compute() == pytest.approx(0.25)
+
+    # And the other way: everything marked, only one of them annotated.
+    precision = BinaryHighlightPrecision()
+    recall = BinaryHighlightRecall()
+    preds = th.tensor([[1.0, 1.0, 1.0, 1.0]])
+    target = th.tensor([[1, 0, 0, 0]])
+    precision.update(preds, target)
+    recall.update(preds, target)
+
+    assert precision.compute() == pytest.approx(0.25)
+    assert recall.compute() == pytest.approx(1.0)
+
+
+def test_precision_and_recall_are_nan_on_their_own_empty_denominators():
+    """The two divide by zero on different splits, and neither scores it 0.
+
+    Precision has no denominator when the model marked nothing; recall has none
+    when the corpus annotates nothing. A split can define one and not the other,
+    which is why they do not share :class:`BinaryHighlightF1Score`'s condition.
+    """
+    # Annotated, and the model marked none of it: recall is 0, precision is nan.
+    precision = BinaryHighlightPrecision()
+    recall = BinaryHighlightRecall()
+    preds = th.tensor([[0.0, 0.0]])
+    target = th.tensor([[1, 1]])
+    precision.update(preds, target)
+    recall.update(preds, target)
+
+    assert th.isnan(precision.compute())
+    assert recall.compute() == pytest.approx(0.0)
+
+    # Unannotated, and the model marked something: precision is 0, recall nan.
+    precision = BinaryHighlightPrecision()
+    recall = BinaryHighlightRecall()
+    preds = th.tensor([[1.0, 1.0]])
+    target = th.tensor([[0, 0]])
+    precision.update(preds, target)
+    recall.update(preds, target)
+
+    assert precision.compute() == pytest.approx(0.0)
+    assert th.isnan(recall.compute())
+
+
+def test_selection_spans_counts_runs_not_tokens():
+    """Six scattered words and six contiguous ones are the same size.
+
+    Which is the whole reason this is reported: `selection_size` cannot tell a
+    phrase from a model keying on punctuation across the clause.
+    """
+    # Same four tokens kept in each row, in one run and then in three.
+    preds = th.tensor([[1.0, 1.0, 1.0, 1.0, 0.0], [1.0, 0.0, 1.0, 0.0, 1.0]])
+    target = th.tensor([[1.0, 1.0, 1.0, 1.0, 1.0], [1.0, 1.0, 1.0, 1.0, 1.0]])
+
+    spans = SelectionSpans()
+    spans.update(preds, target)
+    size = SelectionSize()
+    size.update(preds, target)
+
+    assert spans.compute() == pytest.approx((1 + 3) / 2)
+    # The sizes differ by one, and say nothing about the shape.
+    assert size.compute() == pytest.approx((4 + 3) / 2)
+
+
+def test_selection_spans_handles_the_edges_and_the_padding():
+    # A run touching column zero is one span, not two: the predecessor of the
+    # first column is supplied as "not kept".
+    spans = SelectionSpans()
+    spans.update(th.tensor([[1.0, 1.0, 0.0]]), th.tensor([[1.0, 1.0, 1.0]]))
+    assert spans.compute() == pytest.approx(1.0)
+
+    # Selecting nothing is zero spans; selecting everything is one.
+    spans = SelectionSpans()
+    spans.update(th.tensor([[0.0, 0.0, 0.0]]), th.tensor([[1.0, 1.0, 1.0]]))
+    assert spans.compute() == pytest.approx(0.0)
+
+    spans = SelectionSpans()
+    spans.update(th.tensor([[1.0, 1.0, 1.0]]), th.tensor([[1.0, 1.0, 1.0]]))
+    assert spans.compute() == pytest.approx(1.0)
+
+    # Padding cannot close a run it is not part of, and a row of pure padding
+    # is left out of the denominator like every other selection metric.
+    spans = SelectionSpans()
+    spans.update(
+        th.tensor([[1.0, 1.0, 1.0], [1.0, 0.0, 1.0]]),
+        th.tensor([[1.0, 1.0, 0.0], [0.0, 0.0, 0.0]]),
+    )
+    assert spans.samples == 1
+    assert spans.compute() == pytest.approx(1.0)
+
+
+def test_the_new_highlight_metrics_are_registered():
+    """Each new key builds and scores, which is what a task asking for it needs."""
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+
+    preds = th.tensor([[1.0, 1.0, 0.0, 0.0]])
+    annotation = th.tensor([[1, 0, 1, -1]])
+    mask = th.tensor([[1.0, 1.0, 1.0, 0.0]])
+
+    values = {"highlight_mask": preds, "highlight_true": annotation, "mask": mask}
+    for key, expected in [
+        # Marked positions 0 and 1; position 0 is annotated, 1 is not, 2 is an
+        # annotation the model missed, 3 carries none. So tp=1, fp=1, fn=1.
+        (HIGHLIGHT_PRECISION_METRIC, 0.5),
+        (HIGHLIGHT_RECALL_METRIC, 0.5),
+        # Over `mask`, not the annotation: one run of two tokens.
+        (SELECTION_SPANS_METRIC, 1.0),
+    ]:
+        bound = Registry.from_key(key, expected_type=BoundMetric)
+        bound.update(values)
+        assert bound.compute().item() == pytest.approx(expected), key
