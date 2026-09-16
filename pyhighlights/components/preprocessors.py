@@ -26,7 +26,7 @@ from pyhighlights.components.leakage import normalize
 #: carrying highlights, so it is the one worth protecting.
 PRIORITY = ("test", "val", "train")
 
-RATIONALES = ("majority", "union", "intersection")
+HIGHLIGHTS = ("majority", "union", "intersection")
 TIES = ("drop", "keep")
 
 __all__ = [
@@ -196,17 +196,17 @@ class AnnotationAggregator(Preprocessor):
     def __init__(
         self,
         labels: Sequence[str] = (),
-        rationale: str = "majority",
+        highlights: str = "majority",
         ties: str = "drop",
         annotator_labels: str = "annotator_labels",
         annotator_highlights: str = "annotator_highlights",
     ):
-        if rationale not in RATIONALES:
-            raise ValueError(f"rationale must be one of {RATIONALES}")
+        if highlights not in HIGHLIGHTS:
+            raise ValueError(f"highlights must be one of {HIGHLIGHTS}")
         if ties not in TIES:
             raise ValueError(f"ties must be one of {TIES}")
         self.labels = {name: index for index, name in enumerate(labels)}
-        self.rationale = rationale
+        self.highlights = highlights
         self.ties = ties
         self.annotator_labels = annotator_labels
         self.annotator_highlights = annotator_highlights
@@ -216,9 +216,9 @@ class AnnotationAggregator(Preprocessor):
         if not valid:
             return [0] * width
         counts = [sum(flags) for flags in zip(*valid)]
-        if self.rationale == "union":
+        if self.highlights == "union":
             return [int(count > 0) for count in counts]
-        if self.rationale == "intersection":
+        if self.highlights == "intersection":
             return [int(count == len(valid)) for count in counts]
         return [int(count * 2 > len(valid)) for count in counts]
 

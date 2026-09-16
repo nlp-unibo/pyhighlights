@@ -40,7 +40,7 @@ class MRD(SPP):
     Reference implementation:
     <https://github.com/jugechengzi/Rationalization-MRD>.
 
-    Losses are grouped per training phase, as in MCD: ``rationale_losses``
+    Losses are grouped per training phase, as in MCD: ``shared_losses``
     apply to both phases, ``predictor_losses`` only to the predictor phase and
     ``generator_losses`` only to the generator phase. Every namespace carries
     ``complement_class_logits`` and ``full_class_logits`` beside the
@@ -53,7 +53,7 @@ class MRD(SPP):
         selectors: RegistrationKey[SPPSelector],
         predictor: RegistrationKey[SPPPredictor],
         predictor_backbone: RegistrationKey[SPPBackbone] | None,
-        rationale_losses: List[RegistrationKey[Loss]],
+        shared_losses: List[RegistrationKey[Loss]],
         predictor_losses: List[RegistrationKey[Loss]],
         generator_losses: List[RegistrationKey[Loss]],
         **kwargs,
@@ -67,7 +67,7 @@ class MRD(SPP):
             raise ValueError(
                 "MRD scores its losses per training phase, so highlight "
                 "supervision has to name the phase it belongs to; put the "
-                "highlight loss in rationale_losses instead"
+                "highlight loss in shared_losses instead"
             )
         super().__init__(
             selector_backbones=selector_backbones,
@@ -80,11 +80,11 @@ class MRD(SPP):
         if len(self.selectors) != 1:
             raise ValueError("MRD requires exactly one selector")
 
-        self.rationale_losses = th.nn.ModuleList(build_losses(rationale_losses))
+        self.shared_losses = th.nn.ModuleList(build_losses(shared_losses))
         self.predictor_losses = th.nn.ModuleList(build_losses(predictor_losses))
         self.generator_losses = th.nn.ModuleList(build_losses(generator_losses))
         self.losses = th.nn.ModuleList(
-            [*self.rationale_losses, *self.predictor_losses, *self.generator_losses]
+            [*self.shared_losses, *self.predictor_losses, *self.generator_losses]
         )
         self.automatic_optimization = False
 
@@ -128,7 +128,7 @@ class MRD(SPP):
     ) -> Tuple[th.Tensor, Dict[str, th.Tensor], SPPOutput]:
         output, values = self.phase_forward(input_data, detach_selection=True)
         total, losses = compute_losses(
-            [*self.rationale_losses, *self.predictor_losses], values
+            [*self.shared_losses, *self.predictor_losses], values
         )
         return total, losses, output
 
@@ -145,7 +145,7 @@ class MRD(SPP):
         try:
             output, values = self.phase_forward(input_data, detach_selection=False)
             total, losses = compute_losses(
-                [*self.rationale_losses, *self.generator_losses], values
+                [*self.shared_losses, *self.generator_losses], values
             )
             return total, losses, output
         finally:

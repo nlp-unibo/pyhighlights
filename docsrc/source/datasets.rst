@@ -324,10 +324,8 @@ differently:
    paper does, and ``ties="keep"`` resolves them by annotator order.
 
 ``highlights``
-   ``rationale="majority"`` keeps a token marked by more than half of the
-   annotators, ``"union"`` by any of them, ``"intersection"`` by all. The
-   argument keeps HateXplain's word for its own field; the result is a
-   highlight like any other.
+   ``highlights="majority"`` keeps a token marked by more than half of the
+   annotators, ``"union"`` by any of them, ``"intersection"`` by all.
 
 :data:`~pyhighlights.configurations.keys.HATEXPLAIN_PIPELINE` chains the
 aggregator with a

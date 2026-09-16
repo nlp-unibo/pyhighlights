@@ -55,7 +55,7 @@ class AggregatorConfig(Configuration):
     """Two classes left, so three annotators always have a majority."""
 
     labels: List[str] = Param(["hatespeech", "normal"])
-    rationale: str = Param("majority")
+    highlights: str = Param("majority")
     ties: str = Param("drop")
 
 

@@ -79,7 +79,7 @@ class HateXplainMGRConfig(GRUMGRConfig):
 class HateXplainMCDConfig(GRUMCDConfig):
     selector_backbones: RegistrationKey[SPPBackbone] = Param(HATEXPLAIN_BACKBONE)
     predictor_backbone: RegistrationKey[SPPBackbone] = Param(HATEXPLAIN_BACKBONE)
-    rationale_losses: List[RegistrationKey[Loss]] = Param(
+    shared_losses: List[RegistrationKey[Loss]] = Param(
         [CLASSIFICATION_LOSS, HATEXPLAIN_SPARSITY_LOSS]
     )
     predictor_losses: List[RegistrationKey[Loss]] = Param([FULL_CLASSIFICATION_LOSS])
