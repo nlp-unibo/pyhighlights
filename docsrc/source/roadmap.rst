@@ -25,6 +25,74 @@ library would not have found them; one that reported numbers did.
 Done
 ----
 
+**A reproduction is a repository.** ``pyhighlights_benchmarks`` is gone. A
+paper's values live beside the container and the jobs that run them, in a
+repository of their own, so the library ships tools and its releases are not
+tied to anyone's experiments. The GenSPP 2025 reproduction is at
+`nlp-unibo/pyhighlights-genspp2025
+<https://github.com/nlp-unibo/pyhighlights-genspp2025>`_. What stays here is
+the shape -- the two-directory registry build, a package per corpus, a
+namespace per paper -- in :doc:`benchmarks`.
+
+**One toy loader, which generates and reads.** A toy corpus is generated,
+published, and read back by whoever reproduces what it produced; those were
+two classes, ``ToyLoader`` and a ``GenSPPToyLoader`` that could not generate,
+which is one object split by serialisation format rather than by what it is.
+The released corpus was itself produced by this generator's ancestor, so the
+split was never real.
+
+:meth:`~pyhighlights.components.loaders.ToyLoader.save` writes what ``url``
+reads, in this library's own columns, so **a published toy corpus is a URL and
+a digest in a configuration** rather than a loader written per dataset. A saved
+corpus carries its splits; a flat one is divided by ``train_ratio``,
+``val_ratio`` and ``split_seed``, which is how the GenSPP baselines divide
+theirs. :meth:`~pyhighlights.components.loaders.ToyLoader.parse` converts a
+corpus older than these columns.
+
+The rule the two classes were protecting is kept and tested: **a configured
+source is never fallen back on.** A loader given a ``url`` it cannot read
+raises, where generating instead would return a corpus of the right shape and
+different content -- the one failure nothing downstream can see, because every
+metric still computes.
+
+``tools/build_datasets.py`` converts the release as it builds the artifact, so
+the published record holds a corpus the loader reads directly. Checked against
+the old loader over all ten thousand released rows: identical text, labels,
+highlights and tokens across 6400 / 1600 / 2000.
+
+**Precision, recall and how many spans.** The tp/fp/fn counters were already
+kept and only their F1 was exposed. A sparsity target moves precision and
+recall in opposite directions and their F1 hides it, so both are reported, and
+they reach an empty denominator on *different* splits -- each says ``nan`` on
+its own. :class:`~pyhighlights.utility.metrics.SelectionSpans` counts
+contiguous runs, which contiguity being a penalty and never a reported number
+had left unsaid: six words in one span and six scattered are the same
+``selection_size`` and not the same highlight.
+
+**A synthetic corpus is a control only while something checks that it is.**
+:mod:`~pyhighlights.components.shortcuts` asks whether anything other than the
+annotated evidence predicts the label. ``report()`` ranks every n-gram and
+length threshold against a permuted control, since with thousands of features
+the best of them beats the majority baseline by chance. ``check()`` is the
+gate and runs on the **ablated** corpus: a scan of the corpus itself cannot
+gate anything, because the annotated patterns are meant to predict and a
+pattern shared by two of three classes still names the third by its absence.
+
+Pointing it at this library's own toy corpus found three features that solved
+the task at perfect accuracy without reading a character -- inserted patterns
+made the document longer for the class with the longer pattern, unequal
+pattern lengths made the *highlight* wider for it, and contamination drawn
+only from other classes said which class a sample was not. All three are
+fixed. It is not toy-specific: token n-grams over a corpus of words is the
+question of whether punctuation predicts an unfair clause.
+
+**A toy class is a conjunction, highlighted as spans.** A class's trigger is a
+list of patterns, all of which must appear, and a pattern may belong to more
+than one class -- so the gold highlight is disjoint spans rather than one run,
+and no single pattern is sufficient. ``contaminations`` scatters proper chunks
+of the patterns through the filler, without which a fragment classifies as
+well as the pattern it came from.
+
 **Knowledge grounding.** A corpus may explain its labels in free text rather
 than in spans: ToS-100 records which legal rationales make each unfair clause
 unfair, and never which words carry them. So *which* rationale applies is a
