@@ -112,6 +112,112 @@ other's published numbers. A metric's column name is its own parameter, and
 :class:`~pyhighlights.utility.metrics.ClassF1Score` says in its own docs which
 class it scores.
 
+**The library says highlight, in its arguments too.** Two public names
+contradicted the convention the library states outright:
+:class:`~pyhighlights.components.preprocessors.AnnotationAggregator` took
+``rationale=`` and the constant behind it was ``RATIONALES``. They are
+``highlights=`` and ``HIGHLIGHTS``. A third, ``rationale_losses``, is
+``shared_losses`` — it holds the losses applied in *both* training phases
+rather than the losses on the highlight, so the old name was wrong about more
+than its vocabulary. **These are renames without shims**: a caller passing
+``rationale=`` fails at the call.
+
+What deliberately keeps the old word is everything naming something from
+outside the library — the ``rationale`` column of the R2A files, HateXplain's
+``rationales`` field, the *legal rationales* of the ToS knowledge base in
+:mod:`~pyhighlights.components.models.spp.grounded`, and the literature's own
+term where the docs quote it.
+
+**The toy corpus was not a control, and now something checks that it is.** A
+synthetic corpus earns its place by making the annotated evidence the only
+thing that solves it. Nothing checked that, and three separate features solved
+the toy task at perfect accuracy without reading a character: patterns were
+*inserted*, so a class with a longer pattern produced a longer document; the
+registered default's patterns had different lengths, so the highlight's own
+width named the class; and contamination drawn only from other classes said
+which class a sample was not.
+
+:mod:`~pyhighlights.components.shortcuts` is the check. ``report()`` ranks
+every n-gram and length threshold by how well it predicts, against a permuted
+control — with thousands of features the best of them beats the majority
+baseline by chance, so the threshold is what chance already offers. ``check()``
+is the gate, and it runs on the **ablated** corpus: a scan of the corpus itself
+cannot gate anything, because the annotated patterns are meant to predict and a
+pattern shared by two of three classes still names the third by its absence.
+With the evidence removed there is nothing left for any feature family to find,
+which is why that claim is not bounded by one.
+
+It is not toy-specific. Token n-grams over a corpus of words is the question of
+whether punctuation predicts an unfair clause.
+
+**A toy class is a conjunction, and its highlight is several spans.** A class's
+trigger is a list of patterns, all of which must appear, and a pattern may
+belong to more than one class — so the gold highlight is disjoint spans rather
+than one run, which is the shape a real highlight has. ``triggers = ["aa",
+"bc"]`` is the short spelling of a conjunction of one. ``contaminations``
+scatters proper chunks of the patterns through the filler, without which a
+fragment classifies as well as the pattern it came from: on 900 rows ``bc`` and
+``abc`` both score 0.6667, and four contaminations leave the pattern there and
+put the fragment at 0.5017.
+
+Two changes to what the generator produces, so **a seed does not reproduce a
+pre-0.9.0 corpus**: ``length`` counts the document rather than the filler, and
+patterns overwrite filler instead of being spliced into it.
+
+**Precision, recall and how many spans.** The tp/fp/fn counters were already
+kept and only their F1 was exposed. A sparsity target moves precision and
+recall in opposite directions and their F1 hides it, so both are reported;
+they reach an empty denominator on *different* splits, and each says ``nan``
+on its own.
+:class:`~pyhighlights.utility.metrics.SelectionSpans` counts contiguous runs,
+which contiguity being a penalty and never a reported number had left unsaid:
+six words in one span and six scattered are the same ``selection_size`` and
+not the same highlight.
+
+**HateXplain reads its vocabulary from the vector file.** The released
+baselines set ``use_pretrained_only=True``, under which their collator discards
+the corpus and takes the whole of GloVe ``twitter.27B`` as its vocabulary, so
+no evaluation token it covers is ever unknown. This reproduction fitted the
+vocabulary on the training split, which embedded 5.35% of validation tokens
+and 5.57% of test tokens as zero vectors. ``vocabulary_from`` names the choice.
+**Every HateXplain number produced before this is superseded.** The registered
+task also refuses to run without its vector file, rather than training on a
+two-word vocabulary and reporting for it.
+
+**One quantity under the name selection_rate.**
+:class:`~pyhighlights.components.analyzers.HighlightPositionAnalyzer` pooled
+its rate — every kept word over every word in the split — where
+:class:`~pyhighlights.utility.metrics.SelectionRate` takes the mean of the
+per-document rates. The two disagree whenever documents differ in length, and
+one column name meant both.
+
+**A candidate's fitness is a property of its chromosome.** The same chromosome
+scored 2.8246, 2.4722 and 1.0000 within one GenSPP run: every evaluation built
+a model and trained a predictor off the global torch random state, so each
+shifted the next and the search ranked initialisations alongside genes.
+``devices`` replaces ``device`` and scores candidates on several at once —
+``["cpu"] * 8`` is the released implementation's thread pool, ``["cuda:0",
+"cuda:1"]`` a node's cards.
+
+**The toy corpus is made of characters, and its table is as wide as its
+alphabet.** ``ToyLoader`` emitted word phrases in ``w17`` filler, which no
+other part of this line of work reads; and a one-hot code over a
+twenty-four-character alphabet needs twenty-four columns, where the release
+uses 25 on its baselines and 26 on its genetic half, both leaving columns
+nothing can set.
+
+**One file per kind, one package per corpus.** ``toy.py`` and
+``hatexplain.py`` held a loader, encoders, five architectures, a genetic
+search, six tasks and a benchmark each. Each corpus is a package now, one
+module per kind of thing it registers.
+
+**Fewer knobs nobody turns, and names that say the number.**
+``LeakageDetector.tolerance`` is gone — a shared row is leakage at any rate,
+and ``report`` already says how much a corpus shares without refusing it. The
+genetic search says how many couples it draws rather than hiding a selection
+rate of 0.5 inside ``population_size // 2``, which read as though a generation
+breeds half a population when it breeds a whole one.
+
 **Compaction, and the channel it closes.** A select-then-predict model claims
 the highlight *is* the predictor's input. The library enforced that a dropped
 word cannot reach the predictor and not that the *shape* of the mask stays out,
@@ -190,20 +296,32 @@ loader fetches a manifest to work.
 Known gaps
 ----------
 
-**Sparsity targets per corpus.** A single ``sparsity_threshold`` cannot serve
-a corpus whose train and test annotation rates differ by a factor of three —
-ERASER ``movies`` annotates test at a 0.31 highlight rate against training's
-0.09. What the target should be a function of is an open question, not a
-missing parameter.
+**A sparsity target is a limitation, not a missing parameter.** A single
+``sparsity_threshold`` cannot serve a corpus whose train and test annotation
+rates differ by a factor of three — ERASER ``movies`` annotates test at a 0.31
+highlight rate against training's 0.09. Per-corpus targets are **not planned**:
+only the training distribution is knowable at training time, and a target read
+off test annotation is leakage. Gold length is not a rate either — on
+``movies`` it scales as ``L**0.58``, between a fixed count and a fixed
+share — so any threshold is one of two wrong rules, and which one it is
+belongs in the write-up rather than in a knob.
 
 **Supervised GenSPP.** ``GenSPPTask`` refuses ``highlight_supervision``, and
 correctly: no gradient reaches the generator, so a supervision loss would
 train nothing. Guiding a genetic search means conditioning the population it
 draws from, which is a research question rather than a scheduled change.
 
-**The full metric suite.** Faithfulness — sufficiency and comprehensiveness —
-is measured over the test split. The wider set of highlight-based
-explainability metrics is not yet registered.
+**The rest of the metric suite.** Highlight F1, IoU, precision, recall,
+selection rate, size and spans are registered, and faithfulness — sufficiency
+and comprehensiveness — is measured over the test split. Four are still
+missing, in the order they are worth having: **AOPC** sufficiency and
+comprehensiveness, ERASER's bucketed form over k = 1, 5, 10, 20, 50%, which is
+what would partly rescue a measure that a single threshold collapses;
+**span-level IoU-F1**, ERASER's discrete match at IoU >= 0.5, which needs a span
+representation and so is the same item as span selection rather than a second
+one; **AUPRC** over soft token scores, which needs the pre-threshold scores
+plumbed through; and ***text alone***, an independent bag-of-n-grams over the
+highlighted words, which lives in a study rather than here.
 
 **Layer-wise pruning has no contract.** PLMR and YOFO drop tokens *inside* a
 pretrained language model's layers, which
