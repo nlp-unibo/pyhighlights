@@ -109,7 +109,9 @@ def test_toy_corpus_marks_its_trigger_and_repeats_for_a_seed():
     assert "".join(marked) == "aa"
     assert all(len(token) == 1 for token in row.tokens)
     assert row.text == "".join(row.tokens)
-    assert len(row.highlights) == len(row.tokens) == 8
+    # `length` is the document, patterns included: they overwrite filler rather
+    # than lengthening it, so a longer pattern cannot make a longer document.
+    assert len(row.highlights) == len(row.tokens) == 6
     assert sorted(splits["train"]["label"].unique()) == [0, 1]
 
     assert ToyLoader(seed=3).load()["train"].equals(ToyLoader(seed=3).load()["train"])
@@ -136,15 +138,95 @@ def test_the_toy_filler_can_never_spell_a_trigger():
         marked = "".join(
             token for token, flag in zip(row.tokens, row.highlights) if flag
         )
-        assert marked == loader.triggers[row.label]
+        assert (marked,) == loader.triggers[row.label]
         # Its own trigger appears once, and no other class's appears at all.
         assert row.text.count(marked) == 1
-        for other in loader.triggers:
-            if other != marked:
-                assert other not in row.text
+        assert loader.satisfied(row.text) == {row.label}
 
     with pytest.raises(ValueError, match="triggers leave"):
         ToyLoader(triggers=("abcdefghijklm", "nopqrstuvwxyz"), vocabulary_size=1)
+
+
+def test_a_trigger_can_be_a_conjunction_no_single_pattern_identifies():
+    """The corpus worth having: every pattern is shared by two classes.
+
+    `baa` sits in classes 0 and 1, `abb` in 1 and 2, `aba` in 2 and 0, so a
+    model that memorises one pattern cannot beat chance. Only the pair decides,
+    which is the point of a conjunction.
+    """
+    triggers = [["aba", "baa"], ["baa", "abb"], ["abb", "aba"]]
+    loader = ToyLoader(
+        sizes={"train": 120}, triggers=triggers, vocabulary_size=10, seed=5
+    )
+    frame = loader.load()["train"]
+
+    # No pattern belongs to one class.
+    for pattern in ("aba", "baa", "abb"):
+        holders = [label for label, t in enumerate(loader.triggers) if pattern in t]
+        assert len(holders) == 2
+
+    for row in frame.itertuples():
+        # The sample satisfies its own class and no other. This is the property
+        # the label rests on, so it is asserted rather than assumed.
+        assert loader.satisfied(row.text) == {row.label}
+        marked = [token for token, flag in zip(row.tokens, row.highlights) if flag]
+        assert len(marked) == sum(len(p) for p in loader.triggers[row.label])
+
+
+def test_a_conjunction_is_highlighted_as_separate_spans():
+    """Two patterns are two spans, never one run: a filler character separates.
+
+    Which is why the offsets are distinct. A contiguous highlight would make
+    the corpus a worse test than the shape a real highlight has.
+    """
+    loader = ToyLoader(
+        sizes={"train": 60},
+        triggers=[["aba", "baa"], ["baa", "abb"], ["abb", "aba"]],
+        vocabulary_size=10,
+        seed=7,
+    )
+
+    for row in loader.load()["train"].itertuples():
+        spans, previous = 0, 0
+        for flag in row.highlights:
+            spans += flag and not previous
+            previous = flag
+        assert spans == 2, (row.text, row.highlights)
+
+
+def test_the_order_patterns_were_listed_in_is_not_a_feature():
+    """Placement shuffles, so `aba` precedes `baa` about half the time.
+
+    Listing order would otherwise be a channel: every class-0 sample would
+    spell its first pattern first, and the position of either would say which
+    class it is without reading it.
+    """
+    loader = ToyLoader(
+        sizes={"train": 200},
+        triggers=[["aba", "baa"], ["baa", "abb"], ["abb", "aba"]],
+        vocabulary_size=10,
+        seed=13,
+    )
+    frame = loader.load()["train"]
+    first = [
+        row.text.index("aba") < row.text.index("baa")
+        for row in frame.itertuples()
+        if row.label == 0
+    ]
+
+    assert 0.3 < sum(first) / len(first) < 0.7, sum(first) / len(first)
+
+
+def test_a_class_covering_another_is_refused_rather_than_mislabelled():
+    """Class 0 needs `aba`; class 1 needs `aba` and `baa`, so it holds both.
+
+    Every class-1 draw satisfies class 0 as well, and no placement escapes it.
+    A corpus whose labels cannot be read off its own rule is not one to write.
+    """
+    loader = ToyLoader(sizes={"train": 4}, triggers=["aba", ["aba", "baa"]], seed=0)
+
+    with pytest.raises(ValueError, match="could not be placed"):
+        loader.load()
 
 
 def test_hatexplain_keeps_every_annotator_judgement(tmp_path):

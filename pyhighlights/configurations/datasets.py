@@ -104,10 +104,19 @@ class ToyConfig(LoaderConfig):
     """Synthetic corpus for smoke tests and demos; no download."""
 
     sizes: Dict[str, int] | None = Param(None)
-    #: Character patterns, one per class. Tokens are characters here, as they
-    #: are in every toy corpus of this line of work.
-    triggers: List[str] = Param(["aa", "bcd"])
+    #: What each class is: a pattern, or a list of patterns all of which have
+    #: to appear. Tokens are characters here, as they are in every toy corpus
+    #: of this line of work. The default is the cheap smoke-test corpus, one
+    #: pattern per class; a conjunction whose patterns are shared between
+    #: classes is the one no single n-gram can solve.
+    triggers: List[str | List[str]] = Param(["aa", "bc"])
     length: int = Param(20, ge=1)
+    #: Chunks of the patterns scattered through the filler. Without them a
+    #: fragment of a pattern classifies as well as the pattern does. Off here:
+    #: the registered corpus is a smoke test and a cheap one is the point.
+    contaminations: int = Param(0, ge=0)
+    #: The shortest piece of a pattern worth cutting out as a chunk.
+    min_chunk: int = Param(2, ge=1)
     #: How many filler characters, drawn from the letters no trigger uses.
     vocabulary_size: int = Param(20, ge=1)
     seed: int = Param(0)

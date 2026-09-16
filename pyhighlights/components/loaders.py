@@ -250,40 +250,73 @@ class HotelLoader(R2ALoader):
 
 
 class ToyLoader(HighlightLoader):
-    """Synthetic corpus: one character pattern per class inside filler characters.
+    """Synthetic corpus: each class is a set of character patterns to be found.
 
     **Tokens are characters**, as they are in every toy corpus of this line of
     work: ``GenSPPToyLoader`` reads a released one with ``list(row.text)``, and
     the generator it comes from samples an alphabet. A trigger is therefore a
     string of characters like ``"aa"``, not a phrase.
 
-    Every split is annotated, the highlights are exactly the trigger, and no
-    download is involved — which makes it the cheap way to exercise a model, a
+    A class's trigger is a **conjunction**: every pattern in it has to appear
+    for the class to hold. One pattern is the short spelling of a conjunction
+    of one, so both of these are triggers::
+
+        triggers = ["aa", "bc"]                           # a pattern per class
+        triggers = [["aba", "baa"], ["baa", "abb"]]       # two, both required
+
+    The second form is the one worth having. When no pattern belongs to a
+    single class -- ``baa`` sits in both classes above -- no single n-gram
+    identifies a class, and a model that memorises one cannot pass. It also
+    makes the gold highlight **several disjoint spans** rather than one run,
+    which is the shape a real highlight has.
+
+    Patterns **overwrite** filler at disjoint positions, in a random order and
+    with at least one filler character between them. Overwriting rather than
+    inserting is what keeps every document exactly ``length`` tokens long: a
+    class whose patterns are longer would otherwise produce longer documents,
+    and the document's own length would say which class it is without reading
+    a character of it. The released generator overwrites for the same reason.
+    A generated sample must satisfy its own class and no other; one that does
+    not is drawn again.
+
+    Every split is annotated, the highlights are exactly the patterns, and no
+    download is involved -- which makes it the cheap way to exercise a model, a
     configuration or a training loop end to end.
 
-    **It is a smoke test, not the paper's corpus.** The released generator
-    places several patterns per class at positions a constraint solver picks,
-    then contaminates the sequence with partial chunks of other classes'
-    patterns. Nothing here does: one contiguous trigger, one class. A
-    reproduction reads the released pickle through
+    ``contaminations`` scatters proper chunks of the patterns through the
+    filler, which is what stops a fragment from being enough to classify:
+    without it ``bc`` occurs nowhere but inside ``abc``, so detecting ``bc``
+    names that class exactly as well as detecting ``abc`` does. Off by default,
+    since the registered corpus is a smoke test and a cheap one is the point. A
+    reproduction of the published numbers reads the released pickle through
     :class:`~pyhighlights_benchmarks.genspp2025.corpora.GenSPPToyLoader`.
+
+    Whatever the settings,
+    :class:`~pyhighlights.components.shortcuts.ShortcutDetector` is what says
+    the corpus is a control: it removes the annotated positions and requires
+    that nothing left predicts the label.
     """
 
     #: Where filler characters come from, minus whatever the triggers use.
     ALPHABET = string.ascii_lowercase
+    #: Draws allowed per sample before the placement is called impossible.
+    ATTEMPTS = 100
 
     def __init__(
         self,
         sizes: Mapping[str, int] | None = None,
-        triggers: Sequence[str] = ("aa", "bcd"),
+        triggers: Sequence[str | Sequence[str]] = ("aa", "bc"),
         length: int = 20,
         vocabulary_size: int = 20,
+        contaminations: int = 0,
+        min_chunk: int = 2,
         seed: int = 0,
         **kwargs,
     ):
-        """``vocabulary_size`` is how many filler characters there are.
+        """``length`` is the document's length, patterns included.
 
-        They are drawn from the letters no trigger uses, so a trigger can only
+        ``vocabulary_size`` is how many filler characters there are. They are
+        drawn from the letters no trigger uses, so a pattern can only
         appear where this put one: two adjacent filler characters can never
         spell ``"aa"`` if ``a`` is not a filler character. The released
         generator reaches the same end by cleaning the sequence and rejecting
@@ -292,11 +325,32 @@ class ToyLoader(HighlightLoader):
         super().__init__(**kwargs)
         if len(triggers) < 2:
             raise ValueError("ToyLoader needs one trigger per class")
+        self.triggers = [
+            (trigger,) if isinstance(trigger, str) else tuple(trigger)
+            for trigger in triggers
+        ]
         if length < 1 or vocabulary_size < 1:
             raise ValueError("length and vocabulary_size must be positive")
-        if any(not trigger for trigger in triggers):
+        if any(not pattern for trigger in self.triggers for pattern in trigger):
             raise ValueError("a trigger is at least one character")
-        used = {character for trigger in triggers for character in trigger}
+        if any(not trigger for trigger in self.triggers):
+            raise ValueError("a trigger is at least one pattern")
+        # Every pattern, plus one filler character between consecutive ones.
+        widest = max(
+            sum(len(pattern) for pattern in trigger) + len(trigger) - 1
+            for trigger in self.triggers
+        )
+        if widest > length:
+            raise ValueError(
+                f"a class needs {widest} tokens for its patterns and the gaps "
+                f"between them, and length is {length}"
+            )
+        used = {
+            character
+            for trigger in self.triggers
+            for pattern in trigger
+            for character in pattern
+        }
         self.alphabet = [letter for letter in self.ALPHABET if letter not in used]
         if len(self.alphabet) < vocabulary_size:
             raise ValueError(
@@ -304,29 +358,133 @@ class ToyLoader(HighlightLoader):
                 f"triggers leave {len(self.alphabet)} of {len(self.ALPHABET)}"
             )
         self.alphabet = self.alphabet[:vocabulary_size]
+        if contaminations < 0 or min_chunk < 1:
+            raise ValueError("contaminations and min_chunk cannot be negative")
         self.sizes = dict(sizes or {"train": 64, "val": 16, "test": 16})
-        self.triggers = list(triggers)
         self.length = length
         self.vocabulary_size = vocabulary_size
+        self.contaminations = contaminations
+        self.min_chunk = min_chunk
         self.seed = seed
+        # A chunk is a *proper* piece of a pattern -- strictly shorter, so it
+        # can never satisfy the class it was cut from. One that spells another
+        # class's pattern outright is dropped: every inserted run sits alone
+        # between filler characters, so a run that is a pattern *is* that
+        # pattern being present, and the sample would carry a class nobody
+        # annotated.
+        self.chunks = [
+            chunk
+            for trigger in self.triggers
+            for pattern in trigger
+            for width in range(min_chunk, len(pattern))
+            for start in range(len(pattern) - width + 1)
+            if not self.satisfied(chunk := pattern[start : start + width])
+        ]
+        if contaminations and not self.chunks:
+            raise ValueError(
+                f"no pattern is longer than min_chunk={min_chunk}, so there is "
+                f"nothing to contaminate with"
+            )
+        if contaminations:
+            widest += contaminations * (max(len(chunk) for chunk in self.chunks) + 1)
+            if widest > length:
+                raise ValueError(
+                    f"a class needs {widest} tokens for its patterns, "
+                    f"{contaminations} contaminations and the gaps between "
+                    f"them, and length is {length}"
+                )
+
+    def satisfied(self, text: str) -> set:
+        """Which classes' conjunctions ``text`` holds, as a set of labels.
+
+        A valid sample satisfies exactly its own. Public because it is what the
+        corpus means -- a shortcut scan asks it about texts this never wrote.
+        """
+        return {
+            label
+            for label, trigger in enumerate(self.triggers)
+            if all(pattern in text for pattern in trigger)
+        }
+
+    def place(self, trigger, generator: random.Random):
+        """One sample's tokens and highlight, from a class's patterns.
+
+        The patterns overwrite filler at disjoint positions, in a random order:
+        disjoint with a gap so that each is its own span, random so that the
+        order they were listed in is not a feature.
+
+        The positions are drawn uniformly over the arrangements that fit. With
+        widths ``w`` and ``k`` runs, ``length - sum(w) - (k - 1)`` tokens of
+        filler are free to sit in the ``k + 1`` gaps; choosing ``k`` cuts out
+        of ``slack + k`` picks one such arrangement, and each is equally
+        likely. Sampling each start independently and rejecting the overlaps
+        would not be uniform, and where a pattern sits is a channel this corpus
+        exists to keep shut.
+
+        **Contaminating chunks are placed in the same draw as the patterns.**
+        Placing them afterwards, or keeping only the samples that came out
+        valid, conditions the arrangement on the class: reject the draws where
+        a chunk completes a second copy of the pattern and the characters
+        *beside* the highlight stop being class-independent -- which survives
+        removing the highlight and is a shortcut. Here nothing is rejected,
+        because a filler character separates every run and no chunk spells a
+        pattern, so no arrangement can be invalid.
+        """
+        tokens = [generator.choice(self.alphabet) for _ in range(self.length)]
+        highlights = [0] * self.length
+
+        runs = [(pattern, 1) for pattern in trigger]
+        runs += [(generator.choice(self.chunks), 0) for _ in range(self.contaminations)]
+        generator.shuffle(runs)
+        widths = [len(pattern) for pattern, _ in runs]
+        slack = self.length - sum(widths) - (len(runs) - 1)
+        cuts = sorted(generator.sample(range(slack + len(runs)), len(runs)))
+
+        for index, (cut, (pattern, gold)) in enumerate(zip(cuts, runs)):
+            start = cut + sum(widths[:index])
+            tokens[start : start + len(pattern)] = list(pattern)
+            if gold:
+                highlights[start : start + len(pattern)] = [1] * len(pattern)
+        return tokens, highlights
 
     def generate(self, size: int, generator: random.Random) -> pd.DataFrame:
         rows = []
         for index in range(size):
             label = index % len(self.triggers)
-            trigger = list(self.triggers[label])
-            filler = [generator.choice(self.alphabet) for _ in range(self.length)]
-            at = generator.randrange(len(filler) + 1)
-            tokens = filler[:at] + trigger + filler[at:]
+            for _ in range(self.ATTEMPTS):
+                tokens, highlights = self.place(self.triggers[label], generator)
+                text = "".join(tokens)
+                # Placement cannot spell a pattern out of filler, but it can
+                # satisfy a second class outright when one class's patterns are
+                # a subset of another's, and contamination can spell one out of
+                # a chunk and the filler beside it. Both are corpora nobody can
+                # label, so the draw is repeated rather than recorded.
+                if self.satisfied(text) != {label}:
+                    continue
+                # The highlight also has to be the whole truth: a pattern the
+                # contamination reproduced elsewhere would sit unmarked.
+                marked = "".join(
+                    token for token, flag in zip(tokens, highlights) if flag
+                )
+                if all(
+                    text.count(pattern) == marked.count(pattern)
+                    for pattern in self.triggers[label]
+                ):
+                    break
+            else:
+                raise ValueError(
+                    f"class {label} could not be placed without satisfying "
+                    f"another or repeating a pattern in {self.ATTEMPTS} "
+                    f"attempts; its patterns {self.triggers[label]} may cover "
+                    f"another class's"
+                )
             rows.append(
                 {
                     "sample_id": index,
-                    "text": "".join(tokens),
+                    "text": text,
                     "tokens": tokens,
                     "label": label,
-                    "highlights": [0] * at
-                    + [1] * len(trigger)
-                    + [0] * (len(filler) - at),
+                    "highlights": highlights,
                 }
             )
         return pd.DataFrame(rows, columns=list(COLUMNS))
