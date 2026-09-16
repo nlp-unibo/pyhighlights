@@ -109,7 +109,9 @@ def test_toy_corpus_marks_its_trigger_and_repeats_for_a_seed():
     assert "".join(marked) == "aa"
     assert all(len(token) == 1 for token in row.tokens)
     assert row.text == "".join(row.tokens)
-    assert len(row.highlights) == len(row.tokens) == 8
+    # `length` is the document, patterns included: they overwrite filler rather
+    # than lengthening it, so a longer pattern cannot make a longer document.
+    assert len(row.highlights) == len(row.tokens) == 6
     assert sorted(splits["train"]["label"].unique()) == [0, 1]
 
     assert ToyLoader(seed=3).load()["train"].equals(ToyLoader(seed=3).load()["train"])

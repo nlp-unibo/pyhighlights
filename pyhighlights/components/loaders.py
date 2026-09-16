@@ -261,7 +261,7 @@ class ToyLoader(HighlightLoader):
     for the class to hold. One pattern is the short spelling of a conjunction
     of one, so both of these are triggers::
 
-        triggers = ["aa", "bcd"]                          # a pattern per class
+        triggers = ["aa", "bc"]                           # a pattern per class
         triggers = [["aba", "baa"], ["baa", "abb"]]       # two, both required
 
     The second form is the one worth having. When no pattern belongs to a
@@ -270,10 +270,14 @@ class ToyLoader(HighlightLoader):
     makes the gold highlight **several disjoint spans** rather than one run,
     which is the shape a real highlight has.
 
-    Patterns are placed at distinct positions in a random order, so at least
-    one filler character separates them and the order they were listed in
-    carries nothing. A generated sample must satisfy its own class and no
-    other; one that does not is drawn again.
+    Patterns **overwrite** filler at disjoint positions, in a random order and
+    with at least one filler character between them. Overwriting rather than
+    inserting is what keeps every document exactly ``length`` tokens long: a
+    class whose patterns are longer would otherwise produce longer documents,
+    and the document's own length would say which class it is without reading
+    a character of it. The released generator overwrites for the same reason.
+    A generated sample must satisfy its own class and no other; one that does
+    not is drawn again.
 
     Every split is annotated, the highlights are exactly the patterns, and no
     download is involved -- which makes it the cheap way to exercise a model, a
@@ -294,15 +298,16 @@ class ToyLoader(HighlightLoader):
     def __init__(
         self,
         sizes: Mapping[str, int] | None = None,
-        triggers: Sequence[str | Sequence[str]] = ("aa", "bcd"),
+        triggers: Sequence[str | Sequence[str]] = ("aa", "bc"),
         length: int = 20,
         vocabulary_size: int = 20,
         seed: int = 0,
         **kwargs,
     ):
-        """``vocabulary_size`` is how many filler characters there are.
+        """``length`` is the document's length, patterns included.
 
-        They are drawn from the letters no trigger uses, so a pattern can only
+        ``vocabulary_size`` is how many filler characters there are. They are
+        drawn from the letters no trigger uses, so a pattern can only
         appear where this put one: two adjacent filler characters can never
         spell ``"aa"`` if ``a`` is not a filler character. The released
         generator reaches the same end by cleaning the sequence and rejecting
@@ -321,13 +326,15 @@ class ToyLoader(HighlightLoader):
             raise ValueError("a trigger is at least one character")
         if any(not trigger for trigger in self.triggers):
             raise ValueError("a trigger is at least one pattern")
-        # Distinct insertion points, so a filler character always separates two
-        # patterns and the highlight is as many spans as there are patterns.
-        widest = max(len(trigger) for trigger in self.triggers)
-        if widest > length + 1:
+        # Every pattern, plus one filler character between consecutive ones.
+        widest = max(
+            sum(len(pattern) for pattern in trigger) + len(trigger) - 1
+            for trigger in self.triggers
+        )
+        if widest > length:
             raise ValueError(
-                f"{widest} patterns cannot be placed apart in {length} "
-                f"filler characters"
+                f"a class needs {widest} tokens for its patterns and the gaps "
+                f"between them, and length is {length}"
             )
         used = {
             character
@@ -362,26 +369,31 @@ class ToyLoader(HighlightLoader):
     def place(self, trigger, generator: random.Random):
         """One sample's tokens and highlight, from a class's patterns.
 
-        The patterns go in at distinct offsets in a random order: distinct so
-        that a filler character separates them, random so that the order they
-        were listed in is not a feature.
+        The patterns overwrite filler at disjoint positions, in a random order:
+        disjoint with a gap so that each is its own span, random so that the
+        order they were listed in is not a feature.
+
+        The positions are drawn uniformly over the arrangements that fit. With
+        widths ``w`` and ``k`` patterns, ``length - sum(w) - (k - 1)`` tokens
+        of filler are free to sit in the ``k + 1`` gaps; choosing ``k`` cuts
+        out of ``slack + k`` picks one such arrangement, and each is equally
+        likely. Sampling each start independently and rejecting the overlaps
+        would not be uniform, and where a pattern sits is a channel this corpus
+        exists to keep shut.
         """
-        filler = [generator.choice(self.alphabet) for _ in range(self.length)]
-        offsets = sorted(generator.sample(range(len(filler) + 1), len(trigger)))
+        tokens = [generator.choice(self.alphabet) for _ in range(self.length)]
+        highlights = [0] * self.length
+
         patterns = list(trigger)
         generator.shuffle(patterns)
+        widths = [len(pattern) for pattern in patterns]
+        slack = self.length - sum(widths) - (len(patterns) - 1)
+        cuts = sorted(generator.sample(range(slack + len(patterns)), len(patterns)))
 
-        tokens: List[str] = []
-        highlights: List[int] = []
-        previous = 0
-        for offset, pattern in zip(offsets, patterns):
-            tokens.extend(filler[previous:offset])
-            highlights.extend([0] * (offset - previous))
-            tokens.extend(pattern)
-            highlights.extend([1] * len(pattern))
-            previous = offset
-        tokens.extend(filler[previous:])
-        highlights.extend([0] * (len(filler) - previous))
+        for index, (cut, pattern) in enumerate(zip(cuts, patterns)):
+            start = cut + sum(widths[:index])
+            tokens[start : start + len(pattern)] = list(pattern)
+            highlights[start : start + len(pattern)] = [1] * len(pattern)
         return tokens, highlights
 
     def generate(self, size: int, generator: random.Random) -> pd.DataFrame:

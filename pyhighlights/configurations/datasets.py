@@ -109,7 +109,7 @@ class ToyConfig(LoaderConfig):
     #: of this line of work. The default is the cheap smoke-test corpus, one
     #: pattern per class; a conjunction whose patterns are shared between
     #: classes is the one no single n-gram can solve.
-    triggers: List[str | List[str]] = Param(["aa", "bcd"])
+    triggers: List[str | List[str]] = Param(["aa", "bc"])
     length: int = Param(20, ge=1)
     #: How many filler characters, drawn from the letters no trigger uses.
     vocabulary_size: int = Param(20, ge=1)
