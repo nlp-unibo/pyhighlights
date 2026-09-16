@@ -214,3 +214,22 @@ def test_a_chunk_is_a_proper_piece_that_spells_no_pattern():
 
     with pytest.raises(ValueError, match="contaminations and the gaps"):
         ToyLoader(triggers=("aba", "baa"), length=8, contaminations=4)
+
+
+def test_ablation_rejoins_text_the_way_the_corpus_spells_it():
+    """A word corpus is not a character one: `"".join` glues its words together.
+
+    The scan reads `tokens` and never `text`, so nothing was scored wrongly,
+    but an ablated word corpus reading `the▮brownfox` is one nobody can
+    check by eye.
+    """
+    words = frame([(["the", "quick", "brown", "fox"], 0, [0, 1, 0, 0])])
+
+    assert ablated(words, separator=" ").iloc[0]["text"] == "the ▮ brown fox"
+    # Characters are the default, and join with nothing.
+    assert ablated(words).iloc[0]["text"] == "the▮brownfox"
+
+    # And the detector passes its own separator down, so `check` is consistent
+    # with the `ngrams` call beside it.
+    detector = ShortcutDetector(separator=" ")
+    assert detector.separator == " "

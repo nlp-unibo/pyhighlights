@@ -187,7 +187,9 @@ def lengths(
     )
 
 
-def ablated(frame: pd.DataFrame, filler: str = "\u25ae") -> pd.DataFrame:
+def ablated(
+    frame: pd.DataFrame, filler: str = "\u25ae", separator: str = ""
+) -> pd.DataFrame:
     """The corpus with every annotated position replaced by one filler token.
 
     Removing the evidence is the decisive test: whatever is left cannot be the
@@ -198,13 +200,19 @@ def ablated(frame: pd.DataFrame, filler: str = "\u25ae") -> pd.DataFrame:
     The replacement is a token the alphabet does not contain, so the hole
     cannot spell anything; its *width* is preserved, which keeps the document's
     length out of the comparison.
+
+    ``separator`` rejoins ``text`` the way the corpus spells it -- empty for a
+    character corpus, a space for words. The scan reads ``tokens`` and never
+    ``text``, so this only decides whether the returned frame is legible, but
+    an ablated word corpus that reads ``the\u25aebrownfox`` is a frame nobody can
+    check by eye.
     """
     out = frame.copy()
     out["tokens"] = [
         [filler if flag else token for token, flag in zip(row.tokens, row.highlights)]
         for row in frame.itertuples()
     ]
-    out["text"] = out["tokens"].map("".join)
+    out["text"] = out["tokens"].map(separator.join)
     return out
 
 
@@ -285,7 +293,7 @@ class ShortcutDetector:
         corpus grows, where noise clears it by a hair and decays towards the
         baseline. Re-run on more rows before believing a narrow failure.
         """
-        report = self.report(ablated(frame))
+        report = self.report(ablated(frame, separator=self.separator))
         threshold = report["permuted"].max()
         offending = report[report["accuracy"] > threshold].copy()
         if not offending.empty:
