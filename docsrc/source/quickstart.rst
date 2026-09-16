@@ -157,14 +157,14 @@ it back to the corpus it came from:
    from pyhighlights.components.analyzers import PredictionAnalyzer
 
    frame = PredictionAnalyzer(directory="results").analyze()
-   frame[["seed", "sample_id", "label", "predicted", "rationale"]].head(3)
+   frame[["seed", "sample_id", "label", "predicted", "selected_text"]].head(3)
 
 .. code-block:: text
 
-    seed  sample_id  label  predicted rationale
-       0          0      0          1        w6
-       0          1      1          1       w18
-       0          2      0          1        w6
+    seed  sample_id  label  predicted selected_text
+       0          0      0          1            w6
+       0          1      1          1           w18
+       0          2      0          1            w6
 
 The run's ``manifest.json`` names the loader and the preprocessor, so the
 analyzer rebuilds exactly the split the run trained against and joins on

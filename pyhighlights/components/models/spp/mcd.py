@@ -26,7 +26,7 @@ class MCD(SPP):
     Reference implementation:
     <https://github.com/jugechengzi/Rationalization-MCD>.
 
-    Losses are grouped per training phase: ``rationale_losses`` apply to both
+    Losses are grouped per training phase: ``shared_losses`` apply to both
     phases, ``predictor_losses`` only to the predictor phase and
     ``generator_losses`` only to the generator phase. Evaluation reports every
     group. Each namespace exposes ``full_class_logits`` next to the
@@ -39,7 +39,7 @@ class MCD(SPP):
         selectors: RegistrationKey[SPPSelector],
         predictor: RegistrationKey[SPPPredictor],
         predictor_backbone: RegistrationKey[SPPBackbone] | None,
-        rationale_losses: List[RegistrationKey[Loss]],
+        shared_losses: List[RegistrationKey[Loss]],
         predictor_losses: List[RegistrationKey[Loss]],
         generator_losses: List[RegistrationKey[Loss]],
         **kwargs,
@@ -55,7 +55,7 @@ class MCD(SPP):
             raise ValueError(
                 "MCD scores its losses per training phase, so highlight "
                 "supervision has to name the phase it belongs to; put the "
-                "highlight loss in rationale_losses instead"
+                "highlight loss in shared_losses instead"
             )
         super().__init__(
             selector_backbones=selector_backbones,
@@ -68,11 +68,11 @@ class MCD(SPP):
         if len(self.selectors) != 1:
             raise ValueError("MCD requires exactly one selector")
 
-        self.rationale_losses = th.nn.ModuleList(build_losses(rationale_losses))
+        self.shared_losses = th.nn.ModuleList(build_losses(shared_losses))
         self.predictor_losses = th.nn.ModuleList(build_losses(predictor_losses))
         self.generator_losses = th.nn.ModuleList(build_losses(generator_losses))
         self.losses = th.nn.ModuleList(
-            [*self.rationale_losses, *self.predictor_losses, *self.generator_losses]
+            [*self.shared_losses, *self.predictor_losses, *self.generator_losses]
         )
         self.automatic_optimization = False
 
@@ -100,7 +100,7 @@ class MCD(SPP):
     ) -> Tuple[th.Tensor, Dict[str, th.Tensor], SPPOutput]:
         output, values = self.phase_forward(input_data, detach_selection=True)
         total, losses = compute_losses(
-            [*self.rationale_losses, *self.predictor_losses], values
+            [*self.shared_losses, *self.predictor_losses], values
         )
         return total, losses, output
 
@@ -117,7 +117,7 @@ class MCD(SPP):
         try:
             output, values = self.phase_forward(input_data, detach_selection=False)
             total, losses = compute_losses(
-                [*self.rationale_losses, *self.generator_losses], values
+                [*self.shared_losses, *self.generator_losses], values
             )
             return total, losses, output
         finally:

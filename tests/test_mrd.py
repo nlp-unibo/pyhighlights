@@ -129,7 +129,7 @@ def test_the_generator_phase_freezes_the_predictor_and_restores_it():
 
 
 def test_supervision_has_to_name_a_phase():
-    with pytest.raises(ValueError, match="rationale_losses"):
+    with pytest.raises(ValueError, match="shared_losses"):
         Registry.from_key(GRU_MRD, supervise_highlights=True)
 
 
@@ -176,7 +176,7 @@ def test_the_predictor_phase_classification_never_reaches_the_generator():
     the only thing tying the generator to this phase is sparsity and
     contiguity. Without them nothing should reach it.
     """
-    model = Registry.from_key(GRU_MRD, rationale_losses=[])
+    model = Registry.from_key(GRU_MRD, shared_losses=[])
     total, losses, _ = model.predictor_phase_loss(batch_of())
     total.backward()
 
@@ -192,7 +192,7 @@ def test_the_discrepancy_is_reported_large_and_counted_negative():
     that should grow, while the total it feeds falls as it does. Alone in the
     model, the total is exactly its negation.
     """
-    model = Registry.from_key(GRU_MRD, rationale_losses=[], predictor_losses=[])
+    model = Registry.from_key(GRU_MRD, shared_losses=[], predictor_losses=[])
     total, losses = model.compute_loss(batch_of(), model(batch_of()))
 
     assert losses["remaining_discrepancy"] >= 0

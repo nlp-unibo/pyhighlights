@@ -53,7 +53,7 @@ class HateXplainAggregatorConfig(Configuration):
     """Three annotators to one label and one highlight vector."""
 
     labels: Sequence[str] = Param(list(HateXplainLoader.LABELS))
-    rationale: str = Param("majority", variants=["union", "intersection"])
+    highlights: str = Param("majority", variants=["union", "intersection"])
     ties: str = Param("drop", variants=["keep"])
 
 

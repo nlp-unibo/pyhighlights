@@ -129,7 +129,7 @@ def test_registered_gru_mcd_alternates_generator_and_predictor_updates():
     assert output.class_logits.shape == (2, 1, 2)
     assert output.highlight_logits.shape == (2, 1, 4, 2)
 
-    for loss in model.rationale_losses:
+    for loss in model.shared_losses:
         loss.enabled = False
     classifier_total, classifier_losses, _ = model.classifier_phase_loss(batch)
     assert set(classifier_losses) == {"classification", "full_classification"}
@@ -140,7 +140,7 @@ def test_registered_gru_mcd_alternates_generator_and_predictor_updates():
     assert any(parameter.grad is not None for parameter in model.predictor.parameters())
 
     model.zero_grad(set_to_none=True)
-    for loss in model.rationale_losses:
+    for loss in model.shared_losses:
         loss.enabled = True
     generator_total, generator_losses, _ = model.generator_phase_loss(batch)
     assert set(generator_losses) == {"sparsity", "contiguity", "discrepancy"}

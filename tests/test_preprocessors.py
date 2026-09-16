@@ -73,12 +73,12 @@ def test_priority_decides_which_split_gives_a_row_up(tmp_path):
     assert len(reversed_priority["test"]) == 0
 
 
-def test_aggregator_reduces_labels_and_rationales(tmp_path):
+def test_aggregator_reduces_labels_and_highlights(tmp_path):
     splits = HateXplainLoader(**hatexplain(tmp_path)).load()
     processed = aggregator().process(splits)
 
     # p2 has no majority label and is dropped; p3 is normal, so nothing is
-    # marked; p1 keeps the token both rationale vectors agree on.
+    # marked; p1 keeps the token both highlight vectors agree on.
     assert [len(frame) for frame in processed.values()] == [1, 1, 1]
     assert list(processed["train"]["text"]) == ["burn them all"]
     assert processed["train"]["highlights"].iloc[0] == [1, 0, 0]
@@ -86,9 +86,9 @@ def test_aggregator_reduces_labels_and_rationales(tmp_path):
     assert processed["val"]["label"].iloc[0] == 1
     assert "annotator_labels" not in processed["train"].columns
 
-    union = aggregator(rationale="union").process(splits)
+    union = aggregator(highlights="union").process(splits)
     assert union["train"]["highlights"].iloc[0] == [1, 1, 0]
-    intersection = aggregator(rationale="intersection").process(splits)
+    intersection = aggregator(highlights="intersection").process(splits)
     assert intersection["train"]["highlights"].iloc[0] == [1, 0, 0]
 
     kept = aggregator(ties="keep").process(splits)
@@ -139,8 +139,8 @@ def test_aggregator_leaves_an_already_reduced_corpus_alone(tmp_path):
 
 
 def test_aggregator_rejects_settings_and_labels_it_does_not_know():
-    with pytest.raises(ValueError, match="rationale must be"):
-        aggregator(rationale="whatever")
+    with pytest.raises(ValueError, match="highlights must be"):
+        aggregator(highlights="whatever")
     with pytest.raises(ValueError, match="ties must be"):
         aggregator(ties="whatever")
     with pytest.raises(ValueError, match="unexpected label"):

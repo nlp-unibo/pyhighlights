@@ -105,8 +105,6 @@ class PhasedSPPModelConfig(SPPShapeConfig):
     belongs to has to be named.
     """
 
-    rationale_losses: List[RegistrationKey[Loss]] = Param(
-        [SPARSITY_LOSS, CONTIGUITY_LOSS]
-    )
+    shared_losses: List[RegistrationKey[Loss]] = Param([SPARSITY_LOSS, CONTIGUITY_LOSS])
     predictor_losses: List[RegistrationKey[Loss]] = Param([])
     generator_losses: List[RegistrationKey[Loss]] = Param([])
