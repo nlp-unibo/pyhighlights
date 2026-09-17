@@ -80,6 +80,20 @@ def test_a_long_value_is_shortened_rather_than_written_whole():
     assert diagnostics.describe("x" * 500).endswith("...")
 
 
+def test_a_value_named_like_the_stage_does_not_collide_with_it(caplog):
+    """The values are named by whatever the caller reports.
+
+    Split names reach `record` as keywords, so a corpus with a split called
+    `stage` would otherwise raise inside the call that exists to explain the
+    run.
+    """
+    with caplog.at_level(logging.DEBUG, logger=diagnostics.logger.name):
+        diagnostics.record("loader", **{"stage": th.zeros(1), "train": th.zeros(2)})
+
+    assert "loader: stage = tensor(1,)" in caplog.text
+    assert "loader: train = tensor(2,)" in caplog.text
+
+
 def test_writing_sends_the_record_to_the_run_and_then_stops(tmp_path):
     with diagnostics.writing(tmp_path) as path:
         assert diagnostics.active()
