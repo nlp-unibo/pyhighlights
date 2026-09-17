@@ -31,6 +31,7 @@ from pyhighlights.components.models.spp.implementations import (
 from pyhighlights.components.models.spp.mcd import MCD
 from pyhighlights.components.models.spp.mgr import MGR
 from pyhighlights.components.models.spp.mrd import MRD
+from pyhighlights.components.models.spp.phased import PhasedSPP
 
 __all__ = [
     "AttentionGuider",
@@ -50,6 +51,7 @@ __all__ = [
     "MCD",
     "MGR",
     "MRD",
+    "PhasedSPP",
     "MLPPredictor",
     "MLPSelector",
     "SPPAggregator",

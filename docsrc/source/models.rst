@@ -23,6 +23,9 @@ Algorithms
 .. automodule:: pyhighlights.components.models.spp.mgr
    :members:
 
+.. automodule:: pyhighlights.components.models.spp.phased
+   :members:
+
 .. automodule:: pyhighlights.components.models.spp.mcd
    :members:
 
