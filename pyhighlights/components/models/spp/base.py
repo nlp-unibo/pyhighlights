@@ -441,7 +441,12 @@ class SPP(Model[SPPOutput]):
         # A repair that fires on most of a batch is a selector that has
         # learned nothing, and the reported selection rate hides it: the
         # rescued token counts as a selection like any other.
-        diagnostics.record("repair", rows=int(needs_fallback.sum()))
+        #
+        # Guarded, because counting the rows is a reduction and `int()` on it
+        # is a device synchronisation: unguarded, every run pays it on every
+        # forward pass to answer a question nobody asked.
+        if diagnostics.active():
+            diagnostics.record("repair", rows=int(needs_fallback.sum()))
         if not needs_fallback.any():
             return highlight_mask
         scores = th.softmax(highlight_logits / self.temperature, dim=-1)[..., 1]

@@ -19,7 +19,7 @@ Reading the record is the point rather than keeping it. What it answers that
 nothing else does: whether the word axis and the subtoken axis agree on every
 batch, whether a dropped word is absent from the predictor's input on the
 backbone in use, how often the empty-selection repair fires, and whether every
-loss and metric binding finds its fields on every split.
+loss and metric binding finds the fields it names on every split.
 """
 
 from __future__ import annotations
@@ -36,6 +36,13 @@ __all__ = ["active", "describe", "logger", "record", "writing"]
 #: One logger for every stage. A caller that wants the record on a console
 #: rather than in a file adds a handler to this and sets its level.
 logger = logging.getLogger("pyhighlights.diagnostics")
+# Explicitly, rather than inheriting: a level of NOTSET is answered by the root
+# logger, so `logging.basicConfig(level=DEBUG)` -- which a caller writes to see
+# this library's own progress messages -- would otherwise turn every stage on
+# for a full run, describing every tensor of every batch and bypassing the
+# bound `SPPTask` refuses a run without. Turning the record on is a decision
+# about this logger, taken here or by `writing`.
+logger.setLevel(logging.WARNING)
 
 #: What a run's record is called inside the run's own directory.
 FILENAME = "diagnostics.log"
@@ -64,13 +71,17 @@ def describe(value: Any) -> str:
     """
     if isinstance(value, th.Tensor):
         if value.numel():
-            finite = th.isfinite(value)
-            spread = (
-                f"[{value[finite].min():.4g}, {value[finite].max():.4g}]"
-                if bool(finite.any())
-                else "[]"
-            )
-            unfinite = int((~finite).sum())
+            unfinite = int((~th.isfinite(value)).sum())
+            if not unfinite:
+                # The common case, and the one worth not allocating for: a
+                # boolean index over a transformer's states copies fifty
+                # megabytes to find two numbers.
+                spread = f"[{value.min():.4g}, {value.max():.4g}]"
+            else:
+                kept = value[th.isfinite(value)]
+                spread = (
+                    f"[{kept.min():.4g}, {kept.max():.4g}]" if kept.numel() else "[]"
+                )
         else:
             spread, unfinite = "[]", 0
         return (

@@ -330,17 +330,40 @@ class SPPTask(Task):
         The batches are what this checks, not the epochs: ``max_epochs``
         carries a default, so an epoch bound is always present and a rule
         about it would never fire.
+
+        The *training* batches, and a bound that bounds: a
+        ``limit_val_batches`` leaves training unbounded, and Lightning reads a
+        float as a fraction, so ``limit_train_batches=1.0`` is its own default
+        and means every batch. Both used to pass.
         """
-        bounded = bool(self.trainer_args.get("fast_dev_run")) or any(
-            name.endswith("_batches") for name in self.trainer_args
-        )
-        if not bounded:
+        if not self.bounds_training_batches():
             raise ValueError(
                 f"{self.name}: diagnostics record every batch of every stage, "
                 "so they are for a smoke test rather than a full run. Bound "
-                "the run first: pass trainer_args={'fast_dev_run': True}, or "
-                "a limit_train_batches of your own."
+                "the training batches first: pass "
+                "trainer_args={'fast_dev_run': True}, or a "
+                "limit_train_batches of 2, or a fraction below one."
             )
+
+    def bounds_training_batches(self) -> bool:
+        """Whether ``trainer_args`` cuts the training batches down.
+
+        ``fast_dev_run`` runs one batch per split. ``limit_train_batches`` and
+        ``overfit_batches`` are counts as integers and fractions as floats, so
+        an integer bounds and a float bounds only below one.
+        """
+        if self.trainer_args.get("fast_dev_run"):
+            return True
+        for name in ("limit_train_batches", "overfit_batches"):
+            value = self.trainer_args.get(name)
+            if isinstance(value, bool) or value is None:
+                continue
+            if isinstance(value, float):
+                if value < 1.0:
+                    return True
+            elif value:
+                return True
+        return False
 
     def splits(self) -> Dict[str, pd.DataFrame]:
         """The corpus, loaded and preprocessed."""
@@ -716,6 +739,37 @@ class GenSPPTask(SPPTask):
         # two to disagree about which model was actually evolved.
         trainer = Registry.from_key(search, expected_type=GenSPPTrainer)
         super().__init__(model=trainer.model, **kwargs)
+
+    #: How many candidates a diagnosed search may evaluate. Each one trains a
+    #: predictor over the whole training split, and every batch of that is a
+    #: page of the record, so a smoke test is a handful of them and the
+    #: published settings -- fifty candidates over a hundred generations --
+    #: are five thousand times that.
+    SMOKE_CANDIDATES = 8
+
+    def check_diagnostics(self) -> None:
+        """A search is not bounded by what bounds a trainer.
+
+        :meth:`SPPTask.check_diagnostics` reads ``trainer_args``, which here
+        reaches only the throwaway trainer each candidate's predictor is
+        fitted with. The search itself runs outside Lightning and over the
+        whole split, as many times as it has candidates, so bounding a
+        diagnosed search means bounding the search: ``population_size``,
+        ``n_generations`` and the rate that decides how many children a
+        generation draws.
+        """
+        super().check_diagnostics()
+        search = Registry.from_key(self.search, expected_type=GenSPPTrainer)
+        children = 2 * int(search.selection_rate * search.population_size)
+        candidates = search.population_size + search.n_generations * children
+        if candidates > self.SMOKE_CANDIDATES:
+            raise ValueError(
+                f"{self.name}: this search evaluates {candidates} candidates, "
+                "and each one trains a predictor over the whole training "
+                "split. Diagnostics are for a smoke test, so bound the search "
+                f"to {self.SMOKE_CANDIDATES} candidates or fewer: a smaller "
+                "population_size, fewer n_generations, or both."
+            )
 
     def fit(self, seed: int, loaders: Mapping[str, DataLoader]) -> Dict[str, float]:
         if "val" not in loaders:

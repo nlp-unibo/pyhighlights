@@ -332,15 +332,18 @@ class HighlightCollator:
         )
         # Both axes at once, since this is the one place they are built from
         # each other and a `word_ids` that maps them wrongly is silent
-        # everywhere downstream.
-        diagnostics.record(
-            "collator",
-            subtokens=batch.features.shape[1],
-            words=batch.mask.shape[1],
-            **{
-                name: value
-                for name, value in batch.as_dict().items()
-                if value is not None
-            },
-        )
+        # everywhere downstream. Guarded, like the repair count: assembling
+        # the dictionary is work, and a batch is collated whether or not
+        # anybody is reading about it.
+        if diagnostics.active():
+            diagnostics.record(
+                "collator",
+                subtokens=batch.features.shape[1],
+                words=batch.mask.shape[1],
+                **{
+                    name: value
+                    for name, value in batch.as_dict().items()
+                    if value is not None
+                },
+            )
         return batch

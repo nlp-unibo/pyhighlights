@@ -503,18 +503,26 @@ Seven stages report, in the order a batch meets them: the frames the loader
 parsed, each step of a :class:`~pyhighlights.components.preprocessors.Pipeline`,
 the batch the collator assembled with its two axes side by side, the states a
 backbone produced, the selection before and after the empty-selection repair,
-the mask the predictor actually reads, and the namespace every loss and metric
-binds to with each term's value. A tensor reports its shape, dtype, device,
+the mask the predictor actually reads, the namespace every loss binds to with
+each term's value, and the namespace the metrics bind to with the fields each
+of them names. A tensor reports its shape, dtype, device,
 non-finite count and range, which is where a mask that is neither zero nor one
 or a ``nan`` inside a pooled state shows up and a metric does not.
 
 **Only under a smoke test.** The record is per batch, so a full run writes
 gigabytes of it and pays the formatting on every step. A task asked to
-diagnose a run whose batches nobody bounded raises rather than writing it:
-pass ``fast_dev_run`` or a ``limit_train_batches`` of your own, which is what
-``trainer_args`` already forwards, and what
+diagnose a run whose *training* batches nobody bounded raises rather than
+writing it: pass ``fast_dev_run``, or a ``limit_train_batches`` of your own,
+which is what ``trainer_args`` already forwards and what
 :attr:`~pyhighlights.components.benchmarks.Benchmark.task_args` passes to a
-whole grid at once.
+whole grid at once. A fraction of ``1.0`` is Lightning's own default and
+bounds nothing, so it is refused like an absent one.
+
+:class:`~pyhighlights.components.tasks.GenSPPTask` is checked differently,
+because its search runs outside Lightning and reads the whole split once per
+candidate: what bounds it is ``population_size`` and ``n_generations``, and a
+search of more than a handful of candidates is refused however the trainer was
+bounded.
 
 It is written through the standard library's ``logging`` under the
 ``pyhighlights.diagnostics`` logger, so a caller who wants the record on a

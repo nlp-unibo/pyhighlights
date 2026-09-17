@@ -58,6 +58,13 @@ def compute_losses(
     total = None
     computed: Dict[str, th.Tensor] = {}
 
+    # Before the loop, not after it: a binding whose field is absent raises
+    # inside `Loss.forward`, and the namespace is what says which names were
+    # there to bind to. Recorded after the loop it is missing from exactly
+    # the batch that needed it.
+    if diagnostics.active():
+        diagnostics.record("loss", namespace=sorted(values))
+
     for loss in losses:
         if not loss.enabled:
             continue
@@ -73,11 +80,12 @@ def compute_losses(
         total = th.zeros(()) if reference is None else reference.new_zeros(())
 
     # Here rather than in the model, because a phased model computes this
-    # once per phase and a reader wants the phases apart. The field names
-    # come with it: a binding that finds nothing raises, and the names are
-    # what says which field it was looking for.
+    # once per phase and a reader wants the phases apart. One call per source
+    # of names: a term is named by whoever registered it, so a loss called
+    # `total` would take the keyword out of a call that also passes one.
     if diagnostics.active():
-        diagnostics.record("loss", namespace=sorted(values), total=total, **computed)
+        diagnostics.record("loss", total=total)
+        diagnostics.record("loss", **computed)
 
     return total, computed
 

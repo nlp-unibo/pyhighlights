@@ -101,7 +101,17 @@ class Model(L.LightningModule, abc.ABC, Generic[OutputT]):
 
     def update_metrics(self, split: Split, input_data: InputData, output_data: OutputT):
         values = self.namespace(input_data, output_data)
-        for metric in getattr(self, f"{split}_metrics"):
+        metrics = getattr(self, f"{split}_metrics")
+        # A metric binds to field names exactly as a loss does, and reads them
+        # out of a namespace built from the aggregated output rather than the
+        # one the losses saw. One call per source of names, since a metric is
+        # named by whoever registered it.
+        if diagnostics.active():
+            diagnostics.record("metric", namespace=sorted(values))
+            diagnostics.record(
+                "metric", **{metric.name: metric.inputs for metric in metrics}
+            )
+        for metric in metrics:
             metric.update(values)
 
     def compute_metrics(self, split: Split):
