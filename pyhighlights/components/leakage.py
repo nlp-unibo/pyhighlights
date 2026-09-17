@@ -74,7 +74,7 @@ def duplicates(
 
 
 class LeakageDetector:
-    """Reports what a set of splits shares, and refuses more than ``tolerance``.
+    """Reports what a set of splits shares, and refuses splits that share a row.
 
     Holds no data of its own: every method takes the splits to analyse, so one
     detector serves whichever loader or preprocessing stage is being checked.

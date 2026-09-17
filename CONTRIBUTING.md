@@ -15,7 +15,7 @@ Run local CI with `nox`:
 | Command | Check |
 |---|---|
 | `nox` | Ruff and tests |
-| `nox -s tests` | Tests with 75% branch-coverage gate |
+| `nox -s tests` | Tests with 92% branch-coverage gate |
 | `nox -s transformers` | Optional Transformers installation |
 | `nox -s docs` | Sphinx build with warnings as errors |
 | `nox -s package` | Wheel/sdist build and metadata check |

@@ -132,9 +132,12 @@ class R2ALoader(HighlightLoader):
     **The distributed splits overlap.** Every one of the 200 annotated rows of
     each Hotel aspect also appears in that aspect's training file, and Beer
     keeps about two thirds of its validation split inside training. The
-    default ``remove_leakage=True`` drops the offending training and
-    validation rows, keeping the annotated split whole; ``False`` reproduces
-    the release as distributed, leakage included.
+    loader returns them that way, as it returns every corpus: repairing the
+    overlap is
+    :class:`~pyhighlights.components.preprocessors.LeakageRemover`, whose
+    default priority drops the offending training and validation rows and
+    keeps the annotated split whole. A study that reproduces the release as
+    distributed configures no such step and gets the leakage with it.
 
     The repaired splits are published as manifests, so a reader can check a run
     against the rows it should have seen rather than take the repair on trust:
