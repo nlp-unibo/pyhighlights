@@ -27,7 +27,7 @@ import torch as th
 from cinnamon.registry import RegistrationKey, Registry
 
 from pyhighlights.components.models.base import InputData
-from pyhighlights.components.models.spp.base import SPP, SPPBackbone
+from pyhighlights.components.models.spp.base import SPP, SPPBackbone, probability
 from pyhighlights.components.models.spp.data import GroundedSPPOutput
 
 
@@ -301,9 +301,6 @@ class GroundedSPP(SPP):
         head = self.aggregator(output_data)
         gate = head.knowledge_mask.unsqueeze(-1)
         pairs = head.pair_highlight_mask
-
-        def probability(logits: th.Tensor, of: th.Tensor) -> th.Tensor:
-            return th.softmax(logits, dim=-1).gather(1, of.unsqueeze(1)).squeeze(1)
 
         predicted = head.class_logits.argmax(dim=-1)
         on_base = probability(head.class_logits, predicted)
