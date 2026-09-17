@@ -12,6 +12,7 @@ from pyhighlights.components.models.spp.base import (
     SPPSelector,
 )
 from pyhighlights.components.models.spp.data import SPPOutput
+from pyhighlights.utility import diagnostics
 from pyhighlights.utility.losses import Loss, build_losses, compute_losses
 
 
@@ -145,6 +146,10 @@ class PhasedSPP(SPP):
     def predictor_phase_loss(
         self, input_data: InputData
     ) -> Tuple[th.Tensor, Dict[str, th.Tensor], SPPOutput]:
+        # Which phase the stages below belong to. A batch passes through them
+        # twice here, and the two passes are different selections scored by
+        # different criteria.
+        diagnostics.record("phase", name=self.predictor_phase)
         output, values = self.phase_forward(input_data, detach_selection=True)
         total, losses = compute_losses(
             [*self.shared_losses, *self.predictor_losses], values
@@ -158,6 +163,7 @@ class PhasedSPP(SPP):
             *self.predictor_backbone.parameters(),
             *self.predictor.parameters(),
         ]
+        diagnostics.record("phase", name="generator")
         requires_grad = [parameter.requires_grad for parameter in predictor_parameters]
         for parameter in predictor_parameters:
             parameter.requires_grad_(False)
@@ -203,6 +209,9 @@ class PhasedSPP(SPP):
         ]
 
     def training_step(self, batch: InputData, batch_idx: int):
+        # This model drives its own optimizers, so it never reaches
+        # `Model._step` and has to say which split its stages are serving.
+        diagnostics.record("step", split="train", batch=batch_idx)
         generator_optimizer, predictor_optimizer = self.optimizers()
         generator_optimizer.zero_grad()
         predictor_optimizer.zero_grad()

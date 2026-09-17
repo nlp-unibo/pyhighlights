@@ -9,6 +9,7 @@ from cinnamon.registry import RegistrationKey, Registry
 
 from pyhighlights.components.models.base import InputData, Model, Split
 from pyhighlights.components.models.spp.data import SPPOutput
+from pyhighlights.utility import diagnostics
 from pyhighlights.utility.losses import Loss, compute_losses
 
 
@@ -404,10 +405,18 @@ class SPP(Model[SPPOutput]):
         highlight_mask = self.select_activation(highlight_logits)
         valid = self.selection_valid(data).bool()
         highlight_mask = highlight_mask * valid.to(highlight_mask.dtype)
-
-        return highlight_logits, self.repair_empty(
-            highlight_logits, highlight_mask, valid
+        repaired = self.repair_empty(highlight_logits, highlight_mask, valid)
+        # The states are what the encoder made of the batch and the two masks
+        # are the selection before and after the repair, which is the one
+        # place they can be told apart.
+        diagnostics.record(
+            "selector",
+            states=states,
+            highlight_logits=highlight_logits,
+            highlight_mask=highlight_mask,
+            repaired_mask=repaired,
         )
+        return highlight_logits, repaired
 
     def repair_empty(
         self,
@@ -429,6 +438,10 @@ class SPP(Model[SPPOutput]):
         """
         valid = valid.bool()
         needs_fallback = valid.any(dim=-1) & ~highlight_mask.bool().any(dim=-1)
+        # A repair that fires on most of a batch is a selector that has
+        # learned nothing, and the reported selection rate hides it: the
+        # rescued token counts as a selection like any other.
+        diagnostics.record("repair", rows=int(needs_fallback.sum()))
         if not needs_fallback.any():
             return highlight_mask
         scores = th.softmax(highlight_logits / self.temperature, dim=-1)[..., 1]
@@ -463,11 +476,22 @@ class SPP(Model[SPPOutput]):
         if self.compact:
             features, kept = self.compacted(data.features, attention * prediction_mask)
             states = backbone.encode(features, kept)
-            return predictor(backbone.pool(states, kept))
+            pooled = backbone.pool(states, kept)
+            # What the predictor reads, after compaction rather than before:
+            # the claim this library makes is about this tensor.
+            diagnostics.record("predictor", features=features, mask=kept, pooled=pooled)
+            return predictor(pooled)
         states = backbone.encode(
             data.features, attention, selection_mask=prediction_mask
         )
         pooled = backbone.pool(states, attention * prediction_mask)
+        diagnostics.record(
+            "predictor",
+            selection=selection,
+            mask=prediction_mask,
+            states=states,
+            pooled=pooled,
+        )
         return predictor(pooled)
 
     @staticmethod

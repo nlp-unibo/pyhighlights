@@ -8,6 +8,7 @@ import torch as th
 from cinnamon.registry import RegistrationKey, Registry
 
 from pyhighlights.components.models.data import InputData, ModelData, OutputData
+from pyhighlights.utility import diagnostics
 from pyhighlights.utility.losses import Loss, build_losses, compute_losses
 from pyhighlights.utility.metrics import BoundMetric, build_metrics
 
@@ -179,6 +180,10 @@ class Model(L.LightningModule, abc.ABC, Generic[OutputT]):
             self.predictions.append({**batch.as_numpy(), **output_data.as_numpy()})
 
     def _step(self, batch: InputData, batch_idx: int, split: Split) -> th.Tensor:
+        # What the lines after this one belong to. Every stage below reports
+        # per batch and none of them knows the split it is serving, so a
+        # record without this is one run of undifferentiated tensors.
+        diagnostics.record("step", split=split, batch=batch_idx)
         output_data = self.forward_mapping[split](batch)
         total_loss, losses = self.compute_loss(
             input_data=batch, output_data=output_data

@@ -6,6 +6,8 @@ from typing import Dict, Iterable, List, Mapping, Sequence, Tuple
 import torch as th
 from cinnamon.registry import RegistrationKey, Registry
 
+from pyhighlights.utility import diagnostics
+
 
 class Loss(th.nn.Module):
     """Binds a criterion to the fields feeding it.
@@ -69,6 +71,13 @@ def compute_losses(
             (value for value in values.values() if isinstance(value, th.Tensor)), None
         )
         total = th.zeros(()) if reference is None else reference.new_zeros(())
+
+    # Here rather than in the model, because a phased model computes this
+    # once per phase and a reader wants the phases apart. The field names
+    # come with it: a binding that finds nothing raises, and the names are
+    # what says which field it was looking for.
+    if diagnostics.active():
+        diagnostics.record("loss", namespace=sorted(values), total=total, **computed)
 
     return total, computed
 
