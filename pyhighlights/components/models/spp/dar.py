@@ -1,4 +1,5 @@
 import logging
+from itertools import islice
 from typing import Dict, List, Tuple
 
 import torch as th
@@ -11,6 +12,7 @@ from pyhighlights.components.models.spp.base import (
     SPPPredictor,
 )
 from pyhighlights.components.models.spp.data import SPPOutput
+from pyhighlights.utility import diagnostics
 from pyhighlights.utility.losses import Loss, compute_losses
 
 logger = logging.getLogger(__name__)
@@ -146,7 +148,16 @@ class DAR(SPP):
             sampler = getattr(loader, "sampler", None)
             if hasattr(sampler, "set_epoch"):
                 sampler.set_epoch(epoch)
-            for batch in loader:
+            # The fit loop's own bound on an epoch, which is what
+            # `fast_dev_run` and `limit_train_batches` set. This loop is the
+            # model's rather than the loop's, so nothing else applies it: a
+            # run bounded to two batches pretrained on the whole split.
+            limit = self.trainer.num_training_batches
+            epoch_batches = (
+                loader if limit == float("inf") else islice(loader, int(limit))
+            )
+            diagnostics.record("phase", name="aligner", epoch=epoch)
+            for batch in epoch_batches:
                 batch = self.transfer_batch_to_device(batch, self.device, 0)
                 optimizer.zero_grad()
                 loss, _ = compute_losses(
