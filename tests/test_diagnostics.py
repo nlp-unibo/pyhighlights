@@ -377,3 +377,21 @@ def test_the_repaired_rows_are_reported_under_the_selection_they_repaired(caplog
         "repair: rows",
         "selector: repaired_mask",
     ]
+
+
+def test_a_mask_reports_how_much_of_it_is_on():
+    """Its range is zero to one whatever it holds, so the range says nothing.
+
+    The count is what answers the question the word and subtoken axes raise:
+    whether a word the selector dropped is absent from what the predictor
+    reads, on a backbone whose two axes are not the same width.
+    """
+    assert "on=2" in diagnostics.describe(th.tensor([[1.0, 0.0, 1.0]]))
+    assert "on=1" in diagnostics.describe(th.tensor([True, False]))
+    # Only of something that is nothing but zeros and ones: a probability
+    # sits in the same range and has no count to report.
+    assert "on=" not in diagnostics.describe(th.tensor([[0.3, 0.9]]))
+    assert "on=" not in diagnostics.describe(th.tensor(1.0))
+    # And not of the states, which carry a third axis and cost two reductions
+    # over twelve million entries to find out they are not a mask.
+    assert "on=" not in diagnostics.describe(th.ones(2, 3, 4))

@@ -507,8 +507,10 @@ the mask the predictor actually reads, the namespace every loss binds to with
 each term's value, and -- once per split, since neither changes between
 batches -- the namespace the metrics bind to with the fields each of them
 names. A tensor reports its shape, dtype, device,
-non-finite count and range, which is where a mask that is neither zero nor one
-or a ``nan`` inside a pooled state shows up and a metric does not.
+non-finite count and range, and a mask -- a batch and one axis of nothing but
+zeros and ones -- reports how many of them are on -- which is where a mask that is neither zero nor one,
+a word dropped on the word axis but still read on the subtoken axis, or a
+``nan`` inside a pooled state shows up and a metric does not.
 
 **Only under a smoke test.** The record is per batch, so a full run writes
 gigabytes of it and pays the formatting on every step. A task asked to
