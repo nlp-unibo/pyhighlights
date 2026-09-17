@@ -2,7 +2,6 @@
 
 from typing import List
 
-import torch as th
 from cinnamon.configuration import Param
 from cinnamon.registry import RegistrationKey, register_class
 
@@ -11,7 +10,6 @@ from pyhighlights.components.models.spp.base import (
 )
 from pyhighlights.configurations.base import PhasedSPPModelConfig
 from pyhighlights.configurations.keys import (
-    ADAM,
     COMPLEMENT_CLASSIFICATION_LOSS,
     FULL_CLASSIFICATION_LOSS,
     GRU_BACKBONE,
@@ -20,7 +18,6 @@ from pyhighlights.configurations.keys import (
     TRANSFORMER_BACKBONE,
 )
 from pyhighlights.utility.losses import Loss
-from pyhighlights.utility.metrics import BoundMetric
 
 MRD_COMPONENT = "pyhighlights.components.models.spp.mrd.MRD"
 
@@ -39,10 +36,6 @@ class GRUMRDConfig(PhasedSPPModelConfig):
         [COMPLEMENT_CLASSIFICATION_LOSS, FULL_CLASSIFICATION_LOSS]
     )
     generator_losses: List[RegistrationKey[Loss]] = Param([REMAINING_DISCREPANCY_LOSS])
-    optimizer: RegistrationKey[th.optim.Optimizer] = Param(ADAM)
-    train_metrics: List[RegistrationKey[BoundMetric]] | None = Param(None)
-    val_metrics: List[RegistrationKey[BoundMetric]] | None = Param(None)
-    test_metrics: List[RegistrationKey[BoundMetric]] | None = Param(None)
 
 
 @register_class(
