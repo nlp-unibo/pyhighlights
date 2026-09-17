@@ -62,31 +62,45 @@ def describe(value: Any) -> str:
     """One line for one thing the pipeline held.
 
     A tensor reports the shape, the dtype, the device, how many entries are
-    not finite and the range they cover. That is enough to see a mask that is
-    neither zero nor one, a selection rate of 1.0 at the first batch, or a
-    ``nan`` inside a pooled state -- none of which a metric shows. A frame
-    reports its rows, its columns and how many rows carry an annotation.
+    not finite and the range they cover; a mask -- a batch and one axis of
+    nothing but zeros and ones -- also reports how many are on, since every
+    mask covers zero to one and the count is what separates two of them. That
+    is enough to see a mask that is neither zero nor one, a selection the
+    predictor's axis did not keep, a selection rate of 1.0 at the first batch,
+    or a ``nan`` inside a pooled state -- none of which a metric shows. A
+    frame reports its rows, its columns and how many rows carry an annotation.
     Anything else reports itself, shortened, since a stage is free to name a
     number or a string beside its tensors.
     """
     if isinstance(value, th.Tensor):
+        marked = ""
         if value.numel():
             unfinite = int((~th.isfinite(value)).sum())
-            if not unfinite:
-                # The common case, and the one worth not allocating for: a
-                # boolean index over a transformer's states copies fifty
-                # megabytes to find two numbers.
-                spread = f"[{value.min():.4g}, {value.max():.4g}]"
+            # Not indexing unless something is not finite: a boolean index
+            # over a transformer's states copies fifty megabytes to find two
+            # numbers, and almost every tensor here is finite throughout.
+            kept = value if not unfinite else value[th.isfinite(value)]
+            if kept.numel():
+                low, high = kept.min(), kept.max()
+                spread = f"[{low:.4g}, {high:.4g}]"
+                # Every mask covers zero to one, so the range says nothing
+                # about it and the count says everything: how many words a
+                # selection kept, against how many positions of the subtoken
+                # axis the predictor was left reading. A mask carries a batch
+                # and an axis and nothing else, and the two reductions this
+                # takes are worth paying over one of those and not over the
+                # states, which are three-dimensional and often in range.
+                if value.dim() in (1, 2) and low >= 0 and high <= 1:
+                    ones = int((kept == 1).sum())
+                    if ones + int((kept == 0).sum()) == kept.numel():
+                        marked = f" on={ones}"
             else:
-                kept = value[th.isfinite(value)]
-                spread = (
-                    f"[{kept.min():.4g}, {kept.max():.4g}]" if kept.numel() else "[]"
-                )
+                spread = "[]"
         else:
             spread, unfinite = "[]", 0
         return (
             f"tensor{tuple(value.shape)} {value.dtype} {value.device} "
-            f"range={spread} non-finite={unfinite}"
+            f"range={spread}{marked} non-finite={unfinite}"
         )
     # By duck typing rather than by importing pandas for an isinstance: a
     # frame is the only thing here carrying both `columns` and `shape`.
