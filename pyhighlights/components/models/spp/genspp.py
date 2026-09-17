@@ -14,6 +14,7 @@ from cinnamon.registry import RegistrationKey, Registry
 
 from pyhighlights.components.models import InputData
 from pyhighlights.components.models.spp.base import SPP, SPPBackbone, SPPSelector
+from pyhighlights.utility import diagnostics
 
 
 class GenSPP(SPP):
@@ -322,7 +323,8 @@ class GenSPPTrainer:
         self.population = self._score(train_batches, val_batches, founders)
         self.training_progress.clear()
 
-        for _ in range(self.n_generations):
+        for generation in range(self.n_generations):
+            diagnostics.record("generation", index=generation)
             self._run_generation(train_batches, val_batches)
             best_loss = 1.0 / self._best_individual().fitness
             self.training_progress.append(best_loss)
@@ -368,14 +370,23 @@ class GenSPPTrainer:
         and pays for no pool.
         """
         work = [
-            (chromosome, self.devices[index % len(self.devices)])
+            (index, chromosome, self.devices[index % len(self.devices)])
             for index, chromosome in enumerate(chromosomes)
         ]
 
         def score(item):
-            return self._evaluate_individual(train_loader, val_loader, *item)
+            index, chromosome, device = item
+            diagnostics.record("candidate", index=index, device=str(device))
+            return self._evaluate_individual(
+                train_loader, val_loader, chromosome, device
+            )
 
-        if len(self.devices) == 1:
+        # A diagnosed search scores one candidate at a time whatever it was
+        # given: the stages report in the order they run and nothing else says
+        # which candidate a line belongs to, so two threads writing at once
+        # produce a record of one model that never existed. The search a task
+        # agrees to diagnose is a handful of candidates wide.
+        if len(self.devices) == 1 or diagnostics.active():
             scored = [score(item) for item in work]
         else:
             with ThreadPool(processes=len(self.devices)) as pool:

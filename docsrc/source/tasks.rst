@@ -525,7 +525,10 @@ bounds nothing, so it is refused like an absent one.
 because its search runs outside Lightning and reads the whole split once per
 candidate: what bounds it is ``population_size`` and ``n_generations``, and a
 search of more than a handful of candidates is refused however the trainer was
-bounded.
+bounded. A diagnosed search also marks every candidate and every generation,
+and scores one candidate at a time however many devices it was given: the
+stages report in the order they run, so two threads writing at once would
+record a model that never existed.
 
 It is written through the standard library's ``logging`` under the
 ``pyhighlights.diagnostics`` logger, so a caller who wants the record on a

@@ -651,3 +651,38 @@ def test_the_selection_rate_is_measured_on_the_axis_the_selection_was_made_on():
 
     assert rate == pytest.approx(float(expected))
     assert 0.0 <= rate <= 1.0
+
+
+def test_a_diagnosed_search_scores_one_candidate_at_a_time(caplog, monkeypatch):
+    """Threads interleave, and the record is attributed by order alone.
+
+    Two candidates writing their stages at once read as one model that never
+    existed, so a search asked to diagnose itself takes the sequential path
+    however many devices it was given -- and says which candidate each run of
+    lines belongs to.
+    """
+    import logging
+
+    from pyhighlights.components.models.spp import genspp as module
+    from pyhighlights.utility import diagnostics
+
+    model = register_tiny_genspp()
+    train, val = [batch(labels=(0, 1))], [batch(labels=(0, 1))]
+    search = trainer(
+        model,
+        n_generations=1,
+        population_size=2,
+        task_loss_limit=10.0,
+        devices=["cpu"] * 2,
+    )
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("a diagnosed search opened a pool")
+
+    monkeypatch.setattr(module, "ThreadPool", refuse)
+    with caplog.at_level(logging.DEBUG, logger=diagnostics.logger.name):
+        search.fit(train, val)
+
+    assert "candidate: index = 0" in caplog.text
+    assert "candidate: index = 1" in caplog.text
+    assert "generation: index = 0" in caplog.text
