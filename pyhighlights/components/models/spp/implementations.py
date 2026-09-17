@@ -11,6 +11,47 @@ from pyhighlights.components.models.spp.base import (
 )
 
 
+def recurrent_states(
+    encoder: th.nn.GRU,
+    layer_norm: th.nn.LayerNorm,
+    dropout: th.nn.Dropout,
+    inputs: th.Tensor,
+    valid: th.Tensor,
+) -> th.Tensor:
+    """Run ``encoder`` over ``inputs``, back on the width it came in at.
+
+    Shared by the two backbones that encode recurrently, which differ in what
+    they hand the recurrence -- an embedding table for ``GRUBackbone``, a
+    pretrained encoder's states for ``StackedBackbone`` -- and in nothing
+    after it. Packing is what keeps padding out of the recurrence, and the
+    clamp is for a row that is padding throughout: a length of zero is not a
+    sequence, and such a row is masked to zeros on the way out anyway.
+    """
+    packed = th.nn.utils.rnn.pack_padded_sequence(
+        inputs,
+        lengths=valid.sum(dim=1).clamp_min(1).cpu(),
+        batch_first=True,
+        enforce_sorted=False,
+    )
+    states, _ = encoder(packed)
+    states, _ = th.nn.utils.rnn.pad_packed_sequence(
+        states, batch_first=True, total_length=inputs.shape[1]
+    )
+    return dropout(layer_norm(states)) * valid.unsqueeze(-1)
+
+
+def max_pool(states: th.Tensor, mask: th.Tensor) -> th.Tensor:
+    """The largest value each dimension takes over the unmasked positions.
+
+    A row with nothing unmasked pools to zeros rather than to ``-inf``: an
+    empty complement is a reading of a model that kept everything, not a
+    number to propagate.
+    """
+    valid = mask.bool()
+    pooled = states.masked_fill(~valid.unsqueeze(-1), -th.inf).amax(dim=1)
+    return th.where(valid.any(dim=1, keepdim=True), pooled, th.zeros_like(pooled))
+
+
 class GRUBackbone(SPPBackbone):
     def __init__(
         self,
@@ -75,23 +116,12 @@ class GRUBackbone(SPPBackbone):
         valid = mask.bool()
         selected = mask if selection_mask is None else mask * selection_mask
         embeddings = self.embedding(features) * selected.unsqueeze(-1)
-        packed = th.nn.utils.rnn.pack_padded_sequence(
-            embeddings,
-            lengths=valid.sum(dim=1).clamp_min(1).cpu(),
-            batch_first=True,
-            enforce_sorted=False,
+        return recurrent_states(
+            self.encoder, self.layer_norm, self.dropout, embeddings, valid
         )
-        states, _ = self.encoder(packed)
-        states, _ = th.nn.utils.rnn.pad_packed_sequence(
-            states, batch_first=True, total_length=features.shape[1]
-        )
-        states = self.dropout(self.layer_norm(states))
-        return states * valid.unsqueeze(-1)
 
     def pool(self, states: th.Tensor, mask: th.Tensor) -> th.Tensor:
-        valid = mask.bool()
-        pooled = states.masked_fill(~valid.unsqueeze(-1), -th.inf).amax(dim=1)
-        return th.where(valid.any(dim=1, keepdim=True), pooled, th.zeros_like(pooled))
+        return max_pool(states, mask)
 
 
 class TransformerBackbone(SPPBackbone):
@@ -224,25 +254,13 @@ class StackedBackbone(SPPBackbone):
         states = self.transformer.encode(features, mask, selection_mask)
         if selection_mask is not None:
             states = states * selection_mask.to(states.dtype).unsqueeze(-1)
-        valid = mask.bool()
-        packed = th.nn.utils.rnn.pack_padded_sequence(
-            states,
-            lengths=valid.sum(dim=1).clamp_min(1).cpu(),
-            batch_first=True,
-            enforce_sorted=False,
+        return recurrent_states(
+            self.encoder, self.layer_norm, self.dropout, states, mask.bool()
         )
-        encoded, _ = self.encoder(packed)
-        encoded, _ = th.nn.utils.rnn.pad_packed_sequence(
-            encoded, batch_first=True, total_length=features.shape[1]
-        )
-        encoded = self.dropout(self.layer_norm(encoded))
-        return encoded * valid.unsqueeze(-1)
 
     def pool(self, states: th.Tensor, mask: th.Tensor) -> th.Tensor:
         # The GRU's pooling, since the GRU is what produced these states.
-        valid = mask.bool()
-        pooled = states.masked_fill(~valid.unsqueeze(-1), -th.inf).amax(dim=1)
-        return th.where(valid.any(dim=1, keepdim=True), pooled, th.zeros_like(pooled))
+        return max_pool(states, mask)
 
 
 class MLPSelector(SPPSelector):

@@ -12,6 +12,15 @@ from pyhighlights.components.models.spp.data import SPPOutput
 from pyhighlights.utility.losses import Loss, compute_losses
 
 
+def probability(logits: th.Tensor, of: th.Tensor) -> th.Tensor:
+    """How much of the class distribution sits on the class ``of`` names.
+
+    One number per row, which is what a faithfulness term is made of: every
+    such term compares this quantity across two inputs to the same predictor.
+    """
+    return th.softmax(logits, dim=-1).gather(1, of.unsqueeze(1)).squeeze(1)
+
+
 class SPPBackbone(th.nn.Module, abc.ABC):
     """Backend-specific token encoder and pooler."""
 
@@ -551,9 +560,6 @@ class SPP(Model[SPPOutput]):
         head = self.aggregator(output_data)
         valid = self.selection_valid(input_data).to(head.highlight_mask.dtype)
         highlight = head.highlight_mask * valid
-
-        def probability(logits: th.Tensor, of: th.Tensor) -> th.Tensor:
-            return th.softmax(logits, dim=-1).gather(1, of.unsqueeze(1)).squeeze(1)
 
         predicted = head.class_logits.argmax(dim=-1)
         on_highlight = probability(head.class_logits, predicted)
