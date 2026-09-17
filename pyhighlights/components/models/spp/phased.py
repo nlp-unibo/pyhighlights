@@ -1,3 +1,4 @@
+import abc
 from typing import Dict, List, Tuple
 
 import torch as th
@@ -83,6 +84,7 @@ class PhasedSPP(SPP):
         )
         self.automatic_optimization = False
 
+    @abc.abstractmethod
     def phase_class_logits(
         self, input_data: InputData, highlight_mask: th.Tensor, selection: th.Tensor
     ) -> th.Tensor:
@@ -94,14 +96,13 @@ class PhasedSPP(SPP):
         trains on the complement reads neither and takes this pass outside the
         graph.
         """
-        raise NotImplementedError
 
+    @abc.abstractmethod
     def extra_logits(
         self, input_data: InputData, selection: th.Tensor
     ) -> Dict[str, th.Tensor]:
         """The predictor passes this model's criteria bind to, beside the
         highlight's own fields."""
-        raise NotImplementedError
 
     def phase_forward(
         self, input_data: InputData, detach_selection: bool
