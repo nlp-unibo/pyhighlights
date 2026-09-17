@@ -29,10 +29,27 @@ class PhasedSPP(SPP):
     Evaluation reports every group, since a validation number is about the
     model rather than about a phase of its training.
 
+    Two properties of the loop read oddly until they are checked against the
+    implementations it reproduces, so both are stated here.
+
     The shared criteria bind to the selection the generator produced rather
     than to the detached copy the predictor reads, so they reach the generator
-    in the predictor phase as well as in its own. The generator therefore
-    takes two steps per batch on them and one on the phase-specific term.
+    in the predictor phase as well as in its own, and the generator's
+    optimizer is stepped in both. It therefore takes two steps per batch on
+    the shared criteria and one on the phase-specific term. Both reference
+    implementations do the same: ``train_util.train_decouple_causal2`` of
+    <https://github.com/jugechengzi/Rationalization-MCD> adds the sparsity and
+    continuity terms to its classification loss and steps ``opt_gen`` beside
+    ``opt_pred``, and ``train_util.train_adv_causal`` of
+    <https://github.com/jugechengzi/Rationalization-MRD> does the same under
+    ``--gen_sparse``, which defaults to 1 and is what its README runs. A study
+    that wants the other arrangement registers ``shared_losses`` empty, which
+    is what turning that flag off amounts to.
+
+    And each phase draws its own selection: ``phase_forward`` selects once per
+    phase, so the two phases of a batch optimize different masks of it. That
+    is the references again, which call ``get_rationale`` in each phase over a
+    ``gumbel_softmax`` with ``hard=True``.
     """
 
     #: What this model's paper calls the phase that trains the predictor. It
