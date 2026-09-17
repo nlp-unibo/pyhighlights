@@ -320,3 +320,25 @@ def test_a_run_that_was_not_asked_writes_nothing(tmp_path):
     task.run()
 
     assert not (task.directory / diagnostics.FILENAME).exists()
+
+
+def test_the_metric_bindings_are_said_once_a_split_not_once_a_batch(tmp_path):
+    """They are a property of the registration, not of the batch.
+
+    The namespace a metric binds to and the fields it names are the same on
+    every step of a split, so repeating them per batch buries the lines that
+    do change underneath them.
+    """
+    task = Registry.from_key(
+        TOY_TASK,
+        save_path=str(tmp_path),
+        seeds=[0],
+        diagnostics=True,
+        trainer_args={"limit_train_batches": 2, "max_epochs": 2},
+    )
+
+    task.run()
+
+    written = (task.directory / diagnostics.FILENAME).read_text()
+    assert written.count("metric: split = 'train'") == 1
+    assert written.count("step: split = 'train'") > 1
