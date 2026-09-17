@@ -220,3 +220,22 @@ def test_supervision_reaches_a_model_that_appends_a_term_of_its_own():
     assert model.losses[model.supervised].name == "highlight"
     total, losses = model.compute_loss(batch_of(), model(batch_of()))
     assert "alignment_classification" in losses and "highlight" in losses
+
+
+def test_the_aligner_pretrains_inside_the_bound_the_run_was_given(tmp_path):
+    """`limit_train_batches` bounds the fit loop, not a loop a model runs.
+
+    The aligner's loop is the model's own, so a run bounded to two batches
+    still pretrained on all eight the split holds, once per pretraining epoch
+    -- which is what a smoke test asks not to happen.
+    """
+    model = Registry.from_key(GRU_DAR, pretrain_epochs=2)
+    seen = []
+    full = model.align_full
+    model.align_full = lambda batch: seen.append(batch) or full(batch)
+
+    fit(model, toy_loader(tmp_path))
+
+    # Two epochs of the two batches the run allowed. Rationalization aligns
+    # the highlight rather than the full input, so nothing after this adds.
+    assert len(seen) == 4

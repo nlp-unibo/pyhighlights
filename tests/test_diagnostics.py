@@ -342,3 +342,38 @@ def test_the_metric_bindings_are_said_once_a_split_not_once_a_batch(tmp_path):
     written = (task.directory / diagnostics.FILENAME).read_text()
     assert written.count("metric: split = 'train'") == 1
     assert written.count("step: split = 'train'") > 1
+
+
+def test_the_repaired_rows_are_reported_under_the_selection_they_repaired(caplog):
+    """Order is what attributes a line here, and there is no other marker.
+
+    The repair reports from inside `repair_empty`, so a selector that
+    described itself afterwards put its own four lines below the count of
+    rows they explain -- reading as the repair of the batch before.
+    """
+    from pyhighlights.configurations.keys import GRU_FR
+
+    model = Registry.from_key(GRU_FR)
+    batch = InputData(
+        features=th.randint(1, 8, (2, 5)),
+        mask=th.ones((2, 5)),
+        sample_ids=th.arange(2),
+        y_true=th.randint(0, 2, (2,)),
+        highlight_true=th.full((2, 5), -1),
+    )
+
+    with caplog.at_level(logging.DEBUG, logger=diagnostics.logger.name):
+        model(batch)
+
+    stages = [
+        record.getMessage().split(" = ")[0]
+        for record in caplog.records
+        if record.getMessage().startswith(("selector:", "repair:"))
+    ]
+    assert stages == [
+        "selector: states",
+        "selector: highlight_logits",
+        "selector: highlight_mask",
+        "repair: rows",
+        "selector: repaired_mask",
+    ]

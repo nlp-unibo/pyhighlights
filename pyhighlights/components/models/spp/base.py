@@ -405,17 +405,19 @@ class SPP(Model[SPPOutput]):
         highlight_mask = self.select_activation(highlight_logits)
         valid = self.selection_valid(data).bool()
         highlight_mask = highlight_mask * valid.to(highlight_mask.dtype)
-        repaired = self.repair_empty(highlight_logits, highlight_mask, valid)
         # The states are what the encoder made of the batch and the two masks
         # are the selection before and after the repair, which is the one
-        # place they can be told apart.
+        # place they can be told apart. In two calls, around the repair rather
+        # than after it, so the rows the repair reports read as belonging to
+        # the selection above them.
         diagnostics.record(
             "selector",
             states=states,
             highlight_logits=highlight_logits,
             highlight_mask=highlight_mask,
-            repaired_mask=repaired,
         )
+        repaired = self.repair_empty(highlight_logits, highlight_mask, valid)
+        diagnostics.record("selector", repaired_mask=repaired)
         return highlight_logits, repaired
 
     def repair_empty(
