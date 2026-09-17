@@ -18,6 +18,7 @@ import itertools
 import json
 import logging
 from collections import Counter
+from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Literal, Mapping, Sequence
@@ -45,7 +46,7 @@ from pyhighlights.components.loaders import HighlightLoader, to_examples
 from pyhighlights.components.models.base import InputData, Model
 from pyhighlights.components.models.spp.genspp import GenSPPTrainer
 from pyhighlights.components.preprocessors import ClassWeights, Preprocessor
-from pyhighlights.utility import manifest
+from pyhighlights.utility import diagnostics, manifest
 from pyhighlights.utility.embeddings import load_vectors, one_hot_table
 from pyhighlights.utility.losses import Loss
 from pyhighlights.utility.metrics import BoundMetric, build_metrics
@@ -94,6 +95,9 @@ def load_splits(
 ) -> Dict[str, pd.DataFrame]:
     """The corpus a key names, preprocessed by the key that names how."""
     splits = Registry.from_key(loader, expected_type=HighlightLoader).load()
+    # As parsed, before any step has run: what a preprocessor changed is only
+    # readable against what it was given.
+    diagnostics.record("loader", **splits)
     if preprocessor is not None:
         splits = Registry.from_key(preprocessor, expected_type=Preprocessor).process(
             splits
@@ -213,6 +217,7 @@ class SPPTask(Task):
         keep_checkpoints: bool = True,
         save_weights_only: bool = False,
         faithfulness: bool = False,
+        diagnostics: bool = False,
         highlight_supervision: bool = False,
         highlight_loss: RegistrationKey[Loss] | None = None,
         highlight_coefficient: float = 1.0,
@@ -289,6 +294,11 @@ class SPPTask(Task):
         # resume training, which nothing here does.
         self.save_weights_only = save_weights_only
         self.faithfulness = faithfulness
+        #: Write every stage of the pipeline into this run's directory. Off by
+        #: default and only for a run that has been bounded: see
+        #: :mod:`pyhighlights.utility.diagnostics` for what is recorded and
+        #: :meth:`check_diagnostics` for why an unbounded run is refused.
+        self.diagnostics = diagnostics
         self._embedding_matrix: th.Tensor | None = None
         self._knowledge: InputData | None = None
         self.highlight_supervision = highlight_supervision
@@ -303,6 +313,57 @@ class SPPTask(Task):
             "enable_model_summary": False,
             **dict(trainer_args or {}),
         }
+        if self.diagnostics:
+            self.check_diagnostics()
+
+    def check_diagnostics(self) -> None:
+        """Refuse to diagnose a run whose batches nobody bounded.
+
+        The record is per batch, so a full run writes gigabytes of it and
+        pays the formatting on every step. It is for a smoke test: one or two
+        epochs over a handful of batches, which is what Lightning's
+        ``fast_dev_run`` and its ``limit_*_batches`` already express and what
+        ``trainer_args`` already forwards. A task given neither is a mistake
+        rather than a choice, and it is cheaper to say so before the run than
+        after it.
+
+        The batches are what this checks, not the epochs: ``max_epochs``
+        carries a default, so an epoch bound is always present and a rule
+        about it would never fire.
+
+        The *training* batches, and a bound that bounds: a
+        ``limit_val_batches`` leaves training unbounded, and Lightning reads a
+        float as a fraction, so ``limit_train_batches=1.0`` is its own default
+        and means every batch. Both used to pass.
+        """
+        if not self.bounds_training_batches():
+            raise ValueError(
+                f"{self.name}: diagnostics record every batch of every stage, "
+                "so they are for a smoke test rather than a full run. Bound "
+                "the training batches first: pass "
+                "trainer_args={'fast_dev_run': True}, or a "
+                "limit_train_batches of 2, or a fraction below one."
+            )
+
+    def bounds_training_batches(self) -> bool:
+        """Whether ``trainer_args`` cuts the training batches down.
+
+        ``fast_dev_run`` runs one batch per split. ``limit_train_batches`` and
+        ``overfit_batches`` are counts as integers and fractions as floats, so
+        an integer bounds and a float bounds only below one.
+        """
+        if self.trainer_args.get("fast_dev_run"):
+            return True
+        for name in ("limit_train_batches", "overfit_batches"):
+            value = self.trainer_args.get(name)
+            if isinstance(value, bool) or value is None:
+                continue
+            if isinstance(value, float):
+                if value < 1.0:
+                    return True
+            elif value:
+                return True
+        return False
 
     def splits(self) -> Dict[str, pd.DataFrame]:
         """The corpus, loaded and preprocessed."""
@@ -624,8 +685,14 @@ class SPPTask(Task):
         # A second run of the same instance is a second result, not an
         # amendment to the first: drop the stamp so it takes its own.
         self._started = None
-        loaders = self.loaders(self.splits())
-        runs = [self.fit(seed, loaders) for seed in self.seeds]
+        # The record belongs to the run that produced it, so it lands beside
+        # that run's results rather than wherever the process was started.
+        recording = (
+            diagnostics.writing(self.directory) if self.diagnostics else nullcontext()
+        )
+        with recording:
+            loaders = self.loaders(self.splits())
+            runs = [self.fit(seed, loaders) for seed in self.seeds]
 
         results = {
             "name": self.name,
@@ -672,6 +739,37 @@ class GenSPPTask(SPPTask):
         # two to disagree about which model was actually evolved.
         trainer = Registry.from_key(search, expected_type=GenSPPTrainer)
         super().__init__(model=trainer.model, **kwargs)
+
+    #: How many candidates a diagnosed search may evaluate. Each one trains a
+    #: predictor over the whole training split, and every batch of that is a
+    #: page of the record, so a smoke test is a handful of them and the
+    #: published settings -- fifty candidates over a hundred generations --
+    #: are five thousand times that.
+    SMOKE_CANDIDATES = 8
+
+    def check_diagnostics(self) -> None:
+        """A search is not bounded by what bounds a trainer.
+
+        :meth:`SPPTask.check_diagnostics` reads ``trainer_args``, which here
+        reaches only the throwaway trainer each candidate's predictor is
+        fitted with. The search itself runs outside Lightning and over the
+        whole split, as many times as it has candidates, so bounding a
+        diagnosed search means bounding the search: ``population_size``,
+        ``n_generations`` and the rate that decides how many children a
+        generation draws.
+        """
+        super().check_diagnostics()
+        search = Registry.from_key(self.search, expected_type=GenSPPTrainer)
+        children = 2 * int(search.selection_rate * search.population_size)
+        candidates = search.population_size + search.n_generations * children
+        if candidates > self.SMOKE_CANDIDATES:
+            raise ValueError(
+                f"{self.name}: this search evaluates {candidates} candidates, "
+                "and each one trains a predictor over the whole training "
+                "split. Diagnostics are for a smoke test, so bound the search "
+                f"to {self.SMOKE_CANDIDATES} candidates or fewer: a smaller "
+                "population_size, fewer n_generations, or both."
+            )
 
     def fit(self, seed: int, loaders: Mapping[str, DataLoader]) -> Dict[str, float]:
         if "val" not in loaders:

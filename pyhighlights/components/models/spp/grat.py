@@ -14,6 +14,7 @@ from pyhighlights.components.models.spp.base import (
     SPPSelector,
 )
 from pyhighlights.components.models.spp.data import SPPOutput
+from pyhighlights.utility import diagnostics
 from pyhighlights.utility.losses import Loss, build_losses, compute_losses
 
 
@@ -241,6 +242,8 @@ class GRAT(SPP):
         ]
 
     def training_step(self, batch: InputData, batch_idx: int):
+        # As in `PhasedSPP`: a manual step marks its own split.
+        diagnostics.record("step", split="train", batch=batch_idx)
         guider_optimizer, model_optimizer = self.optimizers()
         guider_optimizer.zero_grad()
         guider_output = self.guider(batch, self.encoder_mask(batch))

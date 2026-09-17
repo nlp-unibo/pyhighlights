@@ -8,6 +8,7 @@ import torch as th
 from torch.utils.data import Dataset
 
 from pyhighlights.components.models import InputData
+from pyhighlights.utility import diagnostics
 
 #: Columns every corpus frame carries, in order. A loader parses into them and
 #: a preprocessor returns them, so a split is the same shape wherever it came
@@ -319,7 +320,7 @@ class HighlightCollator:
                 else list(example.highlights[:kept]) + [-1] * (span - kept)
             )
 
-        return InputData(
+        batch = InputData(
             features=th.tensor(features, dtype=th.long),
             mask=th.tensor(masks, dtype=th.float32),
             sample_ids=th.tensor([example.sample_id for example in examples]),
@@ -329,3 +330,20 @@ class HighlightCollator:
             attention_mask=th.tensor(attention, dtype=th.float32),
             knowledge_true=self.knowledge(examples),
         )
+        # Both axes at once, since this is the one place they are built from
+        # each other and a `word_ids` that maps them wrongly is silent
+        # everywhere downstream. Guarded, like the repair count: assembling
+        # the dictionary is work, and a batch is collated whether or not
+        # anybody is reading about it.
+        if diagnostics.active():
+            diagnostics.record(
+                "collator",
+                subtokens=batch.features.shape[1],
+                words=batch.mask.shape[1],
+                **{
+                    name: value
+                    for name, value in batch.as_dict().items()
+                    if value is not None
+                },
+            )
+        return batch

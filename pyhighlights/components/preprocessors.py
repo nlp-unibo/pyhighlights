@@ -20,6 +20,7 @@ from cinnamon.registry import RegistrationKey, Registry
 
 from pyhighlights.components.data import COLUMNS
 from pyhighlights.components.leakage import normalize
+from pyhighlights.utility import diagnostics
 
 #: Priority runs from the split that must stay intact to the one that can
 #: afford to lose rows. The annotated split comes first: it is the only one
@@ -283,6 +284,12 @@ class Pipeline(Preprocessor):
         processed = dict(splits)
         for preprocessor in self.preprocessors:
             processed = preprocessor.process(processed)
+            # Per step rather than once at the end: a step that drops rows
+            # says how many it dropped, instead of leaving the count to a
+            # reader of two totals.
+            diagnostics.record(
+                f"preprocessor.{type(preprocessor).__name__}", **processed
+            )
         return processed
 
 
