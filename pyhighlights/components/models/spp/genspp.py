@@ -584,7 +584,12 @@ class GenSPPTrainer:
                 batch_size = batch.y_true.shape[0]
                 loss, _ = model.compute_loss(batch, output)
                 total_loss += loss.item() * batch_size
-                valid = batch.mask.sum(dim=-1).clamp_min(1)
+                # The axis the selection was made on, which is the word axis
+                # unless the model was told otherwise. `mask` is the word axis
+                # always, so a model selecting over subtokens would count
+                # subtokens over a word count and feed the search a rate that
+                # is not one.
+                valid = model.selection_valid(batch).sum(dim=-1).clamp_min(1)
                 rates = output.highlight_mask[:, 0].sum(dim=-1) / valid
                 total_rate += rates.sum().item()
                 sample_count += batch_size
