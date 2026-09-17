@@ -504,8 +504,9 @@ parsed, each step of a :class:`~pyhighlights.components.preprocessors.Pipeline`,
 the batch the collator assembled with its two axes side by side, the states a
 backbone produced, the selection before and after the empty-selection repair,
 the mask the predictor actually reads, the namespace every loss binds to with
-each term's value, and the namespace the metrics bind to with the fields each
-of them names. A tensor reports its shape, dtype, device,
+each term's value, and -- once per split, since neither changes between
+batches -- the namespace the metrics bind to with the fields each of them
+names. A tensor reports its shape, dtype, device,
 non-finite count and range, which is where a mask that is neither zero nor one
 or a ``nan`` inside a pooled state shows up and a metric does not.
 

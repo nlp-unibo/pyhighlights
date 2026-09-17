@@ -43,6 +43,7 @@ class Model(L.LightningModule, abc.ABC, Generic[OutputT]):
 
         self.store_predictions = False
         self.predictions = []
+        self.described_metrics = set()
         self.forward_mapping = {
             "train": self.training_forward,
             "val": self.validation_forward,
@@ -105,9 +106,11 @@ class Model(L.LightningModule, abc.ABC, Generic[OutputT]):
         # A metric binds to field names exactly as a loss does, and reads them
         # out of a namespace built from the aggregated output rather than the
         # one the losses saw. One call per source of names, since a metric is
-        # named by whoever registered it.
-        if diagnostics.active():
-            diagnostics.record("metric", namespace=sorted(values))
+        # named by whoever registered it. Neither source changes from batch to
+        # batch, so a split says them once instead of once per step.
+        if split not in self.described_metrics and diagnostics.active():
+            self.described_metrics.add(split)
+            diagnostics.record("metric", split=split, namespace=sorted(values))
             diagnostics.record(
                 "metric", **{metric.name: metric.inputs for metric in metrics}
             )
