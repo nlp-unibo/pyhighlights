@@ -606,3 +606,48 @@ def test_survivors_are_half_elites_and_half_drawn_without_replacement():
     drawn = [individual.fitness for individual in survivors[4:]]
     assert len(set(drawn)) == 4
     assert all(fitness <= 12.0 for fitness in drawn)
+
+
+def subword_batch() -> InputData:
+    """Five subtokens spelling two words in one row and one in the other.
+
+    ``word_ids`` is what separates the two axes, and a subword tokenizer is
+    the only thing that produces a batch where they differ.
+    """
+    return InputData(
+        features=th.tensor([[7, 1, 2, 3, 6], [7, 4, 6, 0, 0]]),
+        mask=th.tensor([[1.0, 1.0], [1.0, 0.0]]),
+        sample_ids=th.arange(2),
+        y_true=th.tensor([0, 1]),
+        highlight_true=th.full((2, 2), -1),
+        word_ids=th.tensor([[-1, 0, 0, 1, -1], [-1, 0, -1, -1, -1]]),
+        attention_mask=th.tensor(
+            [[1.0, 1.0, 1.0, 1.0, 1.0], [1.0, 1.0, 1.0, 0.0, 0.0]]
+        ),
+    )
+
+
+def test_the_selection_rate_is_measured_on_the_axis_the_selection_was_made_on():
+    """A subtoken selection is a share of the subtokens, not of the words.
+
+    ``mask`` is the word axis whatever a model selects over, so dividing a
+    subtoken count by it reports a rate the search then optimises: this batch
+    has three selectable subtokens against two words in its first row, so the
+    old denominator could put the rate above one.
+    """
+    model_key = register_tiny_genspp()
+    model = Registry.from_key(model_key, expected_type=GenSPP)
+    model.select_over = "subtoken"
+    search = trainer(model_key)
+    data = subword_batch()
+
+    _, rate = search._evaluate(model, [data], th.device("cpu"))
+
+    model.eval()
+    with th.no_grad():
+        selected = model(data).highlight_mask[:, 0]
+    selectable = (data.word_ids >= 0).float()
+    expected = ((selected * selectable).sum(dim=-1) / selectable.sum(dim=-1)).mean()
+
+    assert rate == pytest.approx(float(expected))
+    assert 0.0 <= rate <= 1.0

@@ -1,7 +1,11 @@
+from pathlib import Path
+
+import pytest
 import torch as th
 from cinnamon.configuration import Configuration
 from cinnamon.registry import RegistrationKey, Registry
 
+import pyhighlights
 from pyhighlights.components.models import InputData
 from pyhighlights.components.models.spp import (
     FR,
@@ -9,6 +13,7 @@ from pyhighlights.components.models.spp import (
     SPPPredictor,
     SPPSelector,
 )
+from pyhighlights.configurations.keys import GRU_BACKBONE, GRU_FR, MLP_SELECTOR
 
 NAMESPACE = "tests"
 
@@ -106,3 +111,26 @@ def test_fr_backend_contract_and_deterministic_evaluation():
     first.class_logits.sum().backward()
     assert model.selector_backbone.embedding.weight.grad is not None
     assert model.selectors[0].linear.bias.grad.abs().sum() > 0
+
+
+def test_fr_refuses_a_predictor_backbone_of_its_own():
+    """Folding is the method: one encoder, read by both modules.
+
+    A second backbone would make it an ordinary two-encoder rationalizer
+    under FR's name, so it is refused rather than accepted and ignored.
+    """
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+
+    with pytest.raises(ValueError, match="shared selector/predictor backbone"):
+        Registry.from_key(GRU_FR, predictor_backbone=GRU_BACKBONE)
+
+
+def test_fr_refuses_more_than_one_selector():
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+
+    with pytest.raises(ValueError, match="exactly one selector"):
+        Registry.from_key(
+            GRU_FR,
+            selector_backbones=[GRU_BACKBONE, GRU_BACKBONE],
+            selectors=[MLP_SELECTOR, MLP_SELECTOR],
+        )
