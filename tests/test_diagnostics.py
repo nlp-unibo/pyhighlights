@@ -94,6 +94,119 @@ def test_a_value_named_like_the_stage_does_not_collide_with_it(caplog):
     assert "loader: train = tensor(2,)" in caplog.text
 
 
+def test_the_root_logger_does_not_turn_every_stage_on():
+    """`logging.basicConfig(level=DEBUG)` is how a caller sees this library's
+    own progress messages, and it used to enable every stage of every run --
+    past the bound a task refuses a diagnosed run without.
+    """
+    root = logging.getLogger()
+    level = root.level
+    try:
+        root.setLevel(logging.DEBUG)
+        assert not diagnostics.active()
+    finally:
+        root.setLevel(level)
+
+
+def test_a_loss_term_named_like_a_field_of_the_record_does_not_collide(caplog):
+    """Term names are registered by a study, so they are not this module's to
+    choose. `total` and `namespace` are fields the record itself writes.
+    """
+    from pyhighlights.configurations.keys import CROSS_ENTROPY
+    from pyhighlights.utility.losses import Loss, compute_losses
+
+    values = {"class_logits": th.randn(2, 2), "y_true": th.tensor([0, 1])}
+    terms = [
+        Loss(name=name, loss=CROSS_ENTROPY, inputs=["class_logits", "y_true"])
+        for name in ("total", "namespace")
+    ]
+
+    with caplog.at_level(logging.DEBUG, logger=diagnostics.logger.name):
+        total, computed = compute_losses(terms, values)
+
+    assert set(computed) == {"total", "namespace"}
+    assert th.isfinite(total)
+
+
+def test_the_namespace_is_reported_even_when_a_binding_finds_nothing(caplog):
+    """The case the record exists for: a binding whose field is absent raises,
+    and the namespace is what names the fields that were there.
+    """
+    from pyhighlights.configurations.keys import CROSS_ENTROPY
+    from pyhighlights.utility.losses import Loss, compute_losses
+
+    missing = Loss(name="x", loss=CROSS_ENTROPY, inputs=["nowhere", "y_true"])
+    values = {"class_logits": th.randn(2, 2), "y_true": th.tensor([0, 1])}
+
+    with caplog.at_level(logging.DEBUG, logger=diagnostics.logger.name):
+        with pytest.raises(KeyError, match="misses input fields"):
+            compute_losses([missing], values)
+
+    assert "loss: namespace = ['class_logits', 'y_true']" in caplog.text
+
+
+def test_a_bound_that_bounds_nothing_is_refused():
+    """A validation bound leaves training unbounded, and Lightning reads a
+    float as a fraction, so `limit_train_batches=1.0` is its own default.
+    """
+    for unbounded in ({"limit_val_batches": 2}, {"limit_train_batches": 1.0}):
+        with pytest.raises(ValueError, match="smoke test"):
+            Registry.from_key(TOY_TASK, diagnostics=True, trainer_args=unbounded)
+
+    for bounded in (
+        {"limit_train_batches": 2},
+        {"limit_train_batches": 0.1},
+        {"overfit_batches": 2},
+    ):
+        Registry.from_key(TOY_TASK, diagnostics=True, trainer_args=bounded)
+
+
+def test_a_search_is_bounded_by_the_search_rather_than_by_the_trainer():
+    """`trainer_args` reaches only the trainer each candidate's predictor is
+    fitted with. The search reads the whole split once per candidate.
+    """
+    from pyhighlights.configurations.keys import GRU_GENSPP_TRAINER, TOY_GENSPP_TASK
+
+    Registry.from_key(
+        TOY_GENSPP_TASK, diagnostics=True, trainer_args={"fast_dev_run": True}
+    )
+    with pytest.raises(ValueError, match="5050 candidates"):
+        Registry.from_key(
+            TOY_GENSPP_TASK,
+            diagnostics=True,
+            trainer_args={"fast_dev_run": True},
+            search=GRU_GENSPP_TRAINER,
+        )
+
+
+def test_nothing_is_reduced_while_nothing_is_listening():
+    """Two stages hold a tensor they would have to reduce to report.
+
+    Counting the repaired rows is a reduction and an `int()` on it is a device
+    synchronisation, so a run that never asked for diagnostics used to pay one
+    per forward pass.
+    """
+    from pyhighlights.configurations.keys import GRU_FR
+
+    model = Registry.from_key(GRU_FR)
+    batch = InputData(
+        features=th.randint(1, 8, (2, 5)),
+        mask=th.ones((2, 5)),
+        sample_ids=th.arange(2),
+        y_true=th.randint(0, 2, (2,)),
+        highlight_true=th.full((2, 5), -1),
+    )
+    calls = []
+    original = diagnostics.describe
+    diagnostics.describe = lambda value: calls.append(value) or original(value)
+    try:
+        model(batch)
+    finally:
+        diagnostics.describe = original
+
+    assert not calls
+
+
 def test_writing_sends_the_record_to_the_run_and_then_stops(tmp_path):
     with diagnostics.writing(tmp_path) as path:
         assert diagnostics.active()
@@ -158,6 +271,7 @@ def test_a_bounded_run_records_every_stage_beside_its_results(tmp_path):
         "repair",
         "predictor",
         "loss",
+        "metric",
     ):
         assert f"{stage}:" in written, stage
     # The two axes, side by side, which is where an alignment error shows.
