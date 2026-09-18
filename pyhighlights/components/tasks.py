@@ -46,7 +46,7 @@ from pyhighlights.components.loaders import HighlightLoader, to_examples
 from pyhighlights.components.models.base import InputData, Model
 from pyhighlights.components.models.spp.genspp import GenSPPTrainer
 from pyhighlights.components.preprocessors import ClassWeights, Preprocessor
-from pyhighlights.utility import diagnostics, manifest
+from pyhighlights.utility import cost, diagnostics, manifest
 from pyhighlights.utility.embeddings import load_vectors, one_hot_table
 from pyhighlights.utility.losses import Loss
 from pyhighlights.utility.metrics import BoundMetric, build_metrics
@@ -565,6 +565,9 @@ class SPPTask(Task):
     def fit(self, seed: int, loaders: Mapping[str, DataLoader]) -> Dict[str, float]:
         """Train one model and score it, leaving its checkpoint behind."""
         seed_everything(seed=seed, workers=True)
+        # From here to the end of the scoring pass: what the seed cost in
+        # total, which is what a model trained once is compared on.
+        meter = cost.Meter().start()
         model = self.build_model()
 
         checkpoints = self.directory / f"seed={seed}"
@@ -619,9 +622,10 @@ class SPPTask(Task):
         scores = self.score(
             trainer, model, loaders, self.directory / f"predictions-seed={seed}.pkl"
         )
+        meter.stop()
         if not self.keep_checkpoints:
             self.discard_checkpoints(checkpoints)
-        return scores
+        return {**scores, **meter.columns(model)}
 
     def discard_checkpoints(self, directory: Path) -> None:
         """Delete this seed's checkpoints, now that they have been scored.
@@ -650,6 +654,11 @@ class SPPTask(Task):
         them, not which run.
         """
         results: Dict[str, float] = {}
+        # Appended rather than passed: `Trainer.test` takes no callbacks, and
+        # the timer reports on the test hooks alone, so the validation pass
+        # below leaves it untouched.
+        timer = cost.InferenceTimer()
+        trainer.callbacks.append(timer)
         if "val" in loaders:
             results.update(trainer.validate(model, dataloaders=loaders["val"])[0])
         if "test" in loaders:
@@ -679,7 +688,7 @@ class SPPTask(Task):
                         ).items()
                     }
                 )
-        return results
+        return {**results, **timer.columns()}
 
     def run(self) -> Dict[str, Any]:
         # A second run of the same instance is a second result, not an
@@ -747,6 +756,19 @@ class GenSPPTask(SPPTask):
     #: are five thousand times that.
     SMOKE_CANDIDATES = 8
 
+    @staticmethod
+    def candidates(search: GenSPPTrainer, generations: int | None = None) -> int:
+        """How many models a search of this shape trains.
+
+        The founders, plus the children every generation draws: couples at
+        ``selection_rate`` of the population, each crossing into two.
+        ``generations`` is how many actually ran, for a search that has
+        already stopped; left out, it is how many were budgeted.
+        """
+        children = 2 * int(search.selection_rate * search.population_size)
+        budget = search.n_generations if generations is None else generations
+        return search.population_size + budget * children
+
     def check_diagnostics(self) -> None:
         """A search is not bounded by what bounds a trainer.
 
@@ -760,8 +782,7 @@ class GenSPPTask(SPPTask):
         """
         super().check_diagnostics()
         search = Registry.from_key(self.search, expected_type=GenSPPTrainer)
-        children = 2 * int(search.selection_rate * search.population_size)
-        candidates = search.population_size + search.n_generations * children
+        candidates = self.candidates(search)
         if candidates > self.SMOKE_CANDIDATES:
             raise ValueError(
                 f"{self.name}: this search evaluates {candidates} candidates, "
@@ -776,6 +797,7 @@ class GenSPPTask(SPPTask):
             raise ValueError("GenSPP scores its candidates on a validation split")
 
         seed_everything(seed=seed, workers=True)
+        meter = cost.Meter().start()
         search = Registry.from_key(self.search, expected_type=GenSPPTrainer, seed=seed)
         # The search builds its own candidates, so the table the tokenizer read
         # has to reach it here: `build_model` is what hands it to every other
@@ -783,6 +805,18 @@ class GenSPPTask(SPPTask):
         model = search.fit(
             loaders["train"], loaders["val"], embeddings=self._embedding_matrix
         )
+        # What the seed actually trained, which is the founders plus the
+        # children of every generation that ran -- fewer than
+        # `n_generations` when the search reached `stop_threshold` and
+        # stopped. Scored several at a time, one per worker, so both numbers
+        # are needed to say what one candidate cost.
+        meter.models = self.candidates(
+            search, generations=len(search.training_progress)
+        )
+        # Capped by the candidates there are: a pool of eight scoring a
+        # population of four runs four at a time, and calling it eight would
+        # report a per-candidate cost twice what one cost.
+        meter.concurrency = min(len(search.devices), meter.models)
 
         # The search builds its candidates from the model key alone, so the
         # winner arrives without metrics; they are only ever read after it.
@@ -799,11 +833,12 @@ class GenSPPTask(SPPTask):
         scores = self.score(
             trainer, model, loaders, self.directory / f"predictions-seed={seed}.pkl"
         )
+        meter.stop()
         if not self.keep_checkpoints:
             # `search.json` stays: it is the record of how the search went,
             # not a copy of the weights.
             self.discard_checkpoints(directory)
-        return scores
+        return {**scores, **meter.columns(model)}
 
 
 class ClassWeightsTask(Task):
