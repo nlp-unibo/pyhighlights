@@ -50,7 +50,8 @@ dev = [
 docs = [
     "sphinx>=7.0",
     "sphinx-autodoc-typehints>=2.0",
-    "sphinx-rtd-theme>=2.0",
+    "pydata-sphinx-theme>=0.15",
+    "sphinxcontrib-mermaid>=1.0",
 ]
 
 [tool.setuptools.packages.find]

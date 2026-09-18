@@ -1,0 +1,21 @@
+/* The default content column wraps a labelled equation and a wide table
+   onto more lines than they need, so the page is given more of the
+   viewport. Diagrams size themselves instead of taking a fixed height. */
+.bd-page-width {
+    max-width: 100rem;
+}
+
+.bd-main .bd-content .bd-article-container {
+    max-width: 70rem;
+}
+
+div.math {
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+pre.mermaid > svg,
+.mermaid-container > pre > svg {
+    height: auto !important;
+    max-height: 620px;
+}
