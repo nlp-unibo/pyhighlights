@@ -548,20 +548,24 @@ F1 says which model is better and nothing about what it takes to get there.
    is the pass the reported numbers come from and it runs once, on a model
    that has stopped training. The batch figure is the forward passes alone;
    the epoch figure is what a caller waits for, batch loading included.
-``cost_memory_mb``
-   The high-water mark. On CUDA it is the run's own, since the counter is
+``cost_memory_mib``
+   The high-water mark, in **mebibytes** -- what ``nvidia-smi`` and every
+   process monitor print. On CUDA it is the run's own, since the counter is
    reset when the seed starts. On CPU it is the **process**'s, which only ever
    rises -- a second seed in the same process inherits the first's peak.
-``cost_parameters``
-   Every parameter of the scored model, frozen ones included: a frozen encoder
-   is memory and compute at inference however little it learns.
+``cost_parameters``, ``cost_trainable_parameters``, ``cost_frozen_parameters``
+   Every parameter of the scored model, and the two halves of it. A frozen
+   encoder is memory and compute at inference however little it learns, and a
+   model that freezes most of itself is a different proposition to train than
+   one that does not. Counted on the model as it was scored, so a component
+   frozen partway through training counts as frozen.
 ``cost_concurrency``, ``cost_models``
    How many models the seed trained, and how many of them ran at once. One and
    one for a model trained by descent. A genetic search trains its founders
    plus the children of every generation that ran -- fewer than
    ``n_generations`` when it reached ``stop_threshold`` -- scored one per
    worker.
-``cost_runtime_per_run_s``, ``cost_memory_per_run_mb``
+``cost_runtime_per_run_s``, ``cost_memory_per_run_mib``
    What **one** model cost, which is what makes the rows comparable:
    ``runtime * concurrency / models``, and the peak over the workers resident
    in it. Wall clock alone would report a search as cheap as the hours it

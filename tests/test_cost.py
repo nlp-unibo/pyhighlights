@@ -6,6 +6,7 @@ reports what one of them cost, and that a model trained by descent reports its
 own wall clock through the same columns.
 """
 
+import resource
 from pathlib import Path
 
 import pytest
@@ -35,12 +36,18 @@ def registry():
     Registry.build(directory=Path(pyhighlights.__file__).parent)
 
 
-def test_a_frozen_parameter_is_still_a_parameter():
-    """It is memory and compute at inference however little it learns."""
+def test_a_frozen_parameter_is_counted_and_told_apart():
+    """It is memory and compute at inference however little it learns.
+
+    And a model that freezes most of itself is a different proposition to
+    train than one that does not, so the two are separate columns.
+    """
     model = th.nn.Linear(4, 2)
     model.bias.requires_grad_(False)
 
     assert cost.parameters(model) == 10
+    assert cost.parameters(model, trainable=True) == 8
+    assert cost.parameters(model, trainable=False) == 2
 
 
 def test_a_search_reports_what_one_of_its_candidates_cost():
@@ -57,7 +64,7 @@ def test_a_search_reports_what_one_of_its_candidates_cost():
 
     assert columns["cost_runtime_s"] == 3600.0
     assert columns["cost_runtime_per_run_s"] == pytest.approx(3600.0 * 8 / 5050)
-    assert columns["cost_memory_per_run_mb"] == 1000.0
+    assert columns["cost_memory_per_run_mib"] == 1000.0
     assert (columns["cost_concurrency"], columns["cost_models"]) == (8.0, 5050.0)
 
 
@@ -69,7 +76,7 @@ def test_one_model_on_one_worker_reports_its_own_wall_clock():
     columns = meter.columns(th.nn.Linear(4, 2))
 
     assert columns["cost_runtime_per_run_s"] == 12.0
-    assert columns["cost_memory_per_run_mb"] == 500.0
+    assert columns["cost_memory_per_run_mib"] == 500.0
 
 
 def test_a_run_trains_at_least_one_model_on_at_least_one_worker():
@@ -107,8 +114,13 @@ def test_a_seed_reports_what_it_cost_beside_what_it_scored(tmp_path):
     run = results["runs"][0]
     assert run["cost_runtime_s"] > 0
     assert run["cost_inference_batch_s"] > 0
-    assert run["cost_memory_mb"] > 0
+    assert run["cost_memory_mib"] > 0
     assert run["cost_parameters"] > 0
+    # Split, and the two halves are the whole.
+    assert (
+        run["cost_trainable_parameters"] + run["cost_frozen_parameters"]
+        == run["cost_parameters"]
+    )
     # A model trained by descent is one model, on one worker.
     assert (run["cost_concurrency"], run["cost_models"]) == (1.0, 1.0)
     assert run["cost_runtime_per_run_s"] == run["cost_runtime_s"]
@@ -175,3 +187,18 @@ def test_a_pool_wider_than_the_population_is_not_the_concurrency(tmp_path):
 
     assert run["cost_concurrency"] <= run["cost_models"]
     assert run["cost_runtime_per_run_s"] <= run["cost_runtime_s"]
+
+
+def test_memory_is_reported_in_mebibytes():
+    """The unit `nvidia-smi` and every process monitor print.
+
+    CUDA counts bytes and `getrusage` counts kibibytes, so a run used to
+    report decimal megabytes on one device and mebibytes on the other -- a
+    five percent difference nothing in the table would have explained.
+    """
+    peak = cost.peak_memory()
+    resident = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+
+    if not th.cuda.is_available():
+        assert peak == pytest.approx(resident / 1024, rel=1e-6)
+    assert cost.MIB == 1048576

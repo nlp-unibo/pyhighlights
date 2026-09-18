@@ -2,9 +2,10 @@
 
 A table of F1 says which model is better and nothing about what it takes to
 get there. These are the other half: how long a seed ran, how long one
-inference batch and one inference pass take, how much memory the run reached,
-how many parameters the model carries, and -- for a genetic search -- how many
-models were trained at once to produce the one that got scored.
+inference batch and one inference pass take, how much memory the run reached
+(in mebibytes), how many parameters the model carries and how many of them
+gradient descent moves, and -- for a genetic search -- how many models were
+trained at once to produce the one that got scored.
 
 Every column is prefixed ``cost_``, so
 :class:`~pyhighlights.components.analyzers.MetricsAnalyzer` reports them with
@@ -22,7 +23,7 @@ take on the machine that ran it. So a run records how many models it trained
     work done in a second, so the product is worker-seconds and dividing by
     the models trained gives what one of them cost. A baseline, at one model
     and one worker, reports its own wall clock.
-``cost_memory_per_run_mb``
+``cost_memory_per_run_mib``
     The peak divided by the workers that were resident in it.
 
 The workers counted are the ones that had something to do: a pool of eight
@@ -42,17 +43,34 @@ import torch as th
 __all__ = ["InferenceTimer", "Meter", "parameters", "peak_memory"]
 
 
-def parameters(model: th.nn.Module) -> int:
-    """Every parameter the model carries, trained or frozen.
+#: Bytes in a mebibyte. Every memory column is in ``MiB`` -- what ``nvidia-smi``
+#: and every process monitor print -- rather than in decimal megabytes, which
+#: would read five percent larger for the same allocation.
+MIB = 1024**2
 
-    Frozen included: a frozen transformer is memory and compute at inference
-    however little it learns, and inference is what the other columns time.
+
+def parameters(model: th.nn.Module, trainable: bool | None = None) -> int:
+    """How many parameters the model carries.
+
+    ``trainable`` selects: ``True`` counts what gradient descent moves,
+    ``False`` what it does not, and left out counts both. All three are worth
+    reporting -- a frozen encoder is memory and compute at inference however
+    little it learns, and a model that freezes most of itself is a different
+    proposition to train than one that does not.
+
+    Counted on the model as it was **scored**, which is the state a reader of
+    the table gets if they load the checkpoint: a component frozen partway
+    through training counts as frozen, however many epochs moved it first.
     """
-    return sum(parameter.numel() for parameter in model.parameters())
+    return sum(
+        parameter.numel()
+        for parameter in model.parameters()
+        if trainable is None or parameter.requires_grad is trainable
+    )
 
 
 def peak_memory() -> float:
-    """Megabytes at the high-water mark, on the device the run used.
+    """Mebibytes at the high-water mark, on the device the run used.
 
     CUDA reports the run's own peak, since :class:`Meter` resets the counter
     when it starts. The CPU figure is the **process**'s high-water mark, which
@@ -61,10 +79,10 @@ def peak_memory() -> float:
     offers, and it is still the honest ceiling for a run of one seed.
     """
     if th.cuda.is_available() and th.cuda.max_memory_allocated():
-        return th.cuda.max_memory_allocated() / 1e6
+        return th.cuda.max_memory_allocated() / MIB
     peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    # Kilobytes on Linux, bytes on macOS, for the same field.
-    return peak / 1e6 if sys.platform == "darwin" else peak / 1024
+    # Kibibytes on Linux, bytes on macOS, for the same field.
+    return peak / MIB if sys.platform == "darwin" else peak / 1024
 
 
 class Meter:
@@ -108,9 +126,11 @@ class Meter:
         return {
             "cost_runtime_s": self.runtime,
             "cost_runtime_per_run_s": self.runtime * self.concurrency / self.models,
-            "cost_memory_mb": self.peak,
-            "cost_memory_per_run_mb": self.peak / self.concurrency,
+            "cost_memory_mib": self.peak,
+            "cost_memory_per_run_mib": self.peak / self.concurrency,
             "cost_parameters": float(parameters(model)),
+            "cost_trainable_parameters": float(parameters(model, trainable=True)),
+            "cost_frozen_parameters": float(parameters(model, trainable=False)),
             "cost_concurrency": float(self.concurrency),
             "cost_models": float(self.models),
         }
