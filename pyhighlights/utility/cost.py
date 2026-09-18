@@ -24,6 +24,9 @@ take on the machine that ran it. So a run records how many models it trained
     and one worker, reports its own wall clock.
 ``cost_memory_per_run_mb``
     The peak divided by the workers that were resident in it.
+
+The workers counted are the ones that had something to do: a pool of eight
+scoring a population of four runs four at a time.
 """
 
 from __future__ import annotations

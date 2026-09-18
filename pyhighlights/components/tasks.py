@@ -810,10 +810,13 @@ class GenSPPTask(SPPTask):
         # `n_generations` when the search reached `stop_threshold` and
         # stopped. Scored several at a time, one per worker, so both numbers
         # are needed to say what one candidate cost.
-        meter.concurrency = len(search.devices)
         meter.models = self.candidates(
             search, generations=len(search.training_progress)
         )
+        # Capped by the candidates there are: a pool of eight scoring a
+        # population of four runs four at a time, and calling it eight would
+        # report a per-candidate cost twice what one cost.
+        meter.concurrency = min(len(search.devices), meter.models)
 
         # The search builds its candidates from the model key alone, so the
         # winner arrives without metrics; they are only ever read after it.

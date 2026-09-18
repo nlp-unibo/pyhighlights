@@ -156,3 +156,22 @@ def test_a_meter_is_a_context_manager_too():
         sum(range(10000))
 
     assert meter.runtime > 0 and meter.peak > 0
+
+
+def test_a_pool_wider_than_the_population_is_not_the_concurrency(tmp_path):
+    """Eight workers cannot run four candidates eight at a time.
+
+    Counting them as eight would report each candidate as costing twice what
+    it did, which is the smoke-sized search every wiring check runs.
+    """
+    task = Registry.from_key(
+        TOY_GENSPP_TASK,
+        save_path=str(tmp_path),
+        seeds=[0],
+        trainer_args=SMOKE,
+    )
+
+    run = task.run()["runs"][0]
+
+    assert run["cost_concurrency"] <= run["cost_models"]
+    assert run["cost_runtime_per_run_s"] <= run["cost_runtime_s"]
