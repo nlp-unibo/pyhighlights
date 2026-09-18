@@ -351,7 +351,10 @@ as manifests — Beer at `10.5281/zenodo.22703544
 <https://doi.org/10.5281/zenodo.22711382>`_, ERASER ``movies`` at
 `10.5281/zenodo.22711411 <https://doi.org/10.5281/zenodo.22711411>`_ — and the
 GenSPP toy corpus at `10.5281/zenodo.22711449
-<https://doi.org/10.5281/zenodo.22711449>`_, all CC-BY-4.0.
+<https://doi.org/10.5281/zenodo.22711449>`_, all CC-BY-4.0. That corpus has a
+second version, `10.5281/zenodo.22828019
+<https://doi.org/10.5281/zenodo.22828019>`_, holding the same rows in this
+library's own columns, which is the one a reproduction reads.
 
 A toy corpus given a ``url`` fetches it instead of refusing, and
 :class:`~pyhighlights.components.loaders.R2ALoader` and

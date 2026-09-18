@@ -1,16 +1,17 @@
 # Zenodo upload — published
 
-**All four records are live**, published 2026-09-11. Each published file is
-byte-identical to `dist/`, checked against the md5 Zenodo reports. One artifact
-is **not** deposited: the converted toy corpus the build now produces, section
-5, which the GenSPP reproduction's configuration already names.
+**All four records are live**, published 2026-09-11, and the toy record has a
+second version, published 2026-09-18 — the converted corpus the build now
+produces, section 5. Each published file is byte-identical to `dist/`, checked
+against the md5 Zenodo reports.
 
 | artifact | version DOI | concept DOI |
 |---|---|---|
 | Beer | [10.5281/zenodo.22703544](https://doi.org/10.5281/zenodo.22703544) | `10.5281/zenodo.22703543` |
 | Hotel | [10.5281/zenodo.22711382](https://doi.org/10.5281/zenodo.22711382) | `10.5281/zenodo.22711381` |
 | Movies | [10.5281/zenodo.22711411](https://doi.org/10.5281/zenodo.22711411) | `10.5281/zenodo.22711410` |
-| GenSPP toy | [10.5281/zenodo.22711449](https://doi.org/10.5281/zenodo.22711449) | `10.5281/zenodo.22711448` |
+| GenSPP toy (v1) | [10.5281/zenodo.22711449](https://doi.org/10.5281/zenodo.22711449) | `10.5281/zenodo.22711448` |
+| GenSPP toy (v2) | [10.5281/zenodo.22828019](https://doi.org/10.5281/zenodo.22828019) | `10.5281/zenodo.22711448` |
 
 **Cite the version DOI in code, the concept DOI in prose.** A default URL baked
 into a loader has to name the version record, because the digest beside it pins
@@ -214,9 +215,9 @@ spans, data leakage, reproducibility, ERASER, pyhighlights
 
 ## 4. `pyhighlights-genspp-toy-v1.zip` — [10.5281/zenodo.22711449](https://doi.org/10.5281/zenodo.22711449)
 
-> **Superseded by section 5, which is not deposited yet.** What is published
-> here is the release's own pickle; the build now produces a converted
-> artifact, and the reproduction's configuration names that one.
+> **Superseded by section 5.** What is published here is the release's own
+> pickle; the build produces a converted artifact, published as version 2, and
+> the reproduction's configuration names that one.
 
 The one artifact that redistributes a dataset rather than indexing one, so it
 is the one whose licence is the authors' to set. Both have agreed.
@@ -295,8 +296,9 @@ synthetic corpus, reproducibility, GenSPP, pyhighlights
 
 ---
 
-## 5. `pyhighlights-genspp-toy-v2.zip` — a new version of record 4, **to deposit**
+## 5. `pyhighlights-genspp-toy-v2.zip` — [10.5281/zenodo.22828019](https://doi.org/10.5281/zenodo.22828019)
 
+The second version of record 4, published 2026-09-18.
 `tools/build_datasets.py --skip-r2a` builds it; `dist/` is where it lands.
 
 | | |
@@ -306,13 +308,12 @@ synthetic corpus, reproducibility, GenSPP, pyhighlights
 | entries | `corpus.pkl`, `manifest.json`, `README.md` |
 
 **Why a new version rather than an edit.** Zenodo cannot add or replace a file
-of a published record. A new version keeps concept DOI
-`10.5281/zenodo.22711448` and issues a version DOI of its own — and a new
-record id, which is what
-`genspp2025/configurations/toy/datasets.py` calls `RECORD`. Update it there
-after publishing; the digest above is already pinned, because the build is
-deterministic and two builds of the same released pickle produce the same
-bytes.
+of a published record. This one keeps concept DOI `10.5281/zenodo.22711448`
+and has a version DOI and a record id of its own, which is what
+`genspp2025/configurations/toy/datasets.py` calls `RECORD`. The digest above
+was pinned there before the deposit, because the build is deterministic and two
+builds of the same released pickle produce the same bytes; the published file
+matches it.
 
 **What changed from v1.** The corpus, converted rather than re-released:
 `structure_indexes` becomes a `highlights` vector and `tokens` is the text a
@@ -339,13 +340,13 @@ Add one related identifier beside the shared ones: this record's **v1 version
 DOI**, *is new version of* — Dataset. Zenodo sets the version lineage itself;
 the explicit identifier is what a reader of the metadata sees.
 
-**After publishing**
+**After publishing — done**
 
-1. Check the file Zenodo reports is byte-identical to `dist/`, by its md5.
-2. Set `RECORD` in `genspp2025/configurations/toy/datasets.py` to the new
-   record id. The digest there needs no change.
-3. Update the table at the top of this file, and the DOIs in
-   `docsrc/source/datasets.rst` and `docsrc/source/benchmarks.rst`.
+1. The published file's md5 is `dffda09537344ec5cd2da58b286518bc`, which is
+   `dist/pyhighlights-genspp-toy-v2.zip`; the downloaded bytes compare equal.
+2. `RECORD` in `genspp2025/configurations/toy/datasets.py` is `22828019`, and
+   the digest there needed no change.
+3. The table at the top of this file carries both versions.
 
 ---
 
