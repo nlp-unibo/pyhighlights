@@ -25,6 +25,53 @@ library would not have found them; one that reported numbers did.
 Done
 ----
 
+**A run says what it cost.** A table of F1 says which model is better and
+nothing about what it takes to get there. Every seed now also reports, under
+``cost_``: its wall clock, the test pass per batch and whole, the memory it
+peaked at, the parameters the scored model carries, how many models it trained
+and how many of those ran at once.
+
+The last two are what make the columns comparable. A baseline trains one model
+per seed; a genetic search trains its founders plus every generation's
+children, several at a time, and reports the winner, so wall clock alone would
+call a search as cheap as the machine that happened to run it. A run records
+both and derives ``runtime * concurrency / models``, which is what one model
+cost and which for a baseline is its own wall clock. The costs summarise like
+any other column and carry a prefix of their own, so
+``MetricsAnalyzer(split="cost")`` is the computational table and the ``test_``
+table a paper quotes is unchanged.
+
+**A run can say what every stage of it held.** A run either finished or
+raised, and nothing in between was visible: when a number came out wrong,
+every intermediate was reconstructed by hand against a model built a second
+time. ``diagnostics=True`` on a task writes what each stage held into
+``diagnostics.log``, beside that run's own ``results.json``. A tensor reports
+its shape, dtype, device, non-finite count and range, and a mask reports how
+many of its entries are on, which is where a mask that is neither zero nor one
+is visible and a metric shows nothing.
+
+The record is per batch, so a task asked to diagnose a run whose batches
+nobody bounded raises rather than writing gigabytes; ``fast_dev_run`` and
+``limit_*_batches`` are what bound it. Reading such a record is what found
+three defects it now also fixes: DAR pretrained its aligner in a loop of its
+own that ``limit_train_batches`` never reached, a repair reported its count
+after the selection it explains rather than around it, and a diagnosed search
+interleaved the stages of candidates scored on a thread pool into the record
+of a model that never existed. A search that finds diagnostics on now scores
+sequentially, and every candidate reports its index and its device.
+
+**Three statements in the documentation described something the code does not
+do.** ``R2ALoader`` documented a ``remove_leakage`` constructor argument that
+does not exist, so a reader who believed it got the release with its
+overlapping splits intact; repair is
+:class:`~pyhighlights.components.leakage.LeakageRemover`, which is what the
+docstring names now. ``LeakageDetector`` promised to refuse more than a
+``tolerance`` it has no way to set. ``CONTRIBUTING.md`` quoted a 75%
+branch-coverage gate against the 92% the nox session enforces. The two phased
+rationalizers, MCD and MRD, also carried the same training loop twice; what
+differs between them is which pass the predictor reads, so that is what each
+of them says now and ``PhasedSPP`` holds the rest.
+
 **A reproduction is a repository.** ``pyhighlights_benchmarks`` is gone. A
 paper's values live beside the container and the jobs that run them, in a
 repository of their own, so the library ships tools and its releases are not
