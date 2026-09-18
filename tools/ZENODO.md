@@ -1,7 +1,9 @@
 # Zenodo upload — published
 
 **All four records are live**, published 2026-09-11. Each published file is
-byte-identical to `dist/`, checked against the md5 Zenodo reports.
+byte-identical to `dist/`, checked against the md5 Zenodo reports. One artifact
+is **not** deposited: the converted toy corpus the build now produces, section
+5, which the GenSPP reproduction's configuration already names.
 
 | artifact | version DOI | concept DOI |
 |---|---|---|
@@ -212,6 +214,10 @@ spans, data leakage, reproducibility, ERASER, pyhighlights
 
 ## 4. `pyhighlights-genspp-toy-v1.zip` — [10.5281/zenodo.22711449](https://doi.org/10.5281/zenodo.22711449)
 
+> **Superseded by section 5, which is not deposited yet.** What is published
+> here is the release's own pickle; the build now produces a converted
+> artifact, and the reproduction's configuration names that one.
+
 The one artifact that redistributes a dataset rather than indexing one, so it
 is the one whose licence is the authors' to set. Both have agreed.
 
@@ -286,6 +292,60 @@ synthetic corpus, reproducibility, GenSPP, pyhighlights
 > Long Papers)*, 1175-1191.
 > <https://doi.org/10.18653/v1/2025.acl-long.59>. Reference implementation:
 > <https://github.com/nlp-unibo/gen-spp>.
+
+---
+
+## 5. `pyhighlights-genspp-toy-v2.zip` — a new version of record 4, **to deposit**
+
+`tools/build_datasets.py --skip-r2a` builds it; `dist/` is where it lands.
+
+| | |
+|---|---|
+| file | `pyhighlights-genspp-toy-v2.zip`, 357,238 B |
+| SHA-256 | `d527ff51dd143e51d89251895f6b691f8bc91c707011abce7298b374d6b868f9` |
+| entries | `corpus.pkl`, `manifest.json`, `README.md` |
+
+**Why a new version rather than an edit.** Zenodo cannot add or replace a file
+of a published record. A new version keeps concept DOI
+`10.5281/zenodo.22711448` and issues a version DOI of its own — and a new
+record id, which is what
+`genspp2025/configurations/toy/datasets.py` calls `RECORD`. Update it there
+after publishing; the digest above is already pinned, because the build is
+deterministic and two builds of the same released pickle produce the same
+bytes.
+
+**What changed from v1.** The corpus, converted rather than re-released:
+`structure_indexes` becomes a `highlights` vector and `tokens` is the text a
+character at a time, so `ToyLoader` reads the artifact directly and nothing
+needs a loader of its own. The rows, their order, their labels and their marked
+positions are the release's, unchanged — 10,000 rows, class counts 3,295 /
+3,301 / 3,404, the same numbers v1's manifest reports. The archive member is
+`corpus.pkl` where v1's was `toy_dataset.pkl`.
+
+**Metadata.** Everything in section 4 stands — title, creators (both authors of
+the paper, Federico again as *Data curator*), CC-BY-4.0, keywords, related
+identifiers — with two changes: **Version** is `v2`, and the description's last
+technical paragraph becomes
+
+> `pyhighlights.components.loaders.ToyLoader` reads `corpus.pkl` directly: the
+> corpus in the library's own columns, converted from the release's
+> `toy_dataset.pkl` (SHA-256
+> `2ee223d8aecd6ee9a585aa695a6fd5fd6f4c10c39fe6046ffb833d7ab44fb064`), whose
+> rows, order, labels and marked positions it keeps unchanged. Version 1 of
+> this record holds that original pickle, which needs a loader that knows its
+> schema.
+
+Add one related identifier beside the shared ones: this record's **v1 version
+DOI**, *is new version of* — Dataset. Zenodo sets the version lineage itself;
+the explicit identifier is what a reader of the metadata sees.
+
+**After publishing**
+
+1. Check the file Zenodo reports is byte-identical to `dist/`, by its md5.
+2. Set `RECORD` in `genspp2025/configurations/toy/datasets.py` to the new
+   record id. The digest there needs no change.
+3. Update the table at the top of this file, and the DOIs in
+   `docsrc/source/datasets.rst` and `docsrc/source/benchmarks.rst`.
 
 ---
 
