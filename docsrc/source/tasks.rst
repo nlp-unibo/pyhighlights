@@ -566,11 +566,17 @@ F1 says which model is better and nothing about what it takes to get there.
    plus the children of every generation that ran -- fewer than
    ``n_generations`` when it reached ``stop_threshold`` -- scored one per
    worker.
-``cost_runtime_per_run_s``, ``cost_memory_per_run_mib``
+``cost_runtime_per_run_s``
    What **one** model cost, which is what makes the rows comparable:
-   ``runtime * concurrency / models``, and the peak over the workers resident
-   in it. Wall clock alone would report a search as cheap as the hours it
-   happened to take on the machine that ran it.
+   ``runtime * concurrency / models``. Wall clock alone would report a search
+   as cheap as the hours it happened to take on the machine that ran it.
+
+   There is no per-model *memory* column to go with it. A search scores its
+   candidates on threads of one process, so the peak covers every candidate
+   and the interpreter and the data at once, most of it resident before the
+   first candidate exists: dividing it by the workers reports less memory per
+   model than the process holds doing nothing. ``cost_memory_mib`` is the
+   ceiling a run needs, which is what a machine is sized by.
 
 :class:`~pyhighlights.components.analyzers.MetricsAnalyzer` reads them like any
 other column, so the computational table is the same call with a different

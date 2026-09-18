@@ -64,7 +64,6 @@ def test_a_search_reports_what_one_of_its_candidates_cost():
 
     assert columns["cost_runtime_s"] == 3600.0
     assert columns["cost_runtime_per_run_s"] == pytest.approx(3600.0 * 8 / 5050)
-    assert columns["cost_memory_per_run_mib"] == 1000.0
     assert (columns["cost_concurrency"], columns["cost_models"]) == (8.0, 5050.0)
 
 
@@ -76,7 +75,6 @@ def test_one_model_on_one_worker_reports_its_own_wall_clock():
     columns = meter.columns(th.nn.Linear(4, 2))
 
     assert columns["cost_runtime_per_run_s"] == 12.0
-    assert columns["cost_memory_per_run_mib"] == 500.0
 
 
 def test_a_run_trains_at_least_one_model_on_at_least_one_worker():
@@ -202,3 +200,19 @@ def test_memory_is_reported_in_mebibytes():
     if not th.cuda.is_available():
         assert peak == pytest.approx(resident / 1024, rel=1e-6)
     assert cost.MIB == 1048576
+
+
+def test_the_peak_is_not_divided_among_the_workers():
+    """A search's candidates are threads of one process, not processes.
+
+    Most of the peak is the interpreter, torch and the data, resident before
+    the first candidate exists, so a per-model share would report less memory
+    than the process holds doing nothing.
+    """
+    meter = cost.Meter(concurrency=8, models=5050)
+    meter.runtime, meter.peak = 3600.0, 8000.0
+
+    columns = meter.columns(th.nn.Linear(4, 2))
+
+    assert columns["cost_memory_mib"] == 8000.0
+    assert not [name for name in columns if name.startswith("cost_memory_per")]

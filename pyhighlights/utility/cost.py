@@ -23,11 +23,17 @@ take on the machine that ran it. So a run records how many models it trained
     work done in a second, so the product is worker-seconds and dividing by
     the models trained gives what one of them cost. A baseline, at one model
     and one worker, reports its own wall clock.
-``cost_memory_per_run_mib``
-    The peak divided by the workers that were resident in it.
 
 The workers counted are the ones that had something to do: a pool of eight
 scoring a population of four runs four at a time.
+
+**There is no per-model memory column**, deliberately. A search scores its
+candidates on threads of one process, so the peak covers the interpreter, the
+weights, the data and every candidate at once -- and most of it is resident
+before the first candidate exists. Dividing by the workers measured here at
+608 MiB over four threads against a 521 MiB baseline would report 152 MiB per
+model, less than the process holds doing nothing. ``cost_memory_mib`` is the
+ceiling a run needs, which is the question a machine is sized by.
 """
 
 from __future__ import annotations
@@ -129,7 +135,6 @@ class Meter:
             "cost_runtime_s": self.runtime,
             "cost_runtime_per_run_s": self.runtime * self.concurrency / self.models,
             "cost_memory_mib": self.peak,
-            "cost_memory_per_run_mib": self.peak / self.concurrency,
             "cost_parameters": float(parameters(model)),
             "cost_trainable_parameters": float(parameters(model, trainable=True)),
             "cost_frozen_parameters": float(parameters(model, trainable=False)),
