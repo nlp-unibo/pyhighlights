@@ -1,10 +1,8 @@
 Datasets
 ========
 
-A loader downloads a corpus once and hands back one :class:`pandas.DataFrame`
-per split, **as distributed**. What is done to it next — repairing splits that
-overlap, reducing several annotators to one judgement — is a preprocessing
-step, because it is a decision about the study rather than about the corpus.
+A loader downloads a corpus once and hands back one :class:`pandas.DataFrame` per split, **as distributed**.
+What is done to it next is a preprocessing step, whether that means repairing splits that overlap or reducing several annotators to one judgement, because each of those is a decision about the study rather than about the corpus.
 
 .. code-block:: python
 
@@ -47,15 +45,14 @@ Preprocessing
 -------------
 
 :class:`~pyhighlights.components.preprocessors.Preprocessor` takes the splits a
-loader produced and returns splits of the same shape, so any of them chains
-with any other. Five ship with pyhighlights, and
+loader produced and returns splits of the same shape, so any of them chains with any other.
+Five ship with pyhighlights, and
 :class:`~pyhighlights.components.preprocessors.Pipeline` runs a list of them in
-order — its steps are registration keys, so a study states its pipeline in a
-configuration instead of in code.
+order, its steps are registration keys, so a study states its pipeline in a configuration instead of in code.
 
 :class:`~pyhighlights.components.preprocessors.LeakageRemover`
-   Walks the splits in priority order — ``test``, then ``val``, then ``train``
-   — and keeps in each only rows no earlier split claimed and no earlier row
+   Walks the splits in priority order, ``test``, then ``val``, then ``train``,
+   and keeps in each only rows no earlier split claimed and no earlier row
    of its own repeated. The annotated split comes first because it is the only
    one carrying highlights, so training and validation are what give rows up.
    ``priority`` is a parameter: reproducing a training set rather than an
@@ -73,7 +70,7 @@ configuration instead of in code.
    :attr:`removed` records the count per split.
 
 :class:`~pyhighlights.components.preprocessors.LabelMapper`
-   Rewrites label values through a mapping — collapsing two classes into one,
+   Rewrites label values through a mapping, collapsing two classes into one,
    say. ``column`` may name the per-annotator judgements rather than a
    resolved label, and it usually should: a post the three annotators call
    ``hatespeech``, ``offensive`` and ``normal`` has no majority over three
@@ -81,8 +78,8 @@ configuration instead of in code.
    is counted and folding them after give different labels.
 
 :class:`~pyhighlights.components.preprocessors.ClassWeights`
-   Reads the class frequencies of one split -- ``train`` unless told otherwise
-   -- and returns every row untouched. What it found is in :attr:`weights` and
+   Reads the class frequencies of one split, ``train`` unless told otherwise,
+   and returns every row untouched. What it found is in :attr:`weights` and
    :attr:`counts`, and
    :class:`~pyhighlights.components.tasks.ClassWeightsTask` is what writes them
    somewhere they persist. Being a step rather than a calculation inside a task
@@ -91,20 +88,18 @@ configuration instead of in code.
 
 :class:`~pyhighlights.components.preprocessors.LengthFilter` and
 :class:`~pyhighlights.components.preprocessors.LabelMapper` ship without a
-registration: ``max_length`` and a class mapping are study-specific numbers, and
-inventing one in the library would make it look like a recommendation. The other
-three are registered, since repairing leakage, reducing annotators and reading a
-split's class frequencies are the same operation whoever asks for them.
+registration:
+``max_length`` and a class mapping are study-specific numbers, and inventing one in the library would make it look like a recommendation.
+The other three are registered, since repairing leakage, reducing annotators and reading a split's class frequencies are the same operation whoever asks for them.
 
 Leakage
 -------
 
-Published splits are not always disjoint, and a corpus that shares rows
-between training and test reports highlight scores on examples the model was
-trained on. Nothing downstream can detect that, so
+Published splits are not always disjoint, and a corpus that shares rows between training and test reports highlight scores on examples the model was trained on.
+Nothing downstream can detect that, so
 :class:`~pyhighlights.components.leakage.LeakageDetector` looks for it
-explicitly. It holds no data: every method takes the splits to analyse, so the
-same detector serves a loader's output and a preprocessed copy of it.
+explicitly.
+It holds no data: every method takes the splits to analyse, so the same detector serves a loader's output and a preprocessed copy of it.
 
 ``detector.report(splits)``
    A frame with one row per ordered split pair: ``overlap`` rows of *right*
@@ -115,7 +110,7 @@ same detector serves a loader's output and a preprocessed copy of it.
 ``detector.check(splits)``
    The same report, but raising when any pair shares a row. Call it in a test
    or before a run. There is no tolerance to set: a shared row is leakage at
-   any rate, and a corpus distributed with one — R2A is — is read with
+   any rate, and a corpus distributed with one, R2A is, is read with
    ``report`` instead.
 
 ``detector.duplicates(splits)``
@@ -124,17 +119,14 @@ same detector serves a loader's output and a preprocessed copy of it.
 Beer and Hotel (R2A)
 --------------------
 
-Multi-aspect BeerAdvocate reviews and TripAdvisor hotel reviews, from the R2A
-release of Bao et al., 2018, *Deriving Machine Attention from Human
-Rationales* — the archive the selective-rationalization literature (RNP, FR,
-MGR, MCD, G-RAT) draws both corpora from.
+Multi-aspect BeerAdvocate reviews and TripAdvisor hotel reviews, from the R2A release of Bao et al., 2018, *Deriving Machine Attention from Human Rationales*, the archive the selective-rationalization literature (RNP, FR, MGR, MCD, G-RAT) draws both corpora from.
 
 :Download: ``https://people.csail.mit.edu/yujia/files/r2a/data.zip`` (162 MB),
            pinned by default at
            ``23fcb4cac883ec1de86d83a7747294d7fdae10061d3803fd4c34c930e66f25de``
            so a changed upstream fails loudly rather than being trained on.
            Pass ``sha256=None`` to skip the check
-:Splits: the zero-leakage partition is published as manifests — Beer at
+:Splits: the zero-leakage partition is published as manifests, Beer at
          `10.5281/zenodo.22703544 <https://doi.org/10.5281/zenodo.22703544>`_,
          Hotel at
          `10.5281/zenodo.22711382 <https://doi.org/10.5281/zenodo.22711382>`_.
@@ -150,11 +142,10 @@ MGR, MCD, G-RAT) draws both corpora from.
        :data:`pyhighlights.configurations.keys.HOTEL`, with the aspect as a
        ``task`` variant
 
-**Annotation lives in a file named** ``train``. Inside the release,
-``data/oracle/<task>.{train,dev}`` carry labels and text only, and the files
-named ``.test`` carry **no rationale column at all**. The only per-token
-annotation is the 200-row ``data/target/<task>.train``, which is what this line
-of work reports highlight scores on. The default split map therefore reads:
+**Annotation lives in a file named** ``train``.
+Inside the release, ``data/oracle/<task>.{train,dev}`` carry labels and text only, and the files named ``.test`` carry **no rationale column at all**.
+The only per-token annotation is the 200-row ``data/target/<task>.train``, which is what this line of work reports highlight scores on.
+The default split map therefore reads:
 
 .. code-block:: python
 
@@ -167,9 +158,8 @@ of work reports highlight scores on. The default split map therefore reads:
 Leakage in the distributed splits
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Measured on the splits as distributed. ``test ⊂ train`` is the share of the
-annotated evaluation split found in training; ``val ⊂ train`` the share of
-validation found in training.
+Measured on the splits as distributed.
+``test ⊂ train`` is the share of the annotated evaluation split found in training; ``val ⊂ train`` the share of validation found in training.
 
 .. list-table::
    :header-rows: 1
@@ -217,17 +207,12 @@ validation found in training.
      - 0.415
      - 0.646
 
-**Every Hotel aspect leaks its whole annotated evaluation split into
-training.** All 200 annotated examples are also training examples, so any
-Hotel highlight score published on these splits is measured on seen data. Beer
-leaks less there but keeps roughly two thirds of its validation split inside
-training. The splits also repeat rows internally — 1418 of the 14472
-``hotel_Location`` training rows are duplicates.
+**Every Hotel aspect leaks its whole annotated evaluation split into training.** All 200 annotated examples are also training examples, so any Hotel highlight score published on these splits is measured on seen data.
+Beer leaks less there but keeps roughly two thirds of its validation split inside training.
+The splits also repeat rows internally, 1418 of the 14472 ``hotel_Location`` training rows are duplicates.
 
-A :class:`~pyhighlights.components.preprocessors.LeakageRemover` repairs all
-of this: the annotated split stays whole and the offending training and
-validation rows are dropped. Validation is repaired before training, so it
-keeps its rows and training pays for the overlap:
+A :class:`~pyhighlights.components.preprocessors.LeakageRemover` repairs all of this: the annotated split stays whole and the offending training and validation rows are dropped.
+Validation is repaired before training, so it keeps its rows and training pays for the overlap:
 
 .. list-table::
    :header-rows: 1
@@ -275,30 +260,26 @@ keeps its rows and training pays for the overlap:
      - 3312
      - 0
 
-Training loses 13-17% of its rows, the annotated split loses none, and
-``LeakageDetector().check()`` passes for every task. Numbers published on the
-distributed splits are reproducible by skipping the repair, and are not
-comparable with numbers from the repaired ones.
+Training loses 13-17% of its rows, the annotated split loses none, and ``LeakageDetector().check()`` passes for every task.
+Numbers published on the distributed splits are reproducible by skipping the repair, and are not comparable with numbers from the repaired ones.
 
 One upstream artifact
 ^^^^^^^^^^^^^^^^^^^^^
 
-Three rows carry one rationale flag more than their text has tokens —
-``hotel_Location`` row 59, ``hotel_Cleanliness`` row 198, ``beer1`` row 119 —
-and the surplus flag is always ``0``. An all-zero surplus is trimmed; any other
-misalignment raises, since a real shift corrupts every label after it.
+Three rows carry one rationale flag more than their text has tokens, ``hotel_Location`` row 59, ``hotel_Cleanliness`` row 198, ``beer1`` row 119, and the surplus flag is always ``0``.
+An all-zero surplus is trimmed; any other misalignment raises, since a real shift corrupts every label after it.
 
 HateXplain
 ----------
 
-Twitter and Gab posts labelled for hate speech, with token-level rationales
-from three annotators. Mathew et al., 2021, *HateXplain: A Benchmark Dataset
-for Explainable Hate Speech Detection*.
+Twitter and Gab posts labelled for hate speech, with token-level rationales from three annotators.
+Mathew et al., 2021, *HateXplain:
+A Benchmark Dataset for Explainable Hate Speech Detection*.
 
 :Download: ``dataset.json`` (12 MB) and ``post_id_divisions.json`` from the
            ``hate-alert/HateXplain`` repository, read at commit
            ``01d7422`` rather than at ``master`` and pinned by default at
-           ``63bb3340...`` and ``c2fb0d89...`` — the benchmark publishes no
+           ``63bb3340...`` and ``c2fb0d89...``, the benchmark publishes no
            digest of its own, and a branch name pins nothing: the same key
            would name different rows after an upstream push. Pass
            ``sha256=None`` and ``divisions_sha256=None`` to skip the checks
@@ -308,15 +289,11 @@ for Explainable Hate Speech Detection*.
 :Loader: :class:`pyhighlights.components.loaders.HateXplainLoader`
 :Key: :data:`pyhighlights.configurations.keys.HATEXPLAIN`
 
-**The loader keeps every judgement.** ``label`` and ``highlights`` come back
-unset and the raw material sits in ``annotator_labels`` and
-``annotator_highlights``, two columns this corpus carries and the others do
-not. Until an
+**The loader keeps every judgement.** ``label`` and ``highlights`` come back unset and the raw material sits in ``annotator_labels`` and ``annotator_highlights``, two columns this corpus carries and the others do not.
+Until an
 :class:`~pyhighlights.components.preprocessors.AnnotationAggregator` has run,
-the splits are not yet examples and ``datasets()`` says so rather than
-guessing. There is no default aggregation, because reducing three annotators
-to one judgement is exactly the choice two studies over this corpus make
-differently:
+the splits are not yet examples and ``datasets()`` says so rather than guessing.
+There is no default aggregation, because reducing three annotators to one judgement is exactly the choice two studies over this corpus make differently:
 
 ``label``
    Majority vote. 919 of the 20148 posts have all three annotators
@@ -330,32 +307,26 @@ differently:
 :data:`~pyhighlights.configurations.keys.HATEXPLAIN_PIPELINE` chains the
 aggregator with a
 :class:`~pyhighlights.components.preprocessors.LeakageRemover`, in that order:
-repairing leakage first would measure overlap over rows the tie handling then
-removes.
+repairing leakage first would measure overlap over rows the tie handling then removes.
 
-``normal`` posts carry no rationale by design, and 580 non-normal ones carry
-none either. Both come back as all-zero highlights — "no token was marked",
-not "not annotated" — so a highlight metric sees them as examples with no
-positive tokens rather than skipping them.
+``normal`` posts carry no rationale by design, and 580 non-normal ones carry none either.
+Both come back as all-zero highlights, "no token was marked", not "not annotated", so a highlight metric sees them as examples with no positive tokens rather than skipping them.
 
-The published splits share no post id, but they do share text: 6 test posts
-and 3 validation posts also appear in training, and 28 training posts are
-duplicates of each other. Small, but nonzero — and invisible to an id-based
-check. Repairing after aggregation removes 37 rows in total.
+The published splits share no post id, but they do share text: 6 test posts and 3 validation posts also appear in training, and 28 training posts are duplicates of each other.
+Small, but nonzero, and invisible to an id-based check.
+Repairing after aggregation removes 37 rows in total.
 
 ERASER
 ------
 
-Document classification with human evidence spans, from DeYoung et al., 2020,
-*ERASER: A Benchmark to Evaluate Rationalized NLP Models*. A task ships a
-``docs`` directory of whitespace-tokenized documents and one JSONL file per
-split whose rows carry a ``classification`` and ``evidences`` — groups of
-``[start_token, end_token)`` spans that become the highlights.
+Document classification with human evidence spans, from DeYoung et al., 2020, *ERASER:
+A Benchmark to Evaluate Rationalized NLP Models*.
+A task ships a ``docs`` directory of whitespace-tokenized documents and one JSONL file per split whose rows carry a ``classification`` and ``evidences``, groups of ``[start_token, end_token)`` spans that become the highlights.
 
 :Download: ``https://www.eraserbenchmark.com/zipped/<task>.tar.gz``, pinned by
            default at
-           ``66e18d4e6c9df9e9f5544572b0bfe92a39673f74ecbfc3859b46cedb2f5b2dee``
-           — the benchmark publishes no digest of its own. Pass ``sha256=None``
+           ``66e18d4e6c9df9e9f5544572b0bfe92a39673f74ecbfc3859b46cedb2f5b2dee``,
+           the benchmark publishes no digest of its own. Pass ``sha256=None``
            to skip the check
 :Splits: the zero-leakage partition is published as a manifest,
          `10.5281/zenodo.22711411 <https://doi.org/10.5281/zenodo.22711411>`_
@@ -365,29 +336,20 @@ split whose rows carry a ``classification`` and ``evidences`` — groups of
          shared :class:`~pyhighlights.components.loaders.ERASERLoader` parsing
 :Key: :data:`pyhighlights.configurations.keys.MOVIES`
 
-**Only single-document tasks are supported.** A select-then-predict model
-takes one token sequence and no query, so ``boolq``, ``esnli``,
-``evidence_inference``, ``fever``, ``multirc`` and ``scifact`` are refused with
-an explanation rather than silently folded into a document — pyhighlights has
-nowhere to put a query yet. ``movies`` needs no such compromise.
+**Only single-document tasks are supported.** A select-then-predict model takes one token sequence and no query, so ``boolq``, ``esnli``, ``evidence_inference``, ``fever``, ``multirc`` and ``scifact`` are refused with an explanation rather than silently folded into a document, pyhighlights has nowhere to put a query yet.
+``movies`` needs no such compromise.
 
-Every split is annotated. Rows with an empty ``evidences`` list — one in
-``movies`` — come back as all-zero highlights. The test split is annotated far
-more densely than training (a 0.31 highlight rate against 0.09), since its
-rationales aggregate several annotators; a sparsity target tuned on training
-data is not tuned for it.
+Every split is annotated.
+Rows with an empty ``evidences`` list, one in ``movies``, come back as all-zero highlights.
+The test split is annotated far more densely than training (a 0.31 highlight rate against 0.09), since its rationales aggregate several annotators; a sparsity target tuned on training data is not tuned for it.
 
-``movies`` has no cross-split leakage: one training row duplicates another,
-and that is all a :class:`~pyhighlights.components.preprocessors.LeakageRemover`
-removes.
+``movies`` has no cross-split leakage: one training row duplicates another, and that is all a :class:`~pyhighlights.components.preprocessors.LeakageRemover` removes.
 
 Toy
 ---
 
-A synthetic corpus, generated in memory. **Tokens are characters**, as they
-are in every toy corpus of this line of work: each document is filler
-characters with one character pattern per class inserted at a random position,
-and the highlights are exactly that pattern.
+A synthetic corpus, generated in memory.
+**Tokens are characters**, as they are in every toy corpus of this line of work: each document is filler characters with one character pattern per class inserted at a random position, and the highlights are exactly that pattern.
 
 :Download: none
 :Loader: :class:`pyhighlights.components.loaders.ToyLoader`
@@ -398,21 +360,15 @@ and the highlights are exactly that pattern.
    ToyLoader(sizes={"train": 64, "val": 16, "test": 16},
              triggers=("aa", "bcd"), seed=0)
 
-The filler is drawn from the letters no trigger uses, so a pattern can only
-appear where the generator put one — two adjacent filler characters can never
-spell ``"aa"`` if ``a`` is not a filler character.
+The filler is drawn from the letters no trigger uses, so a pattern can only appear where the generator put one, two adjacent filler characters can never spell ``"aa"`` if ``a`` is not a filler character.
 
-Every split is annotated, a seed makes the corpus reproducible, and there is
-nothing to fetch — which makes it the cheap way to exercise a model, a
-configuration or a training loop before pointing it at a real corpus.
+Every split is annotated, a seed makes the corpus reproducible, and there is nothing to fetch, which makes it the cheap way to exercise a model, a configuration or a training loop before pointing it at a real corpus.
 
-The registered configuration is a smoke test rather than the GenSPP paper's
-toy corpus, which is longer, contaminated, and has three classes. Both are
+The registered configuration is a smoke test rather than the GenSPP paper's toy corpus, which is longer, contaminated, and has three classes.
+Both are
 :class:`~pyhighlights.components.loaders.ToyLoader`: the difference is
-settings, and reading the released one rather than generating a new one is
-``url``. ``save()`` writes a generated corpus in the same form that ``url``
-reads, so publishing one needs no loader of its own; a corpus older than these
-columns is converted by overriding ``parse``.
+settings, and reading the released one rather than generating a new one is ``url``.
+``save()`` writes a generated corpus in the same form that ``url`` reads, so publishing one needs no loader of its own; a corpus older than these columns is converted by overriding ``parse``.
 
 Corpus statistics
 -----------------
@@ -426,24 +382,18 @@ the documents are and how much of them the annotation marks:
 
    describe(BeerLoader().load())
 
-Document length sets a token budget — what
-:class:`~pyhighlights.components.preprocessors.LengthFilter` drops rows over --
+Document length sets a token budget, what
+:class:`~pyhighlights.components.preprocessors.LengthFilter` drops rows over,
 and ``highlight_rate`` is the ratio
 :class:`~pyhighlights.utility.losses.SparsityPenalty` compares its
-``threshold`` against. So a sparsity target is read off the **training**
-split, and only off it. An evaluation split's rate is a fact to report once
-the numbers are in, never a target: the model has not seen that split, and
-tuning against it is tuning on the test set.
+``threshold`` against.
+So a sparsity target is read off the **training** split, and only off it.
+An evaluation split's rate is a fact to report once the numbers are in, never a target: the model has not seen that split, and tuning against it is tuning on the test set.
 
-That leaves a real ceiling, and it belongs to the penalty rather than to any
-corpus. One ``threshold`` names one corpus-level rate, so a corpus whose
-splits are annotated at different densities — ERASER ``movies`` marks test at
-0.31 against training's 0.09 — cannot be served by a single target, and no
-choice of threshold fixes it. The mismatch is measured rather than hidden:
-``selection_rate`` reports what the selector actually keeps at test, beside
-the highlight scores — as a share of the document's own tokens, not of the
-padded batch, so it is comparable between a corpus of short clauses and one of
-long reviews.
+That leaves a real ceiling, and it belongs to the penalty rather than to any corpus.
+One ``threshold`` names one corpus-level rate, so a corpus whose splits are annotated at different densities, ERASER ``movies`` marks test at 0.31 against training's 0.09, cannot be served by a single target, and no choice of threshold fixes it.
+The mismatch is measured rather than hidden:
+``selection_rate`` reports what the selector actually keeps at test, beside the highlight scores, as a share of the document's own tokens, not of the padded batch, so it is comparable between a corpus of short clauses and one of long reviews.
 
 API
 ---

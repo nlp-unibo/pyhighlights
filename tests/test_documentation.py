@@ -58,41 +58,79 @@ def test_the_documentation_imports_things_that_exist():
 TOCTREE = re.compile(r"\.\. toctree::\n(?:   :[\w-]+:.*\n)*\n((?:(?:   \S.*)?\n)*)")
 
 
+def listed_pages(source: Path, page: str, seen: set) -> list:
+    """Every page reachable from ``page`` through toctrees, depth first.
+
+    The index names sections rather than pages, so a page is one or two
+    toctrees away from it and a check that reads only the index would pass
+    while a whole section was unreachable.
+    """
+    if page in seen:
+        return []
+    seen.add(page)
+    path = source / f"{page}.rst"
+    if not path.exists():
+        return [page]
+    found = [page]
+    parent = Path(page).parent
+    for block in TOCTREE.findall(path.read_text()):
+        for entry in block.split():
+            target = entry if entry.startswith("/") else str(parent / entry)
+            found.extend(listed_pages(source, Path(target).as_posix(), seen))
+    return found
+
+
 def test_every_page_the_index_lists_is_there():
     """A toctree entry with no file behind it is a broken build."""
     source = ROOT / "docsrc" / "source"
-    listed = [
-        page
-        for block in TOCTREE.findall((source / "index.rst").read_text())
-        for page in block.split()
-    ]
+    reachable = listed_pages(source, "index", set())
 
-    assert len(listed) >= 8, listed
-    assert not [page for page in listed if not (source / f"{page}.rst").exists()]
+    assert len(reachable) >= 20, reachable
+    assert not [page for page in reachable if not (source / f"{page}.rst").exists()]
+
+
+def test_every_page_is_reachable_from_the_index():
+    """A page no toctree names is a page the sidebar never offers."""
+    source = ROOT / "docsrc" / "source"
+    reachable = set(listed_pages(source, "index", set()))
+    written = {
+        path.relative_to(source).with_suffix("").as_posix()
+        for path in source.rglob("*.rst")
+    }
+
+    assert not written - reachable, sorted(written - reachable)
 
 
 def test_every_spp_model_has_an_api_page():
     """A merged architecture nobody can look up is half-delivered.
 
     The checks above resolve what the docs *name*, so a model the docs never
-    mention passes them silently -- which is how DR, MRD and DAR reached
+    mention passes them silently, which is how DR, MRD and DAR reached
     ``main`` with no page. This asks the question the other way round: every
     algorithm module under ``spp`` has to appear in an ``automodule``
-    directive somewhere.
+    directive on some page.
     """
+    #: Implemented but deliberately undocumented: grounded rationalization is
+    #: still experimental, and the corpus it is written against is not public.
+    #: Documenting it is what removes it from here.
+    undocumented = {"grounded"}
     modules = {
         path.stem
         for path in (ROOT / "pyhighlights" / "components" / "models" / "spp").glob(
             "*.py"
         )
         if path.stem not in {"__init__", "base", "data", "implementations"}
-    }
-    documented_modules = set(
-        re.findall(
+    } - undocumented
+
+    pages = (ROOT / "docsrc" / "source").rglob("*.rst")
+    documented_modules = {
+        module
+        for page in pages
+        for module in re.findall(
             r"automodule:: pyhighlights\.components\.models\.spp\.(\w+)",
-            (ROOT / "docsrc" / "source").joinpath("models.rst").read_text(),
+            page.read_text(),
         )
-    )
+    }
 
     assert modules, "no algorithm modules found; has the package moved?"
     assert not modules - documented_modules, sorted(modules - documented_modules)
