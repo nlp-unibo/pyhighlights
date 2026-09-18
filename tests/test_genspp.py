@@ -1,5 +1,6 @@
 import math
 import random
+from itertools import chain
 from pathlib import Path
 from types import SimpleNamespace
 from typing import List
@@ -686,3 +687,28 @@ def test_a_diagnosed_search_scores_one_candidate_at_a_time(caplog, monkeypatch):
     assert "candidate: index = 0" in caplog.text
     assert "candidate: index = 1" in caplog.text
     assert "generation: index = 0" in caplog.text
+
+
+def test_the_winner_says_its_generator_is_not_trained():
+    """It is a chromosome the search settled on, and nothing moves it again.
+
+    Scoring the winner is a forward pass and a second search draws its own
+    founders, so a generator left marked trainable reads as a model half of
+    which descent produced -- to a cost table counting parameters, and to
+    anything building an optimizer over `parameters()`.
+    """
+    model_key = register_tiny_genspp()
+    search = trainer(model_key, n_generations=1)
+
+    model = search.fit([batch(labels=(0, 1))], [batch(labels=(0, 1))])
+
+    assert not model.generator_parameters()
+    assert model.predictor_parameters()
+    # The weights themselves are untouched: what changed is what is said
+    # about them.
+    assert any(
+        parameter.numel()
+        for parameter in chain(
+            model.selector_backbones.parameters(), model.selectors.parameters()
+        )
+    )

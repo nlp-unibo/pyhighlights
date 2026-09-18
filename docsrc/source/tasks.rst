@@ -558,7 +558,8 @@ F1 says which model is better and nothing about what it takes to get there.
    encoder is memory and compute at inference however little it learns, and a
    model that freezes most of itself is a different proposition to train than
    one that does not. Counted on the model as it was scored, so a component
-   frozen partway through training counts as frozen.
+   frozen partway through training counts as frozen -- and so does a
+   generator a genetic search settled on, which descent never moved.
 ``cost_concurrency``, ``cost_models``
    How many models the seed trained, and how many of them ran at once. One and
    one for a model trained by descent. A genetic search trains its founders

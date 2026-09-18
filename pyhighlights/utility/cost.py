@@ -60,7 +60,9 @@ def parameters(model: th.nn.Module, trainable: bool | None = None) -> int:
 
     Counted on the model as it was **scored**, which is the state a reader of
     the table gets if they load the checkpoint: a component frozen partway
-    through training counts as frozen, however many epochs moved it first.
+    through training counts as frozen, however many epochs moved it first,
+    and so does a generator a genetic search settled on rather than descended
+    to. Trainable here means what gradient descent moves.
     """
     return sum(
         parameter.numel()

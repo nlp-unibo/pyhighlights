@@ -335,6 +335,14 @@ class GenSPPTrainer:
             raise RuntimeError("GenSPP search produced no model")
         self._best_model.to("cpu")
         self._best_model.eval()
+        # The winner's generator is a chromosome the search settled on, and
+        # nothing moves it again: scoring it is a forward pass, and a second
+        # search draws its own founders rather than resuming this one. Saying
+        # so on the model is what lets a reader of it -- a cost table counting
+        # what gradient descent moves, a caller building an optimizer over
+        # `parameters()` -- tell the searched half from the trained one.
+        for parameter in self._best_model.generator_parameters():
+            parameter.requires_grad_(False)
         return self._best_model
 
     def _candidate(self) -> GenSPP:
