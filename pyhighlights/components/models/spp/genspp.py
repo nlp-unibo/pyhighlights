@@ -153,9 +153,9 @@ class _Individual:
 
 
 #: What a worker scores against: the trainer, and the two splits
-#: :meth:`GenSPPTrainer._fit` froze. Handed over once when the worker starts,
-#: so a generation costs a chromosome each way and the parent keeps no global
-#: of its own.
+#: :meth:`GenSPPTrainer._fit` froze. Set when the worker starts, from
+#: arguments fork gives it by inheritance. Only the tasks themselves cross a
+#: pipe, so a generation costs a chromosome each way.
 _WORK: Tuple["GenSPPTrainer", Any, Any] | None = None
 
 
@@ -576,10 +576,13 @@ class GenSPPTrainer:
         if len(self.devices) == 1 or diagnostics.active() or not self._forkable():
             return
         try:
-            # Handed to the workers rather than left to inheritance, so a
-            # launch that fails leaves no global here holding the corpus.
-            # `self` is pickled by this call, which is why nothing holds the
-            # pool yet.
+            # Named as the workers' inputs rather than left in a global
+            # for them to find. Under fork these are inherited and not
+            # pickled -- a closure `pickle` refuses arrives intact -- so
+            # handing over the corpus costs nothing. What it buys is that a
+            # launch which fails leaves nothing here still holding it, and
+            # that a worker's inputs are written down rather than being
+            # whatever the parent happened to have set.
             self._pool = get_context("fork").Pool(
                 processes=len(self.devices),
                 initializer=_start_worker,
