@@ -34,12 +34,17 @@ A table of F1 says which model is better and nothing about what it takes to get 
    ``runtime * concurrency / models``. Wall clock alone would report a search
    as cheap as the hours it happened to take on the machine that ran it.
 
-   There is no per-model *memory* column to go with it. A search scores its
-   candidates on threads of one process, so the peak covers every candidate
-   and the interpreter and the data at once, most of it resident before the
-   first candidate exists: dividing it by the workers reports less memory per
-   model than the process holds doing nothing. ``cost_memory_mib`` is the
-   ceiling a run needs, which is what a machine is sized by.
+   There is no per-model *memory* column to go with it. Most of what a run
+   holds is the interpreter, torch and the corpus, resident before the first
+   candidate exists, so dividing the peak by the workers reports less memory
+   per model than a run holds doing nothing.
+
+   ``cost_memory_mib`` is one process's ceiling: the largest of a search's
+   workers, which is the figure comparable to a baseline, itself one process.
+   A node running the search needs that much again per worker, less whatever
+   fork left shared -- ``cost_concurrency`` says how many there were. The
+   operating system offers no honest total, since pages shared by fork are
+   counted once per process holding them.
 
 :class:`~pyhighlights.components.analyzers.MetricsAnalyzer` reads them like any
 other column, so the computational table is the same call with a different prefix::

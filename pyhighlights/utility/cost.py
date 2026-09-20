@@ -27,13 +27,21 @@ take on the machine that ran it. So a run records how many models it trained
 The workers counted are the ones that had something to do: a pool of eight
 scoring a population of four runs four at a time.
 
-**There is no per-model memory column**, deliberately. A search scores its
-candidates on threads of one process, so the peak covers the interpreter, the
-weights, the data and every candidate at once -- and most of it is resident
-before the first candidate exists. Dividing by the workers measured here at
-608 MiB over four threads against a 521 MiB baseline would report 152 MiB per
-model, less than the process holds doing nothing. ``cost_memory_mib`` is the
-ceiling a run needs, which is the question a machine is sized by.
+**There is no per-model memory column**, deliberately. Most of what a run
+holds is the interpreter, torch and the corpus, resident before the first
+candidate exists -- measured at 521 MiB with nothing training. Dividing the
+peak by the workers would report less than that, which is not what any one
+model costs. ``cost_memory_mib`` is the ceiling a run needs, which is the
+question a machine is sized by.
+
+**It is one process's ceiling, not a node's.** A search scores its candidates
+in processes of their own, and this reports the largest of them -- which is
+the figure comparable to a baseline, itself one process. What a node needs to
+run the search is that much again for each worker, less whatever fork left
+shared between them; ``cost_concurrency`` says how many workers there were.
+The operating system offers no honest total: resident pages shared by fork
+are counted once per process that holds them, and ``ru_maxrss`` over children
+is the largest single child rather than their sum.
 """
 
 from __future__ import annotations
@@ -78,7 +86,7 @@ def parameters(model: th.nn.Module, trainable: bool | None = None) -> int:
 
 
 def peak_memory() -> float:
-    """Mebibytes at the high-water mark, on the device the run used.
+    """Mebibytes at the high-water mark of the largest process a run used.
 
     CUDA reports the run's own peak, since :class:`Meter` resets the counter
     when it starts. The CPU figure is the **process**'s high-water mark, which
@@ -88,7 +96,23 @@ def peak_memory() -> float:
     """
     if th.cuda.is_available() and th.cuda.max_memory_allocated():
         return th.cuda.max_memory_allocated() / MIB
-    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    # Children as well as this process: a genetic search scores its candidates
+    # in processes of their own, and `RUSAGE_SELF` alone would report the
+    # parent waiting on them.
+    #
+    # The larger of the two rather than their sum, and the column says so.
+    # `ru_maxrss` over children is the largest any single child reached, not
+    # what the children reached together -- four processes holding 400 MiB
+    # each report 412 -- and adding it to this process would double-count
+    # every page fork left shared. Neither number, nor any arithmetic on the
+    # two, is the footprint of the whole run.
+    #
+    # It is also zero until a child has been reaped, which is why this is read
+    # after a search has closed its pool rather than during one.
+    peak = max(
+        resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+        resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss,
+    )
     # Kibibytes on Linux, bytes on macOS, for the same field.
     return peak / MIB if sys.platform == "darwin" else peak / 1024
 

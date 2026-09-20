@@ -95,7 +95,9 @@ Two classes rather than one: the model, and the search that fits it.
 
 ``GenSPP`` refuses a configuration whose generator and predictor share parameters, since a search over generator parameters that also moved the predictor would be neither a search nor a training run.
 The generator's modules are put in evaluation mode for the whole of a candidate's predictor fitting, because dropout inside a frozen generator would score the same candidate differently from one epoch to the next.
-Candidates are evaluated one per device, and ``devices`` is the same knob for a CPU thread pool and for a node's cards.
+Candidates are evaluated one per device, and ``devices`` is the same knob for a pool of CPU workers and for a node's cards.
+
+CPU workers are **processes**, CUDA workers are threads. A candidate is a small model, so its cost is the training loop stepping from Python rather than the arithmetic inside torch, and that loop holds the GIL: eight threads on eight cores were measured at 240% of a possible 800%. Processes lift that -- 1442 ms a candidate sequentially, 832 ms on eight threads, 293 ms on eight processes. CUDA is the other way round, since its kernels do release the GIL and a process per device would pay for a context each. A search falls back to threads where fork is unavailable, or where autograd has already run in the calling process, which torch refuses to combine with fork.
 
 Configuration
 -------------
