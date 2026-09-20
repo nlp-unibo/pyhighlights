@@ -928,15 +928,28 @@ class GenSPPTrainer:
 
     @staticmethod
     def _count_threshold_genes(model: GenSPP) -> int:
-        """How many trailing genes carry the selector's decision threshold.
+        """How many trailing genes carry the selectors' decision threshold.
 
-        The threshold is the output bias of the last selector head, which is
-        the last entry of the flattened chromosome. A head without a bias has
-        no threshold gene, and :meth:`_mutate` then has nothing to treat
-        separately.
+        The selectors name those parameters through
+        :meth:`~pyhighlights.components.models.spp.base.SPPSelector.threshold_parameters`.
+        Counted here are the ones that land at the end of the flattened
+        chromosome, because :meth:`_mutate` gives its own deviation to a
+        trailing slice of that vector. A selector that keeps its threshold
+        anywhere else, or that declares none, contributes nothing and is
+        searched with one deviation throughout -- rather than having whatever
+        parameter happens to be last mutated in its place.
         """
-        last = model.generator_parameters()[-1]
-        return last.numel() if last.dim() == 1 else 0
+        declared = {
+            id(parameter)
+            for selector in model.selectors
+            for parameter in selector.threshold_parameters()
+        }
+        genes = 0
+        for parameter in reversed(model.generator_parameters()):
+            if id(parameter) not in declared:
+                break
+            genes += parameter.numel()
+        return genes
 
     def _mutate(self, chromosome: th.Tensor) -> th.Tensor:
         """Gaussian noise on a share of the genes, in place of a resample.

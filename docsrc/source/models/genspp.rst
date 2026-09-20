@@ -127,6 +127,10 @@ The release mutates the selector's output bias at ``0.10`` while every other gen
 The default here follows the paper, and ``threshold_mutation_std`` sets the threshold's own deviation for a reproduction that needs the release's behaviour.
 It names the deviation of the threshold rather than of one gene, since a head emitting two logits decides on their difference and two genes perturbed at ``s`` give that difference ``s * sqrt(2)``.
 
+Which genes those are is asked of the selector rather than read off the end of the chromosome.
+:meth:`~pyhighlights.components.models.spp.base.SPPSelector.threshold_parameters` returns them, and a selector that declares none is searched with a single deviation throughout.
+:class:`~pyhighlights.components.models.spp.implementations.MLPSelector` declares the bias of its output layer; only parameters that land at the end of the flattened chromosome are counted, because the deviation is given to a trailing slice of it.
+
 .. code-block:: python
 
    from pyhighlights.configurations.keys import GRU_GENSPP_TRAINER

@@ -16,6 +16,7 @@ from pyhighlights.components.models import InputData
 from pyhighlights.components.models.spp import (
     GenSPP,
     GenSPPTrainer,
+    MLPSelector,
     SPPBackbone,
     SPPPredictor,
     SPPSelector,
@@ -57,6 +58,9 @@ class TinySelector(SPPSelector):
 
     def forward(self, states: th.Tensor) -> th.Tensor:
         return self.linear(states)
+
+    def threshold_parameters(self) -> List[th.nn.Parameter]:
+        return [self.linear.bias]
 
 
 class TinyPredictor(SPPPredictor):
@@ -539,6 +543,38 @@ def test_threshold_genes_take_their_own_deviation():
 
     with pytest.raises(ValueError, match="threshold_mutation_std"):
         trainer(register_tiny_genspp(), threshold_mutation_std=0.0)
+
+
+def test_threshold_genes_come_from_the_selector_not_from_position():
+    """A selector that declares no threshold has none, whatever sits last.
+
+    The count used to read the last generator parameter and call it the
+    output bias. That holds for `MLPSelector` and for nothing the family
+    promises: any other selector ending in a one-dimensional parameter would
+    have had it mutated as though it were the decision threshold, silently.
+    """
+    bias = th.nn.Parameter(th.zeros(2))
+    weight = th.nn.Parameter(th.zeros(3, 4))
+    declaring = SimpleNamespace(threshold_parameters=lambda: [bias])
+    silent = SimpleNamespace(threshold_parameters=lambda: [])
+
+    def model(selector, parameters):
+        return SimpleNamespace(
+            selectors=[selector], generator_parameters=lambda: parameters
+        )
+
+    assert GenSPPTrainer._count_threshold_genes(model(declaring, [weight, bias])) == 2
+    assert GenSPPTrainer._count_threshold_genes(model(silent, [weight, bias])) == 0
+
+    # Declared but not last. Mutation gives its deviation to a trailing slice
+    # of the chromosome, so a threshold sitting anywhere else takes the shared
+    # one rather than moving whatever does sit at the end.
+    assert GenSPPTrainer._count_threshold_genes(model(declaring, [bias, weight])) == 0
+
+    # And the selector the reproduction actually searches declares the bias of
+    # its output layer, which the head's two logits are read off.
+    shipped = MLPSelector(input_size=4, hidden_sizes=[3])
+    assert shipped.threshold_parameters() == [shipped.selector[-1].bias]
 
 
 def test_search_is_reproducible_and_keeps_only_candidate_chromosomes():
