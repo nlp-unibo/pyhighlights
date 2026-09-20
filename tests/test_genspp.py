@@ -781,3 +781,77 @@ def test_a_pool_that_cannot_differentiate_is_not_used(monkeypatch):
     assert genspp._WORK is None
     # And the search still runs, on threads.
     assert search.fit(train, validation) is not None
+
+
+def test_a_frozen_predictor_backbone_does_not_drop_while_a_candidate_trains():
+    """Or a chromosome's fitness is a property of the random state too.
+
+    `GenSPPTransformerBackboneConfig` sets `freeze_transformer`, and a frozen
+    Hugging Face encoder left in training mode still drops: the same candidate
+    would score differently depending on what had drawn before it, which
+    across workers is a matter of scheduling. Only the generator used to be
+    put back into eval mode, because only the generator is frozen when the
+    backbone is a GRU this study trains.
+    """
+    search = trainer(register_tiny_genspp(), devices=["cpu"])
+    search._embeddings = None
+    search._initial_state = None
+    model = search._candidate()
+    for parameter in model.predictor_backbone.parameters():
+        parameter.requires_grad_(False)
+
+    # What `_train_predictor` does before it steps the model.
+    model.train(True)
+    model.on_train_epoch_start()
+
+    assert not model.predictor_backbone.training
+    # The predictor itself is what descent moves, and does train.
+    assert model.predictor.training
+
+
+def test_two_unseeded_searches_do_not_draw_the_same_founders():
+    """`seed=None` means this run should differ from the last one.
+
+    Founders are built from the global generator, and `fit` restores that
+    around the whole search -- so a search that reseeded only its own
+    generators drew the same population every time, and differed after that
+    only in selection and mutation.
+    """
+    model = register_tiny_genspp()
+    train, validation = [batch(labels=(0, 1))], [batch(labels=(0, 1))]
+
+    searches = []
+    for _ in range(2):
+        search = trainer(model, seed=None, n_generations=0, task_loss_limit=10.0)
+        search.fit(train, validation)
+        searches.append(search)
+
+    first, second = (search.population for search in searches)
+    assert not any(
+        th.equal(one.chromosome, other.chromosome) for one, other in zip(first, second)
+    )
+
+
+def _refuses_to_fork() -> bool:
+    """A pool that fails for something other than autograd's threading."""
+    raise OSError("Cannot allocate memory")
+
+
+def test_a_pool_that_fails_to_launch_leaves_nothing_behind(monkeypatch):
+    """Not every launch failure is the `RuntimeError` autograd raises.
+
+    A node out of memory or file descriptors raises `OSError` instead, and a
+    worker that never answers raises neither. Whatever the reason, the search
+    is left with no pool, no workers and nothing holding the corpus it was
+    about to hand them.
+    """
+    monkeypatch.setattr(genspp, "_autograd_survives_fork", _refuses_to_fork)
+    model = register_tiny_genspp()
+    train, validation = [batch(labels=(0, 1))], [batch(labels=(0, 1))]
+
+    search = trainer(model, devices=["cpu"] * 4)
+    search._open_pool(train, validation)
+
+    assert search._pool is None
+    assert genspp._WORK is None
+    assert search.fit(train, validation) is not None

@@ -5,6 +5,7 @@ import random
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from itertools import chain
+from multiprocessing import TimeoutError as MPTimeoutError
 from multiprocessing import get_all_start_methods, get_context
 from multiprocessing.pool import ThreadPool
 from typing import Any, Dict, Iterable, List, Tuple
@@ -117,12 +118,24 @@ class GenSPP(SPP):
         ]
 
     def on_train_epoch_start(self) -> None:
-        # Lightning puts the whole model in training mode. The generator is
-        # frozen while a predictor is fitted on it, and dropout inside it would
-        # score the same candidate differently from one epoch to the next.
+        # Training mode is set on the whole model. The generator is frozen
+        # while a predictor is fitted on it, and dropout inside it would score
+        # the same candidate differently from one epoch to the next.
         super().on_train_epoch_start()
         self.selector_backbones.eval()
         self.selectors.eval()
+        # And so would dropout inside a predictor backbone that descent never
+        # moves -- `GenSPPTransformerBackboneConfig` sets
+        # `freeze_transformer`, and a frozen Hugging Face encoder left in
+        # training mode still drops. That made a candidate's fitness a
+        # property of the random state as well as of its chromosome, which is
+        # the one thing a search cannot have: the same chromosome scored twice
+        # would not agree with itself.
+        if not any(
+            parameter.requires_grad
+            for parameter in self.predictor_backbone.parameters()
+        ):
+            self.predictor_backbone.eval()
 
     def configure_optimizers(self):
         # Gradient descent only ever reaches the predictor: the generator is
@@ -156,6 +169,16 @@ def _score_in_worker(item: Tuple[int, th.Tensor | None, th.device]):
         train_loader, val_loader, chromosome, device
     )
     return individual, trainer._trained_state(model)
+
+
+#: How long a worker gets to answer the probe below. Generous, because it is
+#: paid once per search and a loaded node can be slow to schedule a fork --
+#: and short against a search measured in hours, which is what it protects.
+#: Forking a process that already has threads is what Python warns about and
+#: what can deadlock a child on a lock held elsewhere at the moment of the
+#: fork. The probe cannot prevent that; a timeout on it turns the hang into a
+#: search that runs on threads instead.
+PROBE_SECONDS = 60.0
 
 
 def _autograd_survives_fork() -> bool:
@@ -316,8 +339,14 @@ class GenSPPTrainer:
         embeddings: th.Tensor | None = None,
     ) -> GenSPP:
         if self.seed is None:
-            self._random.seed()
-            self._torch_generator.seed()
+            # Drawn rather than left alone, and installed on the global
+            # generator too. Candidates are built from that one, and `fit`
+            # restores it around the whole search -- so an unseeded search
+            # that only reseeded its own generators drew the same founders
+            # every time, with only its selection and mutation differing.
+            drawn = th.seed()
+            self._random.seed(drawn)
+            self._torch_generator.manual_seed(drawn)
         else:
             self._random.seed(self.seed)
             self._torch_generator.manual_seed(self.seed)
@@ -341,8 +370,8 @@ class GenSPPTrainer:
         self._initial_state = None
         self._embeddings = embeddings
         self._candidate()
-        self._open_pool(train_batches, val_batches)
         try:
+            self._open_pool(train_batches, val_batches)
             return self._search(train_batches, val_batches)
         finally:
             self._close_pool()
@@ -513,6 +542,13 @@ class GenSPPTrainer:
         at the fork, which is why a pool is asked to differentiate something
         trivial before it is trusted with a candidate. A pool that cannot is
         closed, and the search falls back to the threads it used to use.
+
+        The probe is also what a deadlock runs into. Forking a process that
+        already has threads is unsafe in general -- a child can inherit a lock
+        no thread of its own will ever release -- and nothing here can make it
+        safe. What the timeout does is bound the damage: a pool that cannot
+        answer inside :data:`PROBE_SECONDS` is abandoned for threads, rather
+        than hanging a search that is otherwise measured in hours.
         """
         global _WORK
         if len(self.devices) == 1 or diagnostics.active() or not self._forkable():
@@ -522,8 +558,8 @@ class GenSPPTrainer:
             self._pool = get_context("fork").Pool(
                 processes=len(self.devices), initializer=_one_thread_each
             )
-            self._pool.apply(_autograd_survives_fork)
-        except RuntimeError:
+            self._pool.apply_async(_autograd_survives_fork).get(timeout=PROBE_SECONDS)
+        except (RuntimeError, OSError, TimeoutError, MPTimeoutError):
             self._close_pool()
 
     def _close_pool(self) -> None:
