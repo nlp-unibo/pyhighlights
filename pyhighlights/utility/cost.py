@@ -34,10 +34,14 @@ peak by the workers would report less than that, which is not what any one
 model costs. ``cost_memory_mib`` is the ceiling a run needs, which is the
 question a machine is sized by.
 
-A search that scores its candidates in processes is read the same way: the
-figure covers this process and the largest of its children, since the
-children are the same model on the same data and the largest is therefore
-what one candidate costs.
+**It is one process's ceiling, not a node's.** A search scores its candidates
+in processes of their own, and this reports the largest of them -- which is
+the figure comparable to a baseline, itself one process. What a node needs to
+run the search is that much again for each worker, less whatever fork left
+shared between them; ``cost_concurrency`` says how many workers there were.
+The operating system offers no honest total: resident pages shared by fork
+are counted once per process that holds them, and ``ru_maxrss`` over children
+is the largest single child rather than their sum.
 """
 
 from __future__ import annotations
@@ -82,7 +86,7 @@ def parameters(model: th.nn.Module, trainable: bool | None = None) -> int:
 
 
 def peak_memory() -> float:
-    """Mebibytes at the high-water mark, on the device the run used.
+    """Mebibytes at the high-water mark of the largest process a run used.
 
     CUDA reports the run's own peak, since :class:`Meter` resets the counter
     when it starts. The CPU figure is the **process**'s high-water mark, which
@@ -93,11 +97,18 @@ def peak_memory() -> float:
     if th.cuda.is_available() and th.cuda.max_memory_allocated():
         return th.cuda.max_memory_allocated() / MIB
     # Children as well as this process: a genetic search scores its candidates
-    # in processes of their own, and `RUSAGE_SELF` would report the parent
-    # waiting on them. `ru_maxrss` over children is the largest any one of them
-    # reached rather than their sum, which is the right figure here anyway --
-    # they are the same model on the same data, so the largest is what one
-    # costs, and the ceiling is what a machine is sized by.
+    # in processes of their own, and `RUSAGE_SELF` alone would report the
+    # parent waiting on them.
+    #
+    # The larger of the two rather than their sum, and the column says so.
+    # `ru_maxrss` over children is the largest any single child reached, not
+    # what the children reached together -- four processes holding 400 MiB
+    # each report 412 -- and adding it to this process would double-count
+    # every page fork left shared. Neither number, nor any arithmetic on the
+    # two, is the footprint of the whole run.
+    #
+    # It is also zero until a child has been reaped, which is why this is read
+    # after a search has closed its pool rather than during one.
     peak = max(
         resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
         resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss,

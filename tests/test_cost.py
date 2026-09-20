@@ -212,7 +212,9 @@ def test_the_peak_is_not_divided_among_the_workers():
 
     The interpreter, torch and the corpus, measured at 521 MiB with nothing
     training, so a per-model share would report less memory than a run holds
-    doing nothing -- whether the candidates are threads or processes.
+    doing nothing -- whether the candidates are threads or processes. The
+    column is one process's ceiling, and `cost_concurrency` is what says how
+    many such processes a search ran at once.
     """
     meter = cost.Meter(concurrency=8, models=5050)
     meter.runtime, meter.peak = 3600.0, 8000.0
