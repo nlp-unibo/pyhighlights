@@ -99,6 +99,25 @@ Candidates are evaluated one per device, and ``devices`` is the same knob for a 
 
 CPU workers are **processes**, CUDA workers are threads. A candidate is a small model, so its cost is the training loop stepping from Python rather than the arithmetic inside torch, and that loop holds the GIL: eight threads on eight cores were measured at 240% of a possible 800%. Processes lift that -- 1442 ms a candidate sequentially, 832 ms on eight threads, 293 ms on eight processes. CUDA is the other way round, since its kernels do release the GIL and a process per device would pay for a context each. A search falls back to threads where fork is unavailable, or where autograd has already run in the calling process, which torch refuses to combine with fork.
 
+Why the pool is forked once, before the first candidate, rather than per generation::
+
+   RuntimeError: Unable to handle autograd's threading in combination with
+   fork-based multiprocessing.
+
+Torch raises that once autograd has run threads in the parent, and it raises it in the child when the pass is attempted rather than at the fork.
+So a pool is asked to train something trivial before it is trusted with a candidate, and one that cannot, or that does not answer within the probe timeout, is closed for threads.
+``forkserver`` would be the start method that avoids forking a threaded process, and it cannot be used here: the registry is process-global state built once by the caller, and a worker that did not inherit it cannot build the model a chromosome is for::
+
+   NotExpandedException: The registration graph has yet to be expanded!
+   Configuration retrieval is not allowed.
+
+Rebuilding it per worker would cost seconds each and register a second copy of every configuration.
+Inheriting memory is what makes these workers correct, not merely cheap -- so the fork risk is bounded rather than removed.
+A search opens its pool with one Python thread running, torch's being native, which is why CPython's own warning about forking a multi-threaded process does not fire outside a test runner that adds threads of its own.
+
+One shared initial state is given to every candidate, so that a fitness is a property of a chromosome rather than of the predictor initialisation drawn alongside it.
+The released implementation reaches the same place from the other side: it keeps a pool of models and resets each reused one to *that slot's* initial weights, which makes a candidate's predictor depend on the slot it was given.
+
 Configuration
 -------------
 
