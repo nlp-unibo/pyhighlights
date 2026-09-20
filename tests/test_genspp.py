@@ -828,6 +828,41 @@ def test_a_pool_that_cannot_differentiate_is_not_used(monkeypatch):
     assert search.fit(train, validation) is not None
 
 
+def test_a_cuda_parent_keeps_the_search_on_threads(monkeypatch):
+    """A parent that has touched CUDA cannot fork a worker that trains.
+
+    Torch marks the child of a CUDA-initialised process and refuses to
+    initialise CUDA in it. An optimizer step reaches torch's accelerator
+    health check, which asks the current accelerator for its stream, so it
+    initialises CUDA even for parameters on the CPU. The candidate therefore
+    dies in the worker although every device here is a CPU one, which is why
+    the parent's CUDA state rules fork out before a pool is opened.
+    """
+    search = trainer(register_tiny_genspp(), devices=["cpu"] * 4)
+    monkeypatch.setattr(th.cuda, "is_initialized", lambda: False)
+    assert search._forkable() is True
+    monkeypatch.setattr(th.cuda, "is_initialized", lambda: True)
+    assert search._forkable() is False
+
+
+def test_the_worker_probe_descends_as_well_as_differentiates(monkeypatch):
+    """The probe has to fail wherever a candidate would.
+
+    A probe that only ran backward passed on a CUDA host and left the first
+    real candidate to raise ``Cannot re-initialize CUDA in forked
+    subprocess`` from ``optimizer.step``. The step is part of the probe for
+    that reason, and this pins it there.
+    """
+    assert genspp._worker_can_train() is True
+
+    def refuse(self, *arguments, **keywords):
+        raise RuntimeError("Cannot re-initialize CUDA in forked subprocess")
+
+    monkeypatch.setattr(th.optim.Adam, "step", refuse)
+    with pytest.raises(RuntimeError, match="re-initialize CUDA"):
+        genspp._worker_can_train()
+
+
 def test_a_frozen_predictor_backbone_does_not_drop_while_a_candidate_trains():
     """Or a chromosome's fitness is a property of the random state too.
 

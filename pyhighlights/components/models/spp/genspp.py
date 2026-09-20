@@ -182,15 +182,23 @@ PROBE_SECONDS = 60.0
 
 
 def _worker_can_train() -> bool:
-    """Whether a worker can run a backward pass at all.
+    """Whether a worker can train at all.
 
     Torch refuses the combination once autograd has run threads in the parent,
     and it refuses it in the **child**, when the pass is attempted, rather than
-    at the fork. So a search asks a worker to differentiate something trivial
-    before trusting it with a candidate.
+    at the fork. So a search asks a worker to train something trivial before
+    trusting it with a candidate.
+
+    The probe descends as well as differentiates. An optimizer step reaches
+    torch's accelerator health check, which asks the current accelerator for
+    its stream and so initialises CUDA even for parameters that live on the
+    CPU. In a forked child that raises, and a probe that only ran backward
+    would pass and leave the first real candidate to fail.
     """
-    tensor = th.zeros(1, requires_grad=True)
-    (tensor * 2).sum().backward()
+    parameter = th.nn.Parameter(th.zeros(1))
+    optimizer = th.optim.Adam([parameter])
+    (parameter * 2).sum().backward()
+    optimizer.step()
     return True
 
 
@@ -542,9 +550,18 @@ class GenSPPTrainer:
         CPU only, because a CUDA context cannot be inherited across a fork,
         and only where the platform offers fork at all: spawning would re-import
         and re-register everything per worker, per generation.
+
+        A parent that has already initialised CUDA rules out fork even when
+        every device here is a CPU one. Torch marks such a child as forked from
+        a CUDA process and refuses to initialise CUDA in it, and an optimizer
+        step initialises CUDA whenever an accelerator is present, whatever the
+        parameters sit on. A task that trains on a GPU around the search
+        therefore leaves the search on threads.
         """
-        return all(device.type == "cpu" for device in self.devices) and (
-            "fork" in get_all_start_methods()
+        return (
+            all(device.type == "cpu" for device in self.devices)
+            and "fork" in get_all_start_methods()
+            and not th.cuda.is_initialized()
         )
 
     def _open_pool(
