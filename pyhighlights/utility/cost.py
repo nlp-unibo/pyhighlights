@@ -27,13 +27,17 @@ take on the machine that ran it. So a run records how many models it trained
 The workers counted are the ones that had something to do: a pool of eight
 scoring a population of four runs four at a time.
 
-**There is no per-model memory column**, deliberately. A search scores its
-candidates on threads of one process, so the peak covers the interpreter, the
-weights, the data and every candidate at once -- and most of it is resident
-before the first candidate exists. Dividing by the workers measured here at
-608 MiB over four threads against a 521 MiB baseline would report 152 MiB per
-model, less than the process holds doing nothing. ``cost_memory_mib`` is the
-ceiling a run needs, which is the question a machine is sized by.
+**There is no per-model memory column**, deliberately. Most of what a run
+holds is the interpreter, torch and the corpus, resident before the first
+candidate exists -- measured at 521 MiB with nothing training. Dividing the
+peak by the workers would report less than that, which is not what any one
+model costs. ``cost_memory_mib`` is the ceiling a run needs, which is the
+question a machine is sized by.
+
+A search that scores its candidates in processes is read the same way: the
+figure covers this process and the largest of its children, since the
+children are the same model on the same data and the largest is therefore
+what one candidate costs.
 """
 
 from __future__ import annotations
@@ -88,7 +92,16 @@ def peak_memory() -> float:
     """
     if th.cuda.is_available() and th.cuda.max_memory_allocated():
         return th.cuda.max_memory_allocated() / MIB
-    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    # Children as well as this process: a genetic search scores its candidates
+    # in processes of their own, and `RUSAGE_SELF` would report the parent
+    # waiting on them. `ru_maxrss` over children is the largest any one of them
+    # reached rather than their sum, which is the right figure here anyway --
+    # they are the same model on the same data, so the largest is what one
+    # costs, and the ceiling is what a machine is sized by.
+    peak = max(
+        resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+        resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss,
+    )
     # Kibibytes on Linux, bytes on macOS, for the same field.
     return peak / MIB if sys.platform == "darwin" else peak / 1024
 

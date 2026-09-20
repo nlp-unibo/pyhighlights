@@ -110,9 +110,10 @@ class GRUGenSPPTrainerConfig(Configuration):
     stop_threshold: float = Param(0.01, gt=0.0)
     seed: int | None = Param(None)
     devices: List[str] = Param(["cpu"])
-    """One worker per device. ``["cpu"] * 8`` is the released implementation's
-    CPU thread pool; ``["cuda:0", "cuda:1"]`` is a node's cards. A candidate is
-    small enough that a device runs a whole one."""
+    """One worker per device. ``["cpu"] * 8`` is eight candidates at once on
+    eight cores; ``["cuda:0", "cuda:1"]`` is a node's cards. A candidate is
+    small enough that a device runs a whole one. CPU workers are processes and
+    CUDA workers are threads -- see ``GenSPPTrainer._score`` for why."""
 
 
 @register_class(

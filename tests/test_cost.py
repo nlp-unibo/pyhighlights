@@ -195,7 +195,12 @@ def test_memory_is_reported_in_mebibytes():
     five percent difference nothing in the table would have explained.
     """
     peak = cost.peak_memory()
-    resident = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    # Children included: a search scores its candidates in processes of their
+    # own, and this process alone would report the parent waiting on them.
+    resident = max(
+        resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+        resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss,
+    )
 
     if not th.cuda.is_available():
         assert peak == pytest.approx(resident / 1024, rel=1e-6)
@@ -203,11 +208,11 @@ def test_memory_is_reported_in_mebibytes():
 
 
 def test_the_peak_is_not_divided_among_the_workers():
-    """A search's candidates are threads of one process, not processes.
+    """Most of it is resident before the first candidate exists.
 
-    Most of the peak is the interpreter, torch and the data, resident before
-    the first candidate exists, so a per-model share would report less memory
-    than the process holds doing nothing.
+    The interpreter, torch and the corpus, measured at 521 MiB with nothing
+    training, so a per-model share would report less memory than a run holds
+    doing nothing -- whether the candidates are threads or processes.
     """
     meter = cost.Meter(concurrency=8, models=5050)
     meter.runtime, meter.peak = 3600.0, 8000.0

@@ -5,10 +5,10 @@ import random
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from itertools import chain
+from multiprocessing import get_all_start_methods, get_context
 from multiprocessing.pool import ThreadPool
-from typing import Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List, Tuple
 
-import lightning as L
 import torch as th
 from cinnamon.registry import RegistrationKey, Registry
 
@@ -131,30 +131,54 @@ class GenSPP(SPP):
         return self.build_optimizer([(self.predictor_parameters(), 1.0)])
 
 
-class _Batches:
-    """One stream of batches, not a collection of dataloaders.
-
-    Lightning reads a sequence of loaders as several to combine, so a plain
-    list of batches -- what a caller writes in a test, or when the batches are
-    already in memory -- has to say it is a single loader.
-    """
-
-    def __init__(self, batches: Sequence[InputData]):
-        self.batches = batches
-
-    def __iter__(self):
-        return iter(self.batches)
-
-    def __len__(self) -> int:
-        return len(self.batches)
-
-
 @dataclass
 class _Individual:
     chromosome: th.Tensor
     fitness: float
     task_loss: float
     selection_rate: float
+
+
+#: What a forked worker scores against: the trainer, and the two splits
+#: :meth:`GenSPPTrainer._fit` froze. Set before the pool is created and read
+#: after the fork, so none of it is pickled -- the batches are the whole
+#: corpus and the trainer carries a population of models.
+_WORK: Tuple["GenSPPTrainer", Any, Any] | None = None
+
+
+def _score_in_worker(item: Tuple[int, th.Tensor | None, th.device]):
+    """One candidate, in a process of its own. Module level to be picklable."""
+    if _WORK is None:  # pragma: no cover -- a worker that never forked
+        raise RuntimeError("worker started without a search to score for")
+    trainer, train_loader, val_loader = _WORK
+    _, chromosome, device = item
+    individual, model = trainer._evaluate_individual(
+        train_loader, val_loader, chromosome, device
+    )
+    return individual, trainer._trained_state(model)
+
+
+def _autograd_survives_fork() -> bool:
+    """Whether a worker can run a backward pass at all.
+
+    Torch refuses the combination once autograd has run threads in the parent,
+    and it refuses it in the **child**, when the pass is attempted, rather than
+    at the fork. So a search asks a worker to differentiate something trivial
+    before trusting it with a candidate.
+    """
+    tensor = th.zeros(1, requires_grad=True)
+    (tensor * 2).sum().backward()
+    return True
+
+
+def _one_thread_each() -> None:
+    """Torch's intra-op pool, in a worker that is already one of many.
+
+    Eight workers each taking a thread per core is sixty-four threads over
+    however many the machine has, which costs more in contention than the
+    threads can return on a model this size.
+    """
+    th.set_num_threads(1)
 
 
 class GenSPPTrainer:
@@ -214,10 +238,11 @@ class GenSPPTrainer:
         if not devices:
             raise ValueError("devices must name at least one device")
         # One worker per device, which is the same knob for both cases the
-        # search is run under: ``("cpu",) * 8`` is the released implementation's
-        # CPU thread pool, ``("cuda:0", "cuda:1")`` is a node's cards. A
-        # candidate is small enough that splitting one across devices would
-        # cost more than it saves, so a device runs a whole candidate.
+        # search is run under: ``("cpu",) * 8`` is eight candidates at once on
+        # eight cores, ``("cuda:0", "cuda:1")`` is a node's cards. A candidate
+        # is small enough that splitting one across devices would cost more
+        # than it saves, so a device runs a whole candidate. Whether a worker
+        # is a process or a thread is :meth:`_score`'s decision, not this one's.
         self.devices = [th.device(device) for device in devices]
 
         self.population: list[_Individual] = []
@@ -234,6 +259,8 @@ class GenSPPTrainer:
         self._embeddings: th.Tensor | None = None
         self._random = random.Random()
         self._torch_generator = th.Generator()
+        #: The process pool, while a search is running. See :meth:`_open_pool`.
+        self._pool = None
 
     @staticmethod
     def compute_fitness(
@@ -314,6 +341,18 @@ class GenSPPTrainer:
         self._initial_state = None
         self._embeddings = embeddings
         self._candidate()
+        self._open_pool(train_batches, val_batches)
+        try:
+            return self._search(train_batches, val_batches)
+        finally:
+            self._close_pool()
+
+    def _search(
+        self,
+        train_batches: List[InputData],
+        val_batches: List[InputData],
+    ) -> GenSPP:
+        """The search proper, with the workers open around it."""
         # Chromosomes first, drawn here from the search's own random state,
         # and scored after. Scoring cannot draw them: it does not read the
         # global generator at all, by the requirement several devices rest on,
@@ -359,6 +398,28 @@ class GenSPPTrainer:
         self._align_initial_state(model)
         return model
 
+    def _with_chromosome(self, chromosome: th.Tensor | None) -> GenSPP:
+        """A candidate carrying these genes, or the state it was built with.
+
+        ``None`` is the first candidate of a search, whose own initialisation
+        is what :meth:`_align_initial_state` then holds every later one to.
+        """
+        model = self._candidate()
+        parameters = model.generator_parameters()
+        if not parameters:
+            raise ValueError("GenSPP generator has no evolvable parameters")
+        if chromosome is None:
+            return model
+        if chromosome.numel() != sum(parameter.numel() for parameter in parameters):
+            raise ValueError("chromosome size does not match generator parameters")
+        offset = 0
+        with th.no_grad():
+            for parameter in parameters:
+                size = parameter.numel()
+                parameter.copy_(chromosome[offset : offset + size].view_as(parameter))
+                offset += size
+        return model
+
     def _founder_chromosome(self) -> th.Tensor:
         """A generator drawn at random, for a member of the first generation."""
         return self._chromosome(self._candidate()).clone()
@@ -371,11 +432,17 @@ class GenSPPTrainer:
     ) -> List[_Individual]:
         """Score candidates, one device each, and record the best of them.
 
-        Threads rather than processes, as the released implementation does:
-        the work is inside torch, which releases the GIL, and a process would
-        have to ship a model back over a pipe. A candidate takes its device
-        from its position, so a run naming one device is the sequential search
-        and pays for no pool.
+        **Processes on CPU, threads on CUDA.** A candidate is a small model,
+        so its cost is the training loop stepping from Python rather than the
+        arithmetic inside torch -- and that loop holds the GIL. Threads
+        therefore buy about 1.4x on eight workers rather than eight, and a
+        search measured on eight cores ran at 240% of a possible 800%. On CUDA
+        the picture is the other way round: the kernels do release the GIL, and
+        a process per device would pay for a CUDA context each and cannot be
+        forked from a parent that has already initialised one.
+
+        A candidate takes its device from its position, so a run naming one
+        device is the sequential search and pays for no pool at all.
         """
         work = [
             (index, chromosome, self.devices[index % len(self.devices)])
@@ -385,17 +452,20 @@ class GenSPPTrainer:
         def score(item):
             index, chromosome, device = item
             diagnostics.record("candidate", index=index, device=str(device))
-            return self._evaluate_individual(
+            individual, model = self._evaluate_individual(
                 train_loader, val_loader, chromosome, device
             )
+            return individual, self._trained_state(model)
 
         # A diagnosed search scores one candidate at a time whatever it was
         # given: the stages report in the order they run and nothing else says
-        # which candidate a line belongs to, so two threads writing at once
+        # which candidate a line belongs to, so two workers writing at once
         # produce a record of one model that never existed. The search a task
         # agrees to diagnose is a handful of candidates wide.
         if len(self.devices) == 1 or diagnostics.active():
             scored = [score(item) for item in work]
+        elif self._pool is not None:
+            scored = self._pool.map(_score_in_worker, work)
         else:
             with ThreadPool(processes=len(self.devices)) as pool:
                 scored = pool.map(score, work)
@@ -404,12 +474,97 @@ class GenSPPTrainer:
         # trainer state, and two workers improving on it at once would lose one
         # of the two.
         individuals = []
-        for individual, model in scored:
+        for individual, state in scored:
             if individual.fitness > self._best_fitness:
                 self._best_fitness = individual.fitness
-                self._best_model = model
+                self._best_model = self._restored(individual.chromosome, state)
             individuals.append(individual)
         return individuals
+
+    def _forkable(self) -> bool:
+        """Whether this search's candidates can be scored in processes.
+
+        CPU only, because a CUDA context cannot be inherited across a fork,
+        and only where the platform offers fork at all: spawning would re-import
+        and re-register everything per worker, per generation.
+        """
+        return all(device.type == "cpu" for device in self.devices) and (
+            "fork" in get_all_start_methods()
+        )
+
+    def _open_pool(
+        self, train_loader: Iterable[InputData], val_loader: Iterable[InputData]
+    ) -> None:
+        """One process per device, forked once for the whole search.
+
+        The fork is what makes this cheap: a worker reads the corpus and the
+        trainer out of inherited memory rather than over a pipe, so only a
+        chromosome goes in and a scored candidate comes back.
+
+        Forked here rather than per generation because torch refuses the
+        combination outright once autograd has run threads in the parent --
+
+            RuntimeError: Unable to handle autograd's threading in
+            combination with fork-based multiprocessing.
+
+        -- and the parent trains nothing itself, so the only clean moment is
+        before the first candidate. A caller that has already trained
+        something in this process still gets that error, in the worker and not
+        at the fork, which is why a pool is asked to differentiate something
+        trivial before it is trusted with a candidate. A pool that cannot is
+        closed, and the search falls back to the threads it used to use.
+        """
+        global _WORK
+        if len(self.devices) == 1 or diagnostics.active() or not self._forkable():
+            return
+        _WORK = (self, train_loader, val_loader)
+        try:
+            self._pool = get_context("fork").Pool(
+                processes=len(self.devices), initializer=_one_thread_each
+            )
+            self._pool.apply(_autograd_survives_fork)
+        except RuntimeError:
+            self._close_pool()
+
+    def _close_pool(self) -> None:
+        global _WORK
+        if self._pool is not None:
+            self._pool.terminate()
+            self._pool.join()
+            self._pool = None
+        _WORK = None
+
+    @staticmethod
+    def _trained_state(model: GenSPP) -> Dict[str, th.Tensor]:
+        """What descent moved in a candidate, small enough to send back.
+
+        Everything the model holds except what is frozen, which is the token
+        embedding table: GloVe at 25 dimensions over HateXplain's vocabulary
+        is megabytes, it is identical in every candidate, and
+        :meth:`_candidate` loads it from :attr:`_embeddings` anyway. The
+        generator is in the chromosome, and is kept here as well because it
+        costs the same as naming it.
+        """
+        frozen = {
+            id(parameter)
+            for parameter in model.parameters()
+            if not parameter.requires_grad
+        }
+        return {
+            name: tensor.detach().cpu()
+            for name, tensor in model.state_dict(keep_vars=True).items()
+            if id(tensor) not in frozen
+        }
+
+    def _restored(self, chromosome: th.Tensor, state: Dict[str, th.Tensor]) -> GenSPP:
+        """The scored model again, from its chromosome and what descent moved.
+
+        Rebuilt rather than kept even where the model never left this process,
+        so the search keeps one winner however its candidates were scored.
+        """
+        model = self._with_chromosome(chromosome)
+        model.load_state_dict(state, strict=False)
+        return model
 
     def _best_individual(self) -> _Individual:
         return max(self.population, key=lambda individual: individual.fitness)
@@ -442,22 +597,7 @@ class GenSPPTrainer:
         survival -- so no decision reads what scoring left behind, and
         :meth:`fit` forks the global state so a caller's is restored.
         """
-        model = self._candidate()
-        parameters = model.generator_parameters()
-        if not parameters:
-            raise ValueError("GenSPP generator has no evolvable parameters")
-        if chromosome is not None:
-            if chromosome.numel() != sum(parameter.numel() for parameter in parameters):
-                raise ValueError("chromosome size does not match generator parameters")
-            offset = 0
-            with th.no_grad():
-                for parameter in parameters:
-                    size = parameter.numel()
-                    parameter.copy_(
-                        chromosome[offset : offset + size].view_as(parameter)
-                    )
-                    offset += size
-
+        model = self._with_chromosome(chromosome)
         self._train_predictor(model, train_loader, device)
         task_loss, selection_rate = self._evaluate(model, val_loader, device)
         fitness = self.compute_fitness(
@@ -540,30 +680,6 @@ class GenSPPTrainer:
             if id(parameter) in evolving
         }
 
-    def _lightning(self, device: th.device) -> L.Trainer:
-        """A throwaway trainer for one candidate.
-
-        The search keeps nothing but the weights it ends up with, so logs,
-        checkpoints, progress bars and sanity checks are all off: a run of a
-        hundred generations builds one of these per candidate.
-        """
-        # One device, named: ``devices="auto"`` on a machine with several GPUs
-        # would spread one candidate over all of them, and the search evaluates
-        # thousands of candidates one after another.
-        cuda = device.type == "cuda"
-        return L.Trainer(
-            max_epochs=self.predictor_epochs,
-            accelerator="gpu" if cuda else device.type,
-            # One, explicitly: this trainer is already inside a worker, and
-            # a candidate spread over more of them would fight its siblings.
-            devices=[self._cuda_index(device)] if cuda else 1,
-            logger=False,
-            enable_checkpointing=False,
-            enable_progress_bar=False,
-            enable_model_summary=False,
-            num_sanity_val_steps=0,
-        )
-
     def _train_predictor(
         self, model: GenSPP, train_loader: Iterable[InputData], device: th.device
     ) -> None:
@@ -577,12 +693,20 @@ class GenSPPTrainer:
         for parameter in generator_parameters:
             parameter.requires_grad_(False)
         try:
-            batches = (
-                _Batches(train_loader)
-                if isinstance(train_loader, Sequence)
-                else train_loader
-            )
-            self._lightning(device).fit(model, train_dataloaders=batches)
+            model.to(device)
+            optimizer = model.configure_optimizers()
+            for _ in range(self.predictor_epochs):
+                model.train(True)
+                # Which puts the frozen generator back in eval mode, so its
+                # dropout does not score the same candidate two ways.
+                model.on_train_epoch_start()
+                for batch in train_loader:
+                    batch = batch.to(device)
+                    optimizer.zero_grad()
+                    loss, _ = model.compute_loss(batch, model.training_forward(batch))
+                    loss.backward()
+                    optimizer.step()
+            model.to("cpu")
         finally:
             for parameter in generator_parameters:
                 parameter.requires_grad_(True)

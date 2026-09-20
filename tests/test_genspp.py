@@ -504,11 +504,12 @@ def test_search_is_reproducible_and_keeps_only_candidate_chromosomes():
     first_model = first_search.fit(train, validation)
     # Two founders and two children scored, one build per founder to draw its
     # generator at random -- scoring cannot draw it, since no result there may
-    # read the global random state -- and one more to capture the shared
-    # initial state before any pool exists. Seven for a population of two over
-    # one generation, and the three extra are paid once per run rather than
-    # once per generation.
-    assert CountingGenSPP.instances == 7
+    # read the global random state -- one more to capture the shared initial
+    # state before any pool exists, and one per candidate that turned out to
+    # be the best so far, which the search rebuilds from its chromosome and
+    # the weights descent left on it. Everything but the four scorings is paid
+    # per run or per improvement rather than per candidate.
+    assert CountingGenSPP.instances == 9
     first_state = {
         name: value.detach().clone() for name, value in first_model.state_dict().items()
     }
@@ -712,3 +713,57 @@ def test_the_winner_says_its_generator_is_not_trained():
             model.selector_backbones.parameters(), model.selectors.parameters()
         )
     )
+
+
+def test_a_candidate_comes_back_as_a_chromosome_and_what_descent_moved():
+    """A worker in another process cannot hand a model back over a pipe.
+
+    So it hands back neither: the chromosome it was given, and the weights
+    gradient descent left on the predictor. Everything frozen is left out --
+    a GloVe table is megabytes, is the same in every candidate, and is loaded
+    from the search's own copy when the model is built again.
+    """
+    search = trainer(register_tiny_genspp(), devices=["cpu"])
+    search._embeddings = None
+    search._initial_state = None
+    search._candidate()
+    chromosome = search._founder_chromosome()
+
+    individual, scored = search._evaluate_individual(
+        [batch()], [batch()], chromosome, th.device("cpu")
+    )
+    state = search._trained_state(scored)
+    restored = search._restored(individual.chromosome, state)
+
+    assert all(
+        th.equal(value, restored.state_dict()[name])
+        for name, value in scored.state_dict().items()
+    )
+
+    # And what is frozen is left out, which on a real corpus is the embedding
+    # table. This model freezes nothing, so one is frozen here to say so.
+    model = search._candidate()
+    name, parameter = next(iter(model.named_parameters()))
+    parameter.requires_grad_(False)
+
+    assert name not in search._trained_state(model)
+
+
+def test_a_pool_that_cannot_differentiate_is_not_used():
+    """Torch refuses fork once autograd has run threads in this process.
+
+    It refuses it in the worker rather than at the fork, so a search that
+    asked no questions would fail a whole generation on it. This one asks,
+    and falls back to the threads it used to use.
+    """
+    model = register_tiny_genspp()
+    train, validation = [batch(labels=(0, 1))], [batch(labels=(0, 1))]
+    # Which runs backward passes here, and is what closes fork to us.
+    trainer(model, devices=["cpu"]).fit(train, validation)
+
+    search = trainer(model, devices=["cpu"] * 4)
+    search._open_pool(train, validation)
+
+    assert search._pool is None
+    # And the search still runs, on threads.
+    assert search.fit(train, validation) is not None
