@@ -152,10 +152,10 @@ class _Individual:
     selection_rate: float
 
 
-#: What a forked worker scores against: the trainer, and the two splits
-#: :meth:`GenSPPTrainer._fit` froze. Set before the pool is created and read
-#: after the fork, so none of it is pickled -- the batches are the whole
-#: corpus and the trainer carries a population of models.
+#: What a worker scores against: the trainer, and the two splits
+#: :meth:`GenSPPTrainer._fit` froze. Handed over once when the worker starts,
+#: so a generation costs a chromosome each way and the parent keeps no global
+#: of its own.
 _WORK: Tuple["GenSPPTrainer", Any, Any] | None = None
 
 
@@ -181,7 +181,7 @@ def _score_in_worker(item: Tuple[int, th.Tensor | None, th.device]):
 PROBE_SECONDS = 60.0
 
 
-def _autograd_survives_fork() -> bool:
+def _worker_can_train() -> bool:
     """Whether a worker can run a backward pass at all.
 
     Torch refuses the combination once autograd has run threads in the parent,
@@ -194,13 +194,15 @@ def _autograd_survives_fork() -> bool:
     return True
 
 
-def _one_thread_each() -> None:
-    """Torch's intra-op pool, in a worker that is already one of many.
+def _start_worker(trainer: "GenSPPTrainer", train_loader: Any, val_loader: Any) -> None:
+    """Take delivery of the search, once, and keep torch to one thread.
 
     Eight workers each taking a thread per core is sixty-four threads over
     however many the machine has, which costs more in contention than the
     threads can return on a model this size.
     """
+    global _WORK
+    _WORK = (trainer, train_loader, val_loader)
     th.set_num_threads(1)
 
 
@@ -545,30 +547,56 @@ class GenSPPTrainer:
 
         The probe is also what a deadlock runs into. Forking a process that
         already has threads is unsafe in general -- a child can inherit a lock
-        no thread of its own will ever release -- and nothing here can make it
-        safe. What the timeout does is bound the damage: a pool that cannot
-        answer inside :data:`PROBE_SECONDS` is abandoned for threads, rather
-        than hanging a search that is otherwise measured in hours.
+        no thread of its own will ever release.
+
+        ``forkserver`` is the start method that exists to avoid exactly that,
+        by forking workers from a small server process started clean, and it
+        cannot be used here. The registry is process-global state, built once
+        by the caller, and a worker that did not inherit it cannot build the
+        model a chromosome is for::
+
+            NotExpandedException: The registration graph has yet to be
+            expanded! Configuration retrieval is not allowed.
+
+        Rebuilding it per worker would cost seconds each and would register a
+        second copy of every configuration, which is the failure this project
+        already carries a cinnamon floor for. Inheriting memory is what makes
+        these workers correct, not merely cheap.
+
+        So the risk is bounded rather than removed. The timeout is the bound:
+        a pool that cannot answer inside :data:`PROBE_SECONDS` -- deadlocked,
+        or on a node out of memory or descriptors -- is abandoned for threads,
+        rather than hanging a search otherwise measured in hours. What it does
+        not reach is a parent that hangs inside ``fork`` itself. Measured
+        against that: a search opens its pool with one Python thread running,
+        torch's being native, which is why CPython's own warning about forking
+        a multi-threaded process does not fire outside a test runner that adds
+        threads of its own.
         """
-        global _WORK
         if len(self.devices) == 1 or diagnostics.active() or not self._forkable():
             return
-        _WORK = (self, train_loader, val_loader)
         try:
+            # Handed to the workers rather than left to inheritance, so a
+            # launch that fails leaves no global here holding the corpus.
+            # `self` is pickled by this call, which is why nothing holds the
+            # pool yet.
             self._pool = get_context("fork").Pool(
-                processes=len(self.devices), initializer=_one_thread_each
+                processes=len(self.devices),
+                initializer=_start_worker,
+                initargs=(self, train_loader, val_loader),
             )
-            self._pool.apply_async(_autograd_survives_fork).get(timeout=PROBE_SECONDS)
+            self._pool.apply_async(_worker_can_train).get(timeout=PROBE_SECONDS)
         except (RuntimeError, OSError, TimeoutError, MPTimeoutError):
             self._close_pool()
 
     def _close_pool(self) -> None:
-        global _WORK
+        # Joined rather than left to the collector: `peak_memory` reads
+        # `RUSAGE_CHILDREN`, which stays at zero until a child is reaped, and
+        # a run's cost is measured as soon as its search returns.
         if self._pool is not None:
             self._pool.terminate()
             self._pool.join()
             self._pool = None
-        _WORK = None
 
     @staticmethod
     def _trained_state(model: GenSPP) -> Dict[str, th.Tensor]:

@@ -770,7 +770,7 @@ def test_a_pool_that_cannot_differentiate_is_not_used(monkeypatch):
     autograd's threads depends on what else has run in the process, so a test
     that trained something first would assert it on some runs and not others.
     """
-    monkeypatch.setattr(genspp, "_autograd_survives_fork", _refuses_to_differentiate)
+    monkeypatch.setattr(genspp, "_worker_can_train", _refuses_to_differentiate)
     model = register_tiny_genspp()
     train, validation = [batch(labels=(0, 1))], [batch(labels=(0, 1))]
 
@@ -845,7 +845,7 @@ def test_a_pool_that_fails_to_launch_leaves_nothing_behind(monkeypatch):
     is left with no pool, no workers and nothing holding the corpus it was
     about to hand them.
     """
-    monkeypatch.setattr(genspp, "_autograd_survives_fork", _refuses_to_fork)
+    monkeypatch.setattr(genspp, "_worker_can_train", _refuses_to_fork)
     model = register_tiny_genspp()
     train, validation = [batch(labels=(0, 1))], [batch(labels=(0, 1))]
 
