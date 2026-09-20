@@ -217,6 +217,7 @@ class GenSPPTrainer:
         selection_rate: float = 0.5,
         mutation_probability: float = 1.0,
         mutation_std: float = 0.05,
+        threshold_mutation_std: float | None = None,
         predictor_epochs: int = 3,
         task_loss_limit: float = 0.1,
         stop_threshold: float = 0.01,
@@ -239,6 +240,12 @@ class GenSPPTrainer:
             raise ValueError("mutation_probability must be in (0, 1]")
         if not math.isfinite(mutation_std) or mutation_std <= 0:
             raise ValueError("mutation_std must be finite and greater than zero")
+        if threshold_mutation_std is not None and (
+            not math.isfinite(threshold_mutation_std) or threshold_mutation_std <= 0
+        ):
+            raise ValueError(
+                "threshold_mutation_std must be finite and greater than zero"
+            )
         if predictor_epochs < 1:
             raise ValueError("predictor_epochs must be positive")
         if not math.isfinite(task_loss_limit) or task_loss_limit < 0:
@@ -256,6 +263,19 @@ class GenSPPTrainer:
         self.selection_rate = selection_rate
         self.mutation_probability = mutation_probability
         self.mutation_std = mutation_std
+        #: Standard deviation of the perturbation a mutation applies to the
+        #: selector's decision threshold, or ``None`` to perturb it at
+        #: ``mutation_std`` like every other gene.
+        #:
+        #: The threshold is the head's output bias. A head emitting two
+        #: logits decides on their difference, so perturbing both at ``s``
+        #: gives the threshold a perturbation of ``s * sqrt(2)``; this
+        #: parameter names the standard deviation of that difference and the
+        #: per-gene value is derived from it. The released GenSPP sets it to
+        #: 0.10 against a 0.05 elsewhere, which its paper does not report, so
+        #: the default here follows the paper and a reproduction of the
+        #: release sets this instead.
+        self.threshold_mutation_std = threshold_mutation_std
         self.predictor_epochs = predictor_epochs
         self.task_loss_limit = task_loss_limit
         self.stop_threshold = stop_threshold
@@ -286,6 +306,10 @@ class GenSPPTrainer:
         self._torch_generator = th.Generator()
         #: The process pool, while a search is running. See :meth:`_open_pool`.
         self._pool = None
+        #: Trailing genes carrying the decision threshold, counted off the
+        #: first candidate in :meth:`_fit`. Zero until then, so a mutation
+        #: outside a search treats every gene alike.
+        self._threshold_genes = 0
 
     @staticmethod
     def compute_fitness(
@@ -371,7 +395,7 @@ class GenSPPTrainer:
         # could both find it unset and each install its own model's state.
         self._initial_state = None
         self._embeddings = embeddings
-        self._candidate()
+        self._threshold_genes = self._count_threshold_genes(self._candidate())
         try:
             self._open_pool(train_batches, val_batches)
             return self._search(train_batches, val_batches)
@@ -885,19 +909,40 @@ class GenSPPTrainer:
             th.cat((chromosome_2[:point], chromosome_1[point:])),
         )
 
+    @staticmethod
+    def _count_threshold_genes(model: GenSPP) -> int:
+        """How many trailing genes carry the selector's decision threshold.
+
+        The threshold is the output bias of the last selector head, which is
+        the last entry of the flattened chromosome. A head without a bias has
+        no threshold gene, and :meth:`_mutate` then has nothing to treat
+        separately.
+        """
+        last = model.generator_parameters()[-1]
+        return last.numel() if last.dim() == 1 else 0
+
     def _mutate(self, chromosome: th.Tensor) -> th.Tensor:
         """Gaussian noise on a share of the genes, in place of a resample.
 
         ``mutation_probability`` is per gene and defaults to 1.0, so every
         gene is perturbed: the release mutates the whole chromosome and relies
         on ``mutation_std`` being small to keep a child near its parents.
+
+        ``threshold_mutation_std`` gives the trailing threshold genes a
+        standard deviation of their own. It names the perturbation of the
+        threshold rather than of one gene, so it is divided by the square root
+        of how many genes carry it.
         """
         selected = (
             th.rand(chromosome.shape, generator=self._torch_generator)
             < self.mutation_probability
         )
         noise = th.randn(chromosome.shape, generator=self._torch_generator)
-        return chromosome + selected.to(chromosome.dtype) * noise * self.mutation_std
+        deviation = th.full_like(chromosome, self.mutation_std)
+        genes = self._threshold_genes
+        if self.threshold_mutation_std is not None and genes:
+            deviation[-genes:] = self.threshold_mutation_std / math.sqrt(genes)
+        return chromosome + selected.to(chromosome.dtype) * noise * deviation
 
     @staticmethod
     def _chromosome(model: GenSPP) -> th.Tensor:

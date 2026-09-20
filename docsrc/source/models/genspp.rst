@@ -122,6 +122,11 @@ Two keys per backbone here, since the model and its search are registered separa
 The defaults are the release's:
 ``100`` generations over a population of ``50``, ``3`` predictor epochs per candidate, a mutation standard deviation of ``0.05``, and one CPU worker.
 
+One deviation is deliberate.
+The release mutates the selector's output bias at ``0.10`` while every other gene takes ``0.05``, which its paper does not report: the paper gives a single ``N(0.0, 0.05)``.
+The default here follows the paper, and ``threshold_mutation_std`` sets the threshold's own deviation for a reproduction that needs the release's behaviour.
+It names the deviation of the threshold rather than of one gene, since a head emitting two logits decides on their difference and two genes perturbed at ``s`` give that difference ``s * sqrt(2)``.
+
 .. code-block:: python
 
    from pyhighlights.configurations.keys import GRU_GENSPP_TRAINER

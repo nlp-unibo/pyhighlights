@@ -496,6 +496,51 @@ def test_fitness_genetic_operators_and_survival_match_contract():
     assert candidates[-1] in survivors
 
 
+def test_threshold_genes_take_their_own_deviation():
+    """The decision threshold can be mutated apart from the rest.
+
+    The released GenSPP gives the selector's output bias a standard deviation
+    of 0.10 against 0.05 for every other gene. A head emitting two logits
+    decides on their difference, so the parameter names the deviation of that
+    difference and the per-gene value is derived from it.
+    """
+    search = trainer(register_tiny_genspp(), mutation_probability=1.0)
+    chromosome = th.zeros(64)
+
+    # The count comes off a real candidate rather than an assumption about
+    # where the bias sits: the head emits two logits, so it is the last two.
+    model = search._candidate()
+    assert model.generator_parameters()[-1].shape == (2,)
+    assert GenSPPTrainer._count_threshold_genes(model) == 2
+
+    # Left unset, every gene is perturbed alike and the threshold inherits
+    # the square root of two that two independent genes give it.
+    search._threshold_genes = 2
+    search._torch_generator.manual_seed(11)
+    draws = th.stack([search._mutate(chromosome) for _ in range(4000)])
+    assert draws[:, :-2].std().item() == pytest.approx(0.05, abs=0.002)
+    threshold = draws[:, -2] - draws[:, -1]
+    assert threshold.std().item() == pytest.approx(0.05 * math.sqrt(2), abs=0.004)
+
+    # Set, the threshold reaches the deviation asked for and the rest of the
+    # chromosome is untouched.
+    search.threshold_mutation_std = 0.10
+    search._torch_generator.manual_seed(11)
+    draws = th.stack([search._mutate(chromosome) for _ in range(4000)])
+    assert draws[:, :-2].std().item() == pytest.approx(0.05, abs=0.002)
+    threshold = draws[:, -2] - draws[:, -1]
+    assert threshold.std().item() == pytest.approx(0.10, abs=0.005)
+
+    # A head carrying no bias has no threshold gene to treat separately.
+    search._threshold_genes = 0
+    search._torch_generator.manual_seed(11)
+    draws = th.stack([search._mutate(chromosome) for _ in range(2000)])
+    assert draws.std().item() == pytest.approx(0.05, abs=0.002)
+
+    with pytest.raises(ValueError, match="threshold_mutation_std"):
+        trainer(register_tiny_genspp(), threshold_mutation_std=0.0)
+
+
 def test_search_is_reproducible_and_keeps_only_candidate_chromosomes():
     model_key = register_tiny_genspp()
     train = [batch(labels=(0, 0))]
