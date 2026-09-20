@@ -555,6 +555,25 @@ def test_threshold_genes_take_their_own_deviation():
         trainer(register_tiny_genspp(), threshold_mutation_std=0.0)
 
 
+def test_a_candidate_refuses_genes_it_cannot_carry(monkeypatch):
+    """Both ways a chromosome can fail to describe the searched model.
+
+    One build serves the search's two needs, a fresh candidate and a candidate
+    carrying given genes, so the checks that used to guard only the second now
+    run on every build.
+    """
+    search = trainer(register_tiny_genspp())
+
+    with pytest.raises(ValueError, match="chromosome size"):
+        search._candidate(th.zeros(3))
+
+    # A fresh search, since the one above has already recorded an initial
+    # state and would refuse the patched model for disagreeing with it.
+    monkeypatch.setattr(CountingGenSPP, "generator_parameters", lambda self: [])
+    with pytest.raises(ValueError, match="no evolvable parameters"):
+        trainer(register_tiny_genspp())._candidate()
+
+
 def test_threshold_genes_come_from_the_selector_not_from_position():
     """A selector that declares no threshold has none, whatever sits last.
 

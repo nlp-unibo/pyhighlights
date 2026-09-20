@@ -427,7 +427,8 @@ class GenSPPTrainer:
         for generation in range(self.n_generations):
             diagnostics.record("generation", index=generation)
             self._run_generation(train_batches, val_batches)
-            best_loss = 1.0 / self._best_individual().fitness
+            best = max(self.population, key=lambda individual: individual.fitness)
+            best_loss = 1.0 / best.fitness
             self.training_progress.append(best_loss)
             if best_loss <= self.stop_threshold:
                 break
@@ -446,27 +447,21 @@ class GenSPPTrainer:
             parameter.requires_grad_(False)
         return self._best_model
 
-    def _candidate(self) -> GenSPP:
-        """One model of the searched key, ready to carry a chromosome.
+    def _candidate(self, chromosome: th.Tensor | None = None) -> GenSPP:
+        """One model of the searched key, carrying these genes if given any.
 
         The embedding table is loaded before the shared state is aligned,
         because the table is part of that shared state: a candidate built
         after the first would otherwise be asked to load a state dict whose
         embedding has a different number of rows.
+
+        ``None`` is the first candidate of a search, whose own initialisation
+        is what :meth:`_align_initial_state` then holds every later one to.
         """
         model = Registry.from_key(self.model, expected_type=GenSPP)
         if self._embeddings is not None:
             model.load_embeddings(self._embeddings)
         self._align_initial_state(model)
-        return model
-
-    def _with_chromosome(self, chromosome: th.Tensor | None) -> GenSPP:
-        """A candidate carrying these genes, or the state it was built with.
-
-        ``None`` is the first candidate of a search, whose own initialisation
-        is what :meth:`_align_initial_state` then holds every later one to.
-        """
-        model = self._candidate()
         parameters = model.generator_parameters()
         if not parameters:
             raise ValueError("GenSPP generator has no evolvable parameters")
@@ -669,12 +664,9 @@ class GenSPPTrainer:
         Rebuilt rather than kept even where the model never left this process,
         so the search keeps one winner however its candidates were scored.
         """
-        model = self._with_chromosome(chromosome)
+        model = self._candidate(chromosome)
         model.load_state_dict(state, strict=False)
         return model
-
-    def _best_individual(self) -> _Individual:
-        return max(self.population, key=lambda individual: individual.fitness)
 
     def _evaluate_individual(
         self,
@@ -704,7 +696,7 @@ class GenSPPTrainer:
         survival -- so no decision reads what scoring left behind, and
         :meth:`fit` forks the global state so a caller's is restored.
         """
-        model = self._with_chromosome(chromosome)
+        model = self._candidate(chromosome)
         self._train_predictor(model, train_loader, device)
         task_loss, selection_rate = self._evaluate(model, val_loader, device)
         fitness = self.compute_fitness(
@@ -731,14 +723,12 @@ class GenSPPTrainer:
         # race between workers on `_best_fitness`.
         return individual, model
 
-    @staticmethod
-    def _cuda_index(device: th.device) -> int:
-        return device.index if device.index is not None else th.cuda.current_device()
-
     def _cuda_indices(self) -> list[int]:
         """The CUDA devices `fork_rng` has to save, which may be none."""
         return [
-            self._cuda_index(device) for device in self.devices if device.type == "cuda"
+            device.index if device.index is not None else th.cuda.current_device()
+            for device in self.devices
+            if device.type == "cuda"
         ]
 
     def _align_initial_state(self, model: GenSPP) -> None:
