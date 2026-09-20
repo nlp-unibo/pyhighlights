@@ -466,10 +466,20 @@ def test_a_diverged_candidate_is_refused_where_it_diverged():
         search.fit([batch()], [batch()])
 
 
-def test_search_rejects_single_pass_loaders():
-    search = trainer(register_tiny_genspp())
-    with pytest.raises(ValueError, match="re-iterable"):
-        search.fit(iter([batch()]), [batch()])
+def test_search_reads_each_split_once_and_needs_both():
+    """A single-pass loader is enough, and an empty split is not.
+
+    Both splits are materialised before anything scores a candidate, so the
+    search never asks a loader for a second pass. What it cannot do without is
+    a batch on either side: validation with none would divide a summed loss by
+    zero and hand the search a fitness rather than an error.
+    """
+    search = trainer(register_tiny_genspp(), n_generations=1)
+    assert search.fit(iter([batch()]), iter([batch()])) is not None
+
+    for train, validation in (([], [batch()]), ([batch()], [])):
+        with pytest.raises(ValueError, match="at least one batch"):
+            trainer(register_tiny_genspp()).fit(train, validation)
 
 
 def test_fitness_genetic_operators_and_survival_match_contract():

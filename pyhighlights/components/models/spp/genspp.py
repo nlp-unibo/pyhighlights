@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 import random
-from collections.abc import Iterator, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from itertools import chain
 from multiprocessing import TimeoutError as MPTimeoutError
@@ -360,9 +360,6 @@ class GenSPPTrainer:
         same table, before :meth:`_align_initial_state` sees it, so it is
         shared state rather than part of a chromosome.
         """
-        if isinstance(train_loader, Iterator) or isinstance(val_loader, Iterator):
-            raise ValueError("train and validation loaders must be re-iterable")
-
         with th.random.fork_rng(devices=self._cuda_indices()):
             return self._fit(train_loader, val_loader, embeddings)
 
@@ -396,6 +393,8 @@ class GenSPPTrainer:
         val_batches = list(val_loader)
         if not train_batches:
             raise ValueError("training loader must contain at least one batch")
+        if not val_batches:
+            raise ValueError("validation loader must contain at least one batch")
 
         self._best_model = None
         self._best_fitness = -math.inf
