@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 import random
-from collections.abc import Iterator, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from itertools import chain
 from multiprocessing import TimeoutError as MPTimeoutError
@@ -182,15 +182,23 @@ PROBE_SECONDS = 60.0
 
 
 def _worker_can_train() -> bool:
-    """Whether a worker can run a backward pass at all.
+    """Whether a worker can train at all.
 
     Torch refuses the combination once autograd has run threads in the parent,
     and it refuses it in the **child**, when the pass is attempted, rather than
-    at the fork. So a search asks a worker to differentiate something trivial
-    before trusting it with a candidate.
+    at the fork. So a search asks a worker to train something trivial before
+    trusting it with a candidate.
+
+    The probe descends as well as differentiates. An optimizer step reaches
+    torch's accelerator health check, which asks the current accelerator for
+    its stream and so initialises CUDA even for parameters that live on the
+    CPU. In a forked child that raises, and a probe that only ran backward
+    would pass and leave the first real candidate to fail.
     """
-    tensor = th.zeros(1, requires_grad=True)
-    (tensor * 2).sum().backward()
+    parameter = th.nn.Parameter(th.zeros(1))
+    optimizer = th.optim.Adam([parameter])
+    (parameter * 2).sum().backward()
+    optimizer.step()
     return True
 
 
@@ -217,6 +225,7 @@ class GenSPPTrainer:
         selection_rate: float = 0.5,
         mutation_probability: float = 1.0,
         mutation_std: float = 0.05,
+        threshold_mutation_std: float | None = None,
         predictor_epochs: int = 3,
         task_loss_limit: float = 0.1,
         stop_threshold: float = 0.01,
@@ -239,6 +248,12 @@ class GenSPPTrainer:
             raise ValueError("mutation_probability must be in (0, 1]")
         if not math.isfinite(mutation_std) or mutation_std <= 0:
             raise ValueError("mutation_std must be finite and greater than zero")
+        if threshold_mutation_std is not None and (
+            not math.isfinite(threshold_mutation_std) or threshold_mutation_std <= 0
+        ):
+            raise ValueError(
+                "threshold_mutation_std must be finite and greater than zero"
+            )
         if predictor_epochs < 1:
             raise ValueError("predictor_epochs must be positive")
         if not math.isfinite(task_loss_limit) or task_loss_limit < 0:
@@ -256,6 +271,19 @@ class GenSPPTrainer:
         self.selection_rate = selection_rate
         self.mutation_probability = mutation_probability
         self.mutation_std = mutation_std
+        #: Standard deviation of the perturbation a mutation applies to the
+        #: selector's decision threshold, or ``None`` to perturb it at
+        #: ``mutation_std`` like every other gene.
+        #:
+        #: The threshold is the head's output bias. A head emitting two
+        #: logits decides on their difference, so perturbing both at ``s``
+        #: gives the threshold a perturbation of ``s * sqrt(2)``; this
+        #: parameter names the standard deviation of that difference and the
+        #: per-gene value is derived from it. The released GenSPP sets it to
+        #: 0.10 against a 0.05 elsewhere, which its paper does not report, so
+        #: the default here follows the paper and a reproduction of the
+        #: release sets this instead.
+        self.threshold_mutation_std = threshold_mutation_std
         self.predictor_epochs = predictor_epochs
         self.task_loss_limit = task_loss_limit
         self.stop_threshold = stop_threshold
@@ -286,6 +314,10 @@ class GenSPPTrainer:
         self._torch_generator = th.Generator()
         #: The process pool, while a search is running. See :meth:`_open_pool`.
         self._pool = None
+        #: Trailing genes carrying the decision threshold, counted off the
+        #: first candidate in :meth:`_fit`. Zero until then, so a mutation
+        #: outside a search treats every gene alike.
+        self._threshold_genes = 0
 
     @staticmethod
     def compute_fitness(
@@ -328,9 +360,6 @@ class GenSPPTrainer:
         same table, before :meth:`_align_initial_state` sees it, so it is
         shared state rather than part of a chromosome.
         """
-        if isinstance(train_loader, Iterator) or isinstance(val_loader, Iterator):
-            raise ValueError("train and validation loaders must be re-iterable")
-
         with th.random.fork_rng(devices=self._cuda_indices()):
             return self._fit(train_loader, val_loader, embeddings)
 
@@ -364,6 +393,8 @@ class GenSPPTrainer:
         val_batches = list(val_loader)
         if not train_batches:
             raise ValueError("training loader must contain at least one batch")
+        if not val_batches:
+            raise ValueError("validation loader must contain at least one batch")
 
         self._best_model = None
         self._best_fitness = -math.inf
@@ -371,7 +402,7 @@ class GenSPPTrainer:
         # could both find it unset and each install its own model's state.
         self._initial_state = None
         self._embeddings = embeddings
-        self._candidate()
+        self._threshold_genes = self._count_threshold_genes(self._candidate())
         try:
             self._open_pool(train_batches, val_batches)
             return self._search(train_batches, val_batches)
@@ -518,9 +549,18 @@ class GenSPPTrainer:
         CPU only, because a CUDA context cannot be inherited across a fork,
         and only where the platform offers fork at all: spawning would re-import
         and re-register everything per worker, per generation.
+
+        A parent that has already initialised CUDA rules out fork even when
+        every device here is a CPU one. Torch marks such a child as forked from
+        a CUDA process and refuses to initialise CUDA in it, and an optimizer
+        step initialises CUDA whenever an accelerator is present, whatever the
+        parameters sit on. A task that trains on a GPU around the search
+        therefore leaves the search on threads.
         """
-        return all(device.type == "cpu" for device in self.devices) and (
-            "fork" in get_all_start_methods()
+        return (
+            all(device.type == "cpu" for device in self.devices)
+            and "fork" in get_all_start_methods()
+            and not th.cuda.is_initialized()
         )
 
     def _open_pool(
@@ -885,19 +925,53 @@ class GenSPPTrainer:
             th.cat((chromosome_2[:point], chromosome_1[point:])),
         )
 
+    @staticmethod
+    def _count_threshold_genes(model: GenSPP) -> int:
+        """How many trailing genes carry the selectors' decision threshold.
+
+        The selectors name those parameters through
+        :meth:`~pyhighlights.components.models.spp.base.SPPSelector.threshold_parameters`.
+        Counted here are the ones that land at the end of the flattened
+        chromosome, because :meth:`_mutate` gives its own deviation to a
+        trailing slice of that vector. A selector that keeps its threshold
+        anywhere else, or that declares none, contributes nothing and is
+        searched with one deviation throughout -- rather than having whatever
+        parameter happens to be last mutated in its place.
+        """
+        declared = {
+            id(parameter)
+            for selector in model.selectors
+            for parameter in selector.threshold_parameters()
+        }
+        genes = 0
+        for parameter in reversed(model.generator_parameters()):
+            if id(parameter) not in declared:
+                break
+            genes += parameter.numel()
+        return genes
+
     def _mutate(self, chromosome: th.Tensor) -> th.Tensor:
         """Gaussian noise on a share of the genes, in place of a resample.
 
         ``mutation_probability`` is per gene and defaults to 1.0, so every
         gene is perturbed: the release mutates the whole chromosome and relies
         on ``mutation_std`` being small to keep a child near its parents.
+
+        ``threshold_mutation_std`` gives the trailing threshold genes a
+        standard deviation of their own. It names the perturbation of the
+        threshold rather than of one gene, so it is divided by the square root
+        of how many genes carry it.
         """
         selected = (
             th.rand(chromosome.shape, generator=self._torch_generator)
             < self.mutation_probability
         )
         noise = th.randn(chromosome.shape, generator=self._torch_generator)
-        return chromosome + selected.to(chromosome.dtype) * noise * self.mutation_std
+        deviation = th.full_like(chromosome, self.mutation_std)
+        genes = self._threshold_genes
+        if self.threshold_mutation_std is not None and genes:
+            deviation[-genes:] = self.threshold_mutation_std / math.sqrt(genes)
+        return chromosome + selected.to(chromosome.dtype) * noise * deviation
 
     @staticmethod
     def _chromosome(model: GenSPP) -> th.Tensor:

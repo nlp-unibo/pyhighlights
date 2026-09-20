@@ -16,6 +16,7 @@ from pyhighlights.components.models import InputData
 from pyhighlights.components.models.spp import (
     GenSPP,
     GenSPPTrainer,
+    MLPSelector,
     SPPBackbone,
     SPPPredictor,
     SPPSelector,
@@ -57,6 +58,9 @@ class TinySelector(SPPSelector):
 
     def forward(self, states: th.Tensor) -> th.Tensor:
         return self.linear(states)
+
+    def threshold_parameters(self) -> List[th.nn.Parameter]:
+        return [self.linear.bias]
 
 
 class TinyPredictor(SPPPredictor):
@@ -462,10 +466,20 @@ def test_a_diverged_candidate_is_refused_where_it_diverged():
         search.fit([batch()], [batch()])
 
 
-def test_search_rejects_single_pass_loaders():
-    search = trainer(register_tiny_genspp())
-    with pytest.raises(ValueError, match="re-iterable"):
-        search.fit(iter([batch()]), [batch()])
+def test_search_reads_each_split_once_and_needs_both():
+    """A single-pass loader is enough, and an empty split is not.
+
+    Both splits are materialised before anything scores a candidate, so the
+    search never asks a loader for a second pass. What it cannot do without is
+    a batch on either side: validation with none would divide a summed loss by
+    zero and hand the search a fitness rather than an error.
+    """
+    search = trainer(register_tiny_genspp(), n_generations=1)
+    assert search.fit(iter([batch()]), iter([batch()])) is not None
+
+    for train, validation in (([], [batch()]), ([batch()], [])):
+        with pytest.raises(ValueError, match="at least one batch"):
+            trainer(register_tiny_genspp()).fit(train, validation)
 
 
 def test_fitness_genetic_operators_and_survival_match_contract():
@@ -494,6 +508,83 @@ def test_fitness_genetic_operators_and_survival_match_contract():
     survivors = search._select_survivors(candidates)
     assert len(survivors) == search.population_size
     assert candidates[-1] in survivors
+
+
+def test_threshold_genes_take_their_own_deviation():
+    """The decision threshold can be mutated apart from the rest.
+
+    The released GenSPP gives the selector's output bias a standard deviation
+    of 0.10 against 0.05 for every other gene. A head emitting two logits
+    decides on their difference, so the parameter names the deviation of that
+    difference and the per-gene value is derived from it.
+    """
+    search = trainer(register_tiny_genspp(), mutation_probability=1.0)
+    chromosome = th.zeros(64)
+
+    # The count comes off a real candidate rather than an assumption about
+    # where the bias sits: the head emits two logits, so it is the last two.
+    model = search._candidate()
+    assert model.generator_parameters()[-1].shape == (2,)
+    assert GenSPPTrainer._count_threshold_genes(model) == 2
+
+    # Left unset, every gene is perturbed alike and the threshold inherits
+    # the square root of two that two independent genes give it.
+    search._threshold_genes = 2
+    search._torch_generator.manual_seed(11)
+    draws = th.stack([search._mutate(chromosome) for _ in range(4000)])
+    assert draws[:, :-2].std().item() == pytest.approx(0.05, abs=0.002)
+    threshold = draws[:, -2] - draws[:, -1]
+    assert threshold.std().item() == pytest.approx(0.05 * math.sqrt(2), abs=0.004)
+
+    # Set, the threshold reaches the deviation asked for and the rest of the
+    # chromosome is untouched.
+    search.threshold_mutation_std = 0.10
+    search._torch_generator.manual_seed(11)
+    draws = th.stack([search._mutate(chromosome) for _ in range(4000)])
+    assert draws[:, :-2].std().item() == pytest.approx(0.05, abs=0.002)
+    threshold = draws[:, -2] - draws[:, -1]
+    assert threshold.std().item() == pytest.approx(0.10, abs=0.005)
+
+    # A head carrying no bias has no threshold gene to treat separately.
+    search._threshold_genes = 0
+    search._torch_generator.manual_seed(11)
+    draws = th.stack([search._mutate(chromosome) for _ in range(2000)])
+    assert draws.std().item() == pytest.approx(0.05, abs=0.002)
+
+    with pytest.raises(ValueError, match="threshold_mutation_std"):
+        trainer(register_tiny_genspp(), threshold_mutation_std=0.0)
+
+
+def test_threshold_genes_come_from_the_selector_not_from_position():
+    """A selector that declares no threshold has none, whatever sits last.
+
+    The count used to read the last generator parameter and call it the
+    output bias. That holds for `MLPSelector` and for nothing the family
+    promises: any other selector ending in a one-dimensional parameter would
+    have had it mutated as though it were the decision threshold, silently.
+    """
+    bias = th.nn.Parameter(th.zeros(2))
+    weight = th.nn.Parameter(th.zeros(3, 4))
+    declaring = SimpleNamespace(threshold_parameters=lambda: [bias])
+    silent = SimpleNamespace(threshold_parameters=lambda: [])
+
+    def model(selector, parameters):
+        return SimpleNamespace(
+            selectors=[selector], generator_parameters=lambda: parameters
+        )
+
+    assert GenSPPTrainer._count_threshold_genes(model(declaring, [weight, bias])) == 2
+    assert GenSPPTrainer._count_threshold_genes(model(silent, [weight, bias])) == 0
+
+    # Declared but not last. Mutation gives its deviation to a trailing slice
+    # of the chromosome, so a threshold sitting anywhere else takes the shared
+    # one rather than moving whatever does sit at the end.
+    assert GenSPPTrainer._count_threshold_genes(model(declaring, [bias, weight])) == 0
+
+    # And the selector the reproduction actually searches declares the bias of
+    # its output layer, which the head's two logits are read off.
+    shipped = MLPSelector(input_size=4, hidden_sizes=[3])
+    assert shipped.threshold_parameters() == [shipped.selector[-1].bias]
 
 
 def test_search_is_reproducible_and_keeps_only_candidate_chromosomes():
@@ -781,6 +872,41 @@ def test_a_pool_that_cannot_differentiate_is_not_used(monkeypatch):
     assert genspp._WORK is None
     # And the search still runs, on threads.
     assert search.fit(train, validation) is not None
+
+
+def test_a_cuda_parent_keeps_the_search_on_threads(monkeypatch):
+    """A parent that has touched CUDA cannot fork a worker that trains.
+
+    Torch marks the child of a CUDA-initialised process and refuses to
+    initialise CUDA in it. An optimizer step reaches torch's accelerator
+    health check, which asks the current accelerator for its stream, so it
+    initialises CUDA even for parameters on the CPU. The candidate therefore
+    dies in the worker although every device here is a CPU one, which is why
+    the parent's CUDA state rules fork out before a pool is opened.
+    """
+    search = trainer(register_tiny_genspp(), devices=["cpu"] * 4)
+    monkeypatch.setattr(th.cuda, "is_initialized", lambda: False)
+    assert search._forkable() is True
+    monkeypatch.setattr(th.cuda, "is_initialized", lambda: True)
+    assert search._forkable() is False
+
+
+def test_the_worker_probe_descends_as_well_as_differentiates(monkeypatch):
+    """The probe has to fail wherever a candidate would.
+
+    A probe that only ran backward passed on a CUDA host and left the first
+    real candidate to raise ``Cannot re-initialize CUDA in forked
+    subprocess`` from ``optimizer.step``. The step is part of the probe for
+    that reason, and this pins it there.
+    """
+    assert genspp._worker_can_train() is True
+
+    def refuse(self, *arguments, **keywords):
+        raise RuntimeError("Cannot re-initialize CUDA in forked subprocess")
+
+    monkeypatch.setattr(th.optim.Adam, "step", refuse)
+    with pytest.raises(RuntimeError, match="re-initialize CUDA"):
+        genspp._worker_can_train()
 
 
 def test_a_frozen_predictor_backbone_does_not_drop_while_a_candidate_trains():

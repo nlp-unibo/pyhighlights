@@ -60,6 +60,19 @@ class SPPSelector(th.nn.Module, abc.ABC):
     def forward(self, states: th.Tensor) -> th.Tensor:
         """Return selection logits shaped [B, T, 2]."""
 
+    def threshold_parameters(self) -> List[th.nn.Parameter]:
+        """The parameters that move the selection decision, if any.
+
+        A selector whose logits end in an affine map has one: the output bias,
+        which shifts the boundary between selecting a token and leaving it.
+        :class:`~pyhighlights.components.models.spp.genspp.GenSPPTrainer`
+        mutates these genes with a deviation of their own when it is given
+        one. The default is empty, so a selector that cannot say which of its
+        parameters carry the decision is searched with a single deviation
+        throughout rather than with a guess about its parameter order.
+        """
+        return []
+
 
 class SPPPredictor(th.nn.Module, abc.ABC):
     @abc.abstractmethod

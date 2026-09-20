@@ -271,6 +271,10 @@ class MLPSelector(SPPSelector):
     def forward(self, states: th.Tensor) -> th.Tensor:
         return self.selector(states)
 
+    def threshold_parameters(self) -> List[th.nn.Parameter]:
+        bias = self.selector[-1].bias
+        return [] if bias is None else [bias]
+
 
 class MLPPredictor(SPPPredictor):
     def __init__(self, input_size: int, hidden_sizes: List[int], num_classes: int):
