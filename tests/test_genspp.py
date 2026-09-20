@@ -19,6 +19,7 @@ from pyhighlights.components.models.spp import (
     SPPBackbone,
     SPPPredictor,
     SPPSelector,
+    genspp,
 )
 from pyhighlights.components.models.spp.genspp import _Individual
 from pyhighlights.configurations.keys import GRU_GENSPP, GRU_GENSPP_TRAINER
@@ -749,21 +750,34 @@ def test_a_candidate_comes_back_as_a_chromosome_and_what_descent_moved():
     assert name not in search._trained_state(model)
 
 
-def test_a_pool_that_cannot_differentiate_is_not_used():
-    """Torch refuses fork once autograd has run threads in this process.
+def _refuses_to_differentiate() -> bool:
+    """What a worker does when torch has closed fork to this process."""
+    raise RuntimeError(
+        "Unable to handle autograd's threading in combination with "
+        "fork-based multiprocessing."
+    )
 
-    It refuses it in the worker rather than at the fork, so a search that
-    asked no questions would fail a whole generation on it. This one asks,
-    and falls back to the threads it used to use.
+
+def test_a_pool_that_cannot_differentiate_is_not_used(monkeypatch):
+    """Torch refuses fork once autograd has run threads in the parent.
+
+    It refuses in the worker rather than at the fork, so a search that asked
+    no questions would lose a whole generation to it. This one asks, and a
+    pool that cannot answer is closed and replaced by the threads the search
+    used to use.
+
+    The refusal is forced here rather than provoked: whether torch has started
+    autograd's threads depends on what else has run in the process, so a test
+    that trained something first would assert it on some runs and not others.
     """
+    monkeypatch.setattr(genspp, "_autograd_survives_fork", _refuses_to_differentiate)
     model = register_tiny_genspp()
     train, validation = [batch(labels=(0, 1))], [batch(labels=(0, 1))]
-    # Which runs backward passes here, and is what closes fork to us.
-    trainer(model, devices=["cpu"]).fit(train, validation)
 
     search = trainer(model, devices=["cpu"] * 4)
     search._open_pool(train, validation)
 
     assert search._pool is None
+    assert genspp._WORK is None
     # And the search still runs, on threads.
     assert search.fit(train, validation) is not None
