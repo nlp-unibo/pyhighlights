@@ -333,6 +333,29 @@ class SPP(Model[SPPOutput]):
         special = (word_ids < 0) & data.attention().bool()
         return th.where(special, th.ones_like(spread), spread * (word_ids >= 0))
 
+    def generator_parameters(self) -> List[th.nn.Parameter]:
+        """Everything that proposes a highlight: selectors and their backbones.
+
+        The half of the model an architecture separates from the predictor, so
+        that the two can be optimized apart. Several do: DR trains them at
+        rates that differ by the selection rate, a phased model freezes one
+        while it steps the other, and a search evolves this half and descends
+        on the other.
+
+        Every parameter of those modules, frozen ones included. GenSPP narrows
+        it to the ones descent may move, because a chromosome is what a search
+        may change rather than what the generator holds.
+        """
+        return [*self.selector_backbones.parameters(), *self.selectors.parameters()]
+
+    def predictor_parameters(self) -> List[th.nn.Parameter]:
+        """Everything that reads a highlight: the predictor and its backbone.
+
+        The counterpart of :meth:`generator_parameters`, and the same caveat
+        about frozen parameters applies.
+        """
+        return [*self.predictor_backbone.parameters(), *self.predictor.parameters()]
+
     def encoder_ids(self) -> set:
         """Which parameters live inside a backbone.
 

@@ -49,10 +49,7 @@ class MGR(SPP):
             [*backbone.parameters(), *selector.parameters()]
             for backbone, selector in zip(self.selector_backbones, self.selectors)
         ]
-        predictor = [
-            *self.predictor_backbone.parameters(),
-            *self.predictor.parameters(),
-        ]
+        predictor = self.predictor_parameters()
         # The paper's rates: the predictor slower than the generators by the
         # number of them, and each generator faster than the last. Handed to
         # `build_optimizer` as scales rather than applied here, so a model

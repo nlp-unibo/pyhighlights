@@ -21,7 +21,7 @@ from collections import Counter
 from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Literal, Mapping, Sequence
+from typing import Any, Dict, Iterable, List, Literal, Mapping, Sequence, Tuple
 
 import lightning as L
 import numpy as np
@@ -563,21 +563,54 @@ class SPPTask(Task):
             )
 
     def fit(self, seed: int, loaders: Mapping[str, DataLoader]) -> Dict[str, float]:
-        """Train one model and score it, leaving its checkpoint behind."""
+        """Train one model and score it, leaving its checkpoint behind.
+
+        What every seed does whatever produced its model: seed the run, time
+        it, give it a directory of its own, score it on the evaluation splits,
+        and report what it cost. How the model is produced is :meth:`train`,
+        which a search replaces.
+        """
         seed_everything(seed=seed, workers=True)
         # From here to the end of the scoring pass: what the seed cost in
         # total, which is what a model trained once is compared on.
         meter = cost.Meter().start()
-        model = self.build_model()
+        directory = self.directory / f"seed={seed}"
+        directory.mkdir(parents=True, exist_ok=True)
 
-        checkpoints = self.directory / f"seed={seed}"
-        checkpoints.mkdir(parents=True, exist_ok=True)
-        callbacks = self.build_callbacks(checkpoints)
+        model, trainer = self.train(seed, loaders, directory, meter)
+
+        scores = self.score(
+            trainer, model, loaders, self.directory / f"predictions-seed={seed}.pkl"
+        )
+        meter.stop()
+        if not self.keep_checkpoints:
+            self.discard_checkpoints(directory)
+        return {**scores, **meter.columns(model)}
+
+    def train(
+        self,
+        seed: int,
+        loaders: Mapping[str, DataLoader],
+        directory: Path,
+        meter: cost.Meter,
+    ) -> Tuple[Model, L.Trainer]:
+        """The trained model and the trainer that will score it.
+
+        Gradient descent under Lightning, which is what every architecture but
+        GenSPP is trained by. ``directory`` is this seed's own, and the
+        checkpoints land in it.
+
+        ``meter`` is handed over rather than read afterwards, because a seed
+        that trains more than one model knows how many only once it has
+        stopped: see :meth:`GenSPPTask.train`.
+        """
+        model = self.build_model()
+        callbacks = self.build_callbacks(directory)
         checkpoint = next(
             (item for item in callbacks if isinstance(item, ModelCheckpoint)), None
         )
         trainer = L.Trainer(
-            **{"default_root_dir": checkpoints, **self.trainer_args},
+            **{"default_root_dir": directory, **self.trainer_args},
             callbacks=callbacks,
         )
         trainer.fit(
@@ -619,13 +652,7 @@ class SPPTask(Task):
                 state = th.load(checkpoint.best_model_path, map_location="cpu")
             model.load_state_dict(state["state_dict"])
 
-        scores = self.score(
-            trainer, model, loaders, self.directory / f"predictions-seed={seed}.pkl"
-        )
-        meter.stop()
-        if not self.keep_checkpoints:
-            self.discard_checkpoints(checkpoints)
-        return {**scores, **meter.columns(model)}
+        return model, trainer
 
     def discard_checkpoints(self, directory: Path) -> None:
         """Delete this seed's checkpoints, now that they have been scored.
@@ -792,12 +819,21 @@ class GenSPPTask(SPPTask):
                 "population_size, fewer n_generations, or both."
             )
 
-    def fit(self, seed: int, loaders: Mapping[str, DataLoader]) -> Dict[str, float]:
+    def train(
+        self,
+        seed: int,
+        loaders: Mapping[str, DataLoader],
+        directory: Path,
+        meter: cost.Meter,
+    ) -> Tuple[Model, L.Trainer]:
+        """Search for a generator, and hand back the model the search settled on.
+
+        No epoch of it is ever trained by Lightning, so the trainer built here
+        exists for the scoring pass alone and carries no callbacks.
+        """
         if "val" not in loaders:
             raise ValueError("GenSPP scores its candidates on a validation split")
 
-        seed_everything(seed=seed, workers=True)
-        meter = cost.Meter().start()
         search = Registry.from_key(self.search, expected_type=GenSPPTrainer, seed=seed)
         # The search builds its own candidates, so the table the tokenizer read
         # has to reach it here: `build_model` is what hands it to every other
@@ -823,22 +859,13 @@ class GenSPPTask(SPPTask):
         model.val_metrics = build_metrics(self.val_metrics)
         model.test_metrics = build_metrics(self.test_metrics)
 
-        directory = self.directory / f"seed={seed}"
-        directory.mkdir(parents=True, exist_ok=True)
         th.save({"state_dict": model.state_dict()}, directory / "best.ckpt")
+        # `search.json` stays even when the checkpoints are dropped: it is the
+        # record of how the search went, not a copy of the weights.
         (directory / "search.json").write_text(
             json.dumps({"training_progress": search.training_progress}, indent=2)
         )
-        trainer = L.Trainer(**{"default_root_dir": directory, **self.trainer_args})
-        scores = self.score(
-            trainer, model, loaders, self.directory / f"predictions-seed={seed}.pkl"
-        )
-        meter.stop()
-        if not self.keep_checkpoints:
-            # `search.json` stays: it is the record of how the search went,
-            # not a copy of the weights.
-            self.discard_checkpoints(directory)
-        return {**scores, **meter.columns(model)}
+        return model, L.Trainer(**{"default_root_dir": directory, **self.trainer_args})
 
 
 class ClassWeightsTask(Task):

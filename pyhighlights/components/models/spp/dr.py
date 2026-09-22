@@ -61,14 +61,8 @@ class DR(SPP):
         self.batch_rates: List[float] = []
 
     def configure_optimizers(self):
-        generator = [
-            *self.selector_backbones.parameters(),
-            *self.selectors.parameters(),
-        ]
-        predictor = [
-            *self.predictor_backbone.parameters(),
-            *self.predictor.parameters(),
-        ]
+        generator = self.generator_parameters()
+        predictor = self.predictor_parameters()
         # One optimizer, two groups, both at the optimizer's own rate: the
         # asymmetry is written per batch rather than declared here, since it
         # is the selection rate and nobody knows that before the batch.

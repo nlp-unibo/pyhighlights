@@ -7,15 +7,22 @@ import torch as th
 from cinnamon.registry import RegistrationKey, Registry
 
 from pyhighlights.utility import diagnostics
+from pyhighlights.utility.binding import Binding
 
 
-class Loss(th.nn.Module):
+class Loss(Binding):
     """Binds a criterion to the fields feeding it.
 
     The criterion is any ``th.nn.Module`` taking tensors, so it stays reusable
     across bindings: the same criterion can score different pairs of fields by
     registering it twice with different ``inputs``.
+
+    ``coefficient`` weights the term inside a total, and ``enabled`` leaves it
+    out of one. Both belong to the binding rather than to the criterion, so a
+    study reweights a term by registering a binding rather than a loss.
     """
+
+    kind = "Loss"
 
     def __init__(
         self,
@@ -25,20 +32,13 @@ class Loss(th.nn.Module):
         coefficient: float = 1.0,
         enabled: bool = True,
     ):
-        super().__init__()
-        if not inputs:
-            raise ValueError(f"Loss {name} requires at least one input field")
-        self.name = name
+        super().__init__(name=name, inputs=inputs)
         self.loss = Registry.from_key(loss, expected_type=th.nn.Module)
-        self.inputs = list(inputs)
         self.coefficient = coefficient
         self.enabled = enabled
 
     def forward(self, values: Mapping[str, th.Tensor]) -> th.Tensor:
-        missing = [name for name in self.inputs if name not in values]
-        if missing:
-            raise KeyError(f"Loss {self.name} misses input fields {missing}")
-        return self.loss(*(values[name] for name in self.inputs))
+        return self.loss(*self.arguments(values))
 
 
 def build_losses(keys: List[RegistrationKey[Loss]]) -> List[Loss]:
