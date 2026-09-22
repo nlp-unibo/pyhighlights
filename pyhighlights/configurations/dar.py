@@ -1,7 +1,5 @@
 """DAR: a highlight scored by a module that only ever read the full input."""
 
-from typing import List
-
 from cinnamon.configuration import Param
 from cinnamon.registry import RegistrationKey, register_class
 
@@ -9,11 +7,8 @@ from pyhighlights.components.models.spp.base import SPPBackbone
 from pyhighlights.configurations.base import SPPModelConfig
 from pyhighlights.configurations.keys import (
     ALIGNMENT_CLASSIFICATION_LOSS,
-    CLASSIFICATION_LOSS,
-    CONTIGUITY_LOSS,
     GRU_BACKBONE,
     NAMESPACE,
-    SPARSITY_LOSS,
     TRANSFORMER_BACKBONE,
 )
 from pyhighlights.utility.losses import Loss
@@ -36,9 +31,6 @@ class GRUDARConfig(SPPModelConfig):
     #: highlight afterwards. Appended to ``losses`` by the model, so a
     #: registration cannot forget the term the method is.
     aligner_loss: RegistrationKey[Loss] = Param(ALIGNMENT_CLASSIFICATION_LOSS)
-    losses: List[RegistrationKey[Loss]] = Param(
-        [CLASSIFICATION_LOSS, SPARSITY_LOSS, CONTIGUITY_LOSS]
-    )
     #: Epochs the aligner spends on the full input before the first
     #: rationalization epoch. The reference implementation spends 100 and
     #: keeps the best of them against a validation split; this keeps the last,
