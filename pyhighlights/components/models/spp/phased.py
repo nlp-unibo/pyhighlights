@@ -159,10 +159,7 @@ class PhasedSPP(SPP):
     def generator_phase_loss(
         self, input_data: InputData
     ) -> Tuple[th.Tensor, Dict[str, th.Tensor], SPPOutput]:
-        predictor_parameters = [
-            *self.predictor_backbone.parameters(),
-            *self.predictor.parameters(),
-        ]
+        predictor_parameters = self.predictor_parameters()
         diagnostics.record("phase", name="generator")
         requires_grad = [parameter.requires_grad for parameter in predictor_parameters]
         for parameter in predictor_parameters:
@@ -192,20 +189,12 @@ class PhasedSPP(SPP):
         return compute_losses(self.losses, values)
 
     def configure_optimizers(self):
-        generator_parameters = [
-            *self.selector_backbones.parameters(),
-            *self.selectors.parameters(),
-        ]
-        predictor_parameters = [
-            *self.predictor_backbone.parameters(),
-            *self.predictor.parameters(),
-        ]
         # One optimizer per phase, as the phases alternate and the generator
         # step runs with the predictor frozen. Through `build_optimizer`, so
         # `encoder_lr` reaches the encoder inside each.
         return [
-            self.build_optimizer([(generator_parameters, 1.0)]),
-            self.build_optimizer([(predictor_parameters, 1.0)]),
+            self.build_optimizer([(self.generator_parameters(), 1.0)]),
+            self.build_optimizer([(self.predictor_parameters(), 1.0)]),
         ]
 
     def training_step(self, batch: InputData, batch_idx: int):

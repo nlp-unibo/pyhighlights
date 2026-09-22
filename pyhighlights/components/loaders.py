@@ -48,6 +48,24 @@ def _aligned_highlights(flags: str, width: int) -> List[int]:
     return highlights[:width] if surplus and not any(surplus) else highlights
 
 
+def fetch_archive(
+    url: str, archive: Path, root: Path, sha256: str | None = None
+) -> Path:
+    """Fetch an archive once, unpack it once, and return where it landed.
+
+    The two steps belong together, and both are already idempotent: a file
+    that is there is not fetched again, and a directory that is there is not
+    unpacked again. So a loader asks for the unpacked corpus rather than
+    sequencing a download and an extraction of its own, and a second run over
+    a warm cache touches the network not at all.
+
+    ``sha256`` is the digest of the archive as distributed, and the reason a
+    reproduction fails loudly on a changed upstream rather than training on
+    it.
+    """
+    return extract(download(url, archive, sha256=sha256), root)
+
+
 def to_examples(frame: pd.DataFrame) -> List[HighlightExample]:
     if frame["label"].isna().any():
         raise ValueError(
@@ -174,10 +192,9 @@ class R2ALoader(HighlightLoader):
         return self.directory / "r2a"
 
     def download(self) -> Path:
-        archive = download(
-            self.url, self.directory / self.archive_name, sha256=self.sha256
+        return fetch_archive(
+            self.url, self.directory / self.archive_name, self.root, self.sha256
         )
-        return extract(archive, self.root)
 
     def read(self) -> Dict[str, pd.DataFrame]:
         root = self.download()
@@ -785,11 +802,12 @@ class ERASERLoader(HighlightLoader):
         return self.directory / "eraser" / self.task
 
     def download(self) -> Path:
-        url = self.url.format(task=self.task)
-        archive = download(
-            url, self.directory / f"eraser-{self.task}.tar.gz", sha256=self.sha256
+        return fetch_archive(
+            self.url.format(task=self.task),
+            self.directory / f"eraser-{self.task}.tar.gz",
+            self.root,
+            self.sha256,
         )
-        return extract(archive, self.root)
 
     @staticmethod
     def document_id(row: dict) -> str:

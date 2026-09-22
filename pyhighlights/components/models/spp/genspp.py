@@ -100,20 +100,23 @@ class GenSPP(SPP):
         return highlight_logits, highlight_mask * valid
 
     def generator_parameters(self) -> list[th.nn.Parameter]:
+        """The evolvable half, which is narrower than the family's answer.
+
+        A chromosome is what the search may change, so a frozen parameter is
+        not part of one: the embedding table every candidate loads is shared
+        state, and including it would make the chromosome the corpus.
+        """
         return [
             parameter
-            for parameter in chain(
-                self.selector_backbones.parameters(), self.selectors.parameters()
-            )
+            for parameter in super().generator_parameters()
             if parameter.requires_grad
         ]
 
     def predictor_parameters(self) -> list[th.nn.Parameter]:
+        """What descent moves in a candidate, frozen encoders excluded."""
         return [
             parameter
-            for parameter in chain(
-                self.predictor_backbone.parameters(), self.predictor.parameters()
-            )
+            for parameter in super().predictor_parameters()
             if parameter.requires_grad
         ]
 

@@ -17,7 +17,17 @@ import abc
 import json
 from collections import Counter
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Mapping, Sequence, Tuple
+from typing import (
+    Any,
+    Dict,
+    Iterable,
+    Iterator,
+    List,
+    Mapping,
+    Sequence,
+    Tuple,
+    TypeVar,
+)
 
 import numpy as np
 import pandas as pd
@@ -26,6 +36,9 @@ from cinnamon.registry import RegistrationKey, Registry
 from pyhighlights.components.loaders import HighlightLoader
 from pyhighlights.components.preprocessors import Preprocessor
 from pyhighlights.utility.manifest import registration_key
+
+#: What :func:`latest_runs` groups: a report, or the directory holding one.
+T = TypeVar("T")
 
 #: The predictions one seed left behind. A glob rather than a name: a run
 #: stores one file per seed, and every analyzer here reads all of them.
@@ -40,6 +53,7 @@ __all__ = [
     "PredictionAnalyzer",
     "escape",
     "label_studio",
+    "latest_runs",
     "latex_table",
     "offsets",
     "readability",
@@ -73,6 +87,30 @@ def reported_head(masks: np.ndarray) -> np.ndarray:
     reads that one rather than a mixture of heads nothing else reports on.
     """
     return masks[:, 0] if masks.ndim == 3 else masks
+
+
+def latest_runs(items: Iterable[Tuple[str, T]], latest: bool = True) -> List[T]:
+    """One entry per task, newest last, or every entry when ``latest`` is off.
+
+    A task keeps every run it has ever done, one timestamped directory each,
+    so a re-run or a requeued job would otherwise read as extra rows: a second
+    line in a table, or the same sample exported twice for an annotator.
+
+    Grouping is by the name the run reported rather than by its directory. The
+    stamp is a path component, and a task that has been renamed or moved is
+    still the task its own record says it is. Entries arrive in path order and
+    a stamp sorts chronologically, so the last one of a name is the newest.
+
+    Both analyzers that read a directory of runs group them this way, and they
+    differ only in where the name comes from: a metrics report carries it, and
+    a predictions file has it in the manifest beside it.
+    """
+    found: Dict[str, List[T]] = {}
+    for name, item in items:
+        found.setdefault(name, []).append(item)
+    return [
+        item for group in found.values() for item in (group[-1:] if latest else group)
+    ]
 
 
 def escape(value: Any) -> str:
@@ -164,19 +202,16 @@ class MetricsAnalyzer(Analyzer):
     def reports(self) -> List[Dict[str, Any]]:
         """Every run found, newest last, one per task when ``latest``.
 
-        Grouped by the name the run reported rather than by its directory: the
-        stamp is a path component, and a task that has been renamed or moved is
-        still the task its results say it is.
+        The name comes out of ``results.json``, which the run wrote itself.
+        :func:`latest_runs` is what does the grouping.
         """
-        found = {}
-        for path in sorted(self.directory.rglob("results.json")):
-            report = {"run": path.parent.name, **json.loads(path.read_text())}
-            found.setdefault(report.get("name", "?"), []).append(report)
-        return [
-            report
-            for reports in found.values()
-            for report in (reports[-1:] if self.latest else reports)
+        reports = [
+            {"run": path.parent.name, **json.loads(path.read_text())}
+            for path in sorted(self.directory.rglob("results.json"))
         ]
+        return latest_runs(
+            ((report.get("name", "?"), report) for report in reports), self.latest
+        )
 
     def analyze(self) -> pd.DataFrame:
         rows = []
@@ -370,33 +405,26 @@ class PredictionAnalyzer(Analyzer):
     def runs(self) -> List[Path]:
         """The run directories to read, newest per task when ``latest``.
 
-        A task keeps every run it has ever done, one timestamped directory
-        each, so without this a re-run or a requeued job reads as extra
-        samples: duplicate rows here, and duplicate files out of
-        :class:`LabelStudioExporter`, which a reviewer would then annotate
-        twice.
-
-        Grouped by the name the run's manifest reports rather than by its
-        directory, for the reason :meth:`MetricsAnalyzer.reports` groups that
-        way: the stamp is a path component, and a task that has been renamed or
-        moved is still the task its own record says it is.
+        The name comes out of the run's ``manifest.json``, falling back to the
+        directory the stamp sits in for a run that wrote none.
+        :func:`latest_runs` is what does the grouping, as it does for
+        :meth:`MetricsAnalyzer.reports`.
         """
         candidates = sorted(
             {path.parent for path in self.directory.rglob(self.pattern)}
         )
-        if not self.latest:
-            return candidates
-        found: Dict[str, Path] = {}
-        for run in candidates:
-            manifest = run / "manifest.json"
-            name = run.parent.name
-            if manifest.exists():
-                settings = json.loads(manifest.read_text()).get("settings", {})
-                name = settings.get("name", name)
-            # `candidates` is sorted and a stamp sorts chronologically, so the
-            # last one written wins.
-            found[name] = run
-        return sorted(found.values())
+        return sorted(
+            latest_runs(((self.task_of(run), run) for run in candidates), self.latest)
+        )
+
+    @staticmethod
+    def task_of(run: Path) -> str:
+        """Which task a run directory belongs to, as its manifest reports it."""
+        manifest = run / "manifest.json"
+        if not manifest.exists():
+            return run.parent.name
+        settings = json.loads(manifest.read_text()).get("settings", {})
+        return settings.get("name", run.parent.name)
 
     def corpus(self, run: Path) -> Dict[int, pd.Series]:
         """The split these predictions were made on, keyed by sample id."""

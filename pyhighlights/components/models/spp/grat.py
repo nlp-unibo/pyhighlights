@@ -227,10 +227,8 @@ class GRAT(SPP):
 
     def configure_optimizers(self):
         model_parameters = [
-            *self.selector_backbones.parameters(),
-            *self.selectors.parameters(),
-            *self.predictor_backbone.parameters(),
-            *self.predictor.parameters(),
+            *self.generator_parameters(),
+            *self.predictor_parameters(),
         ]
         # Two optimizers, as the reference implementation has: the guider is
         # stepped before the rationalizer and on its own loss. Both are built

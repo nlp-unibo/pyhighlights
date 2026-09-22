@@ -7,13 +7,18 @@ from cinnamon.registry import RegistrationKey, Registry
 from torchmetrics import Metric
 from torchmetrics.classification import MulticlassF1Score
 
+from pyhighlights.utility.binding import Binding
 
-class BoundMetric(th.nn.Module):
+
+class BoundMetric(Binding):
     """Binds a ``torchmetrics`` metric to the fields feeding it.
 
-    Mirrors ``Loss``: the metric stays a plain ``Metric``, and the binding says
-    which fields of the step namespace it scores.
+    Mirrors :class:`~pyhighlights.utility.losses.Loss`: the metric stays a
+    plain ``Metric``, and the binding says which fields of the step namespace
+    it scores.
     """
+
+    kind = "Metric"
 
     def __init__(
         self,
@@ -21,18 +26,11 @@ class BoundMetric(th.nn.Module):
         metric: RegistrationKey[Metric],
         inputs: Sequence[str] = ("class_logits", "y_true"),
     ):
-        super().__init__()
-        if not inputs:
-            raise ValueError(f"Metric {name} requires at least one input field")
-        self.name = name
+        super().__init__(name=name, inputs=inputs)
         self.metric = Registry.from_key(metric, expected_type=Metric)
-        self.inputs = list(inputs)
 
     def update(self, values: Mapping[str, th.Tensor]) -> None:
-        missing = [name for name in self.inputs if name not in values]
-        if missing:
-            raise KeyError(f"Metric {self.name} misses input fields {missing}")
-        self.metric.update(*(values[name] for name in self.inputs))
+        self.metric.update(*self.arguments(values))
 
     def compute(self) -> th.Tensor:
         return self.metric.compute()
