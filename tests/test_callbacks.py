@@ -284,3 +284,37 @@ def test_a_matching_pair_is_accepted(tmp_path):
         callbacks=[GENERALIZATION_LOSS_SCORE, SCORE_EARLY_STOPPING, SCORE_CHECKPOINT],
     )
     assert len(scored.build_callbacks(tmp_path)) == 3
+
+
+def test_a_quantity_nothing_logs_is_refused_rather_than_skipped():
+    """A misspelled monitor would otherwise leave the run unmonitored: nothing
+    writes `val_score`, both callbacks skip a check they cannot make, and the
+    run is scored on its last epoch with nothing saying so."""
+    callback = GeneralizationLossScore(quality="val_macro_f1")
+    module = Recorder()
+
+    with pytest.raises(KeyError, match="val_macro_f1"):
+        callback.on_validation_end(Fake({"val_f1": 0.5, "val_loss": 1.0}), module)
+
+    # The sanity-check epoch runs before the module has logged anything, and
+    # is not evidence that the run logs the wrong names.
+    callback.on_validation_end(Fake({}, sanity_checking=True), module)
+
+
+def test_a_floor_of_zero_charges_the_absolute_rise():
+    """A ratio against zero has no value, and an epsilon would charge 1e12."""
+    callback = GeneralizationLossScore(coefficient=1.0)
+    module = Recorder()
+
+    assert score(callback, module, val_f1=1.0, val_loss=0.0) == pytest.approx(1.0)
+    assert score(callback, module, val_f1=1.0, val_loss=0.25) == pytest.approx(0.75)
+
+
+def test_the_lightning_hooks_the_warmup_callbacks_extend_still_exist():
+    """Private methods, so a Lightning upgrade renaming one would leave the
+    subclasses inheriting the base behaviour with no error at all."""
+    from pyhighlights.components.callbacks import _HOOKS
+
+    assert _HOOKS
+    for base, hook in _HOOKS:
+        assert hook in vars(base), f"{base.__name__} no longer defines {hook}"

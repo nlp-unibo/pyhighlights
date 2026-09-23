@@ -9,7 +9,6 @@ import zipfile
 from pathlib import Path
 from typing import Dict, List, Mapping, Sequence
 
-import numpy as np
 import pandas as pd
 
 from pyhighlights.components.data import (
@@ -199,12 +198,12 @@ class R2ALoader(HighlightLoader):
     def read(self) -> Dict[str, pd.DataFrame]:
         root = self.download()
         return {
-            name: self.read_file(root / "data" / pattern.format(task=self.task))
+            name: self.read_tsv(root / "data" / pattern.format(task=self.task))
             for name, pattern in self.splits.items()
         }
 
     @staticmethod
-    def read_file(path: Path) -> pd.DataFrame:
+    def read_tsv(path: Path) -> pd.DataFrame:
         """Read one tab-separated R2A file into the standard columns."""
         source = pd.read_csv(
             path,
@@ -402,8 +401,10 @@ class ToyLoader(HighlightLoader):
                 f"triggers leave {len(self.alphabet)} of {len(self.ALPHABET)}"
             )
         self.alphabet = self.alphabet[:vocabulary_size]
-        if contaminations < 0 or min_chunk < 1:
-            raise ValueError("contaminations and min_chunk cannot be negative")
+        if contaminations < 0:
+            raise ValueError("contaminations cannot be negative")
+        if min_chunk < 1:
+            raise ValueError("min_chunk is at least one character")
         self.sizes = dict(sizes or {"train": 64, "val": 16, "test": 16})
         self.length = length
         self.vocabulary_size = vocabulary_size
@@ -551,10 +552,20 @@ class ToyLoader(HighlightLoader):
         file. A record usually holds the archive rather than a loose file,
         because the archive is what carries the manifest, the licence and the
         citation beside the data.
+
+        **A downloaded corpus is pinned or refused.** What arrives is read
+        with :func:`pandas.read_pickle`, which executes what the file says to
+        execute, so an unpinned URL is arbitrary code running before a row is
+        read. A local path is the caller's own file and is read as given.
         """
         root = self.directory / "toy"
         source = Path(self.url)
         if not source.is_file():
+            if self.sha256 is None:
+                raise ValueError(
+                    f"{self.url} is downloaded and unpickled, so it needs a "
+                    "sha256; pass the digest the corpus was published with"
+                )
             source = download(self.url, root / self.archive_name, sha256=self.sha256)
         if not zipfile.is_zipfile(source):
             return source
@@ -592,7 +603,9 @@ class ToyLoader(HighlightLoader):
         A flat corpus has no such column. It is divided the way the GenSPP
         baselines divide theirs: the first ``train_ratio`` is train, the rest
         test, and ``val_ratio`` of train is sampled off it under
-        ``split_seed``.
+        ``split_seed``. The draw is :class:`random.Random`, the generator this
+        loader samples everything else with, so one seed family explains a
+        corpus and its division.
         """
         if "split" in frame:
             return {
@@ -601,11 +614,11 @@ class ToyLoader(HighlightLoader):
             }
         train_count = int(len(frame) * self.train_ratio)
         train, test = frame[:train_count], frame[train_count:]
-        val = train.sample(
-            n=int(train_count * self.val_ratio),
-            random_state=np.random.RandomState(self.split_seed),
+        held_out = random.Random(self.split_seed).sample(
+            list(train.index), k=int(train_count * self.val_ratio)
         )
-        train = train[~train.index.isin(val.index)]
+        val = train.loc[sorted(held_out)]
+        train = train.drop(index=held_out)
         return {
             name: part.reset_index(drop=True)
             for name, part in (("train", train), ("val", val), ("test", test))
@@ -698,7 +711,8 @@ class HateXplainLoader(HighlightLoader):
         self.sha256 = sha256
         self.divisions_sha256 = divisions_sha256
 
-    def download(self) -> Dict[str, Path]:
+    def download_files(self) -> Dict[str, Path]:
+        """The two files this corpus is, named. Two downloads, so two paths."""
         root = self.directory / "hatexplain"
         return {
             "posts": download(self.url, root / "dataset.json", sha256=self.sha256),
@@ -710,7 +724,7 @@ class HateXplainLoader(HighlightLoader):
         }
 
     def read(self) -> Dict[str, pd.DataFrame]:
-        paths = self.download()
+        paths = self.download_files()
         posts = json.loads(paths["posts"].read_text())
         divisions = json.loads(paths["divisions"].read_text())
 
@@ -739,8 +753,12 @@ class HateXplainLoader(HighlightLoader):
                 rows,
                 columns=[*COLUMNS, "annotator_labels", "annotator_highlights"],
             )
-        order = ("train", "val", "test")
-        return {name: splits[name] for name in order if name in splits}
+        # Known names first, then whatever else the division file holds.
+        # Dropping an unknown name would turn an upstream that renamed `val`
+        # into a corpus with no validation split and no error.
+        order = [name for name in ("train", "val", "test") if name in splits]
+        order += [name for name in splits if name not in order]
+        return {name: splits[name] for name in order}
 
 
 class ERASERLoader(HighlightLoader):
@@ -818,7 +836,12 @@ class ERASERLoader(HighlightLoader):
         docids = row.get("docids")
         return docids[0] if docids else row["annotation_id"]
 
-    def read_file(self, path: Path, documents: Path, labels: Dict[str, int]):
+    def read_jsonl(self, path: Path, documents: Path) -> List[dict]:
+        """One split's rows, with ``label`` still the classification name.
+
+        The name becomes an index in :meth:`read`, which is where every split
+        is known and the mapping can be the same for all of them.
+        """
         rows = []
         for line in path.read_text().splitlines():
             if not line.strip():
@@ -841,27 +864,33 @@ class ERASERLoader(HighlightLoader):
                     "sample_id": len(rows),
                     "text": " ".join(tokens),
                     "tokens": tokens,
-                    "label": labels[row["classification"]],
+                    "label": row["classification"],
                     "highlights": highlights,
                 }
             )
-        return pd.DataFrame(rows, columns=list(COLUMNS))
+        return rows
 
     def read(self) -> Dict[str, pd.DataFrame]:
         root = self.download() / self.task
         documents = root / "docs"
-        classifications = sorted(
-            {
-                json.loads(line)["classification"]
-                for name in self.splits.values()
-                for line in (root / name).read_text().splitlines()
-                if line.strip()
-            }
-        )
-        labels = {name: index for index, name in enumerate(classifications)}
-        return {
-            name: self.read_file(root / path, documents, labels)
+        # Parsed once. The label map needs every split, so the classification
+        # stays a name until all of them are read and becomes an index after.
+        parsed = {
+            name: self.read_jsonl(root / path, documents)
             for name, path in self.splits.items()
+        }
+        labels = {
+            name: index
+            for index, name in enumerate(
+                sorted({row["label"] for rows in parsed.values() for row in rows})
+            )
+        }
+        return {
+            name: pd.DataFrame(
+                [{**row, "label": labels[row["label"]]} for row in rows],
+                columns=list(COLUMNS),
+            )
+            for name, rows in parsed.items()
         }
 
 

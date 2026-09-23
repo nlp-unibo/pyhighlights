@@ -40,21 +40,26 @@ def build_registry():
 def test_vocabulary_keeps_the_most_frequent_tokens_and_reserves_zero():
     frame = pd.DataFrame({"tokens": [["a", "b", "a"], ["a", "c"]]})
 
-    # ``size`` is the width the embedding needs: three ids, one of them the
-    # unknown token, so two tokens are mapped.
-    assert vocabulary([frame], size=3) == {"a": 1, "b": 2}
-    assert max(vocabulary([frame], size=3).values()) < 3
+    # ``size`` is the width the embedding needs: four ids, one of them
+    # padding and one the unknown token, so two tokens are mapped.
+    assert vocabulary([frame], size=4) == {"a": 2, "b": 3}
+    assert max(vocabulary([frame], size=4).values()) < 4
 
-    with pytest.raises(ValueError, match="room for the unknown token"):
-        vocabulary([frame], size=1)
+    with pytest.raises(ValueError, match="padding and unknown ids"):
+        vocabulary([frame], size=2)
 
 
 def test_summarize_reports_the_spread_across_seeds():
+    """The sample standard deviation: the seeds are a sample of the runs a
+    configuration could produce, which is what `mean +/- std` claims."""
     summary = summarize([{"accuracy": 0.5}, {"accuracy": 0.7}])
 
     assert summary["accuracy"]["mean"] == pytest.approx(0.6)
-    assert summary["accuracy"]["std"] == pytest.approx(0.1)
+    assert summary["accuracy"]["std"] == pytest.approx(0.1 * 2**0.5)
     assert summary["accuracy"]["values"] == [0.5, 0.7]
+
+    # One seed has no spread to report, and `ddof=1` would divide by zero.
+    assert summarize([{"accuracy": 0.5}])["accuracy"]["std"] == 0.0
 
 
 def test_a_task_needs_seeds_and_a_positive_batch_size():
@@ -213,9 +218,10 @@ def test_a_searched_model_reads_the_vectors_the_task_was_given(tmp_path):
     directory = next((tmp_path / "toy-genspp").iterdir()) / "seed=0"
     weights = th.load(directory / "best.ckpt", weights_only=True)["state_dict"]
     table = weights["selector_backbones.0.embedding.weight"]
-    # One row per token in the file, plus row zero for the unknown id.
-    assert table.shape == (4, 128)
-    assert th.equal(table[1:], th.full((3, 128), 0.1))
+    # One row per token in the file, plus rows zero and one for the padding
+    # and unknown ids.
+    assert table.shape == (5, 128)
+    assert th.equal(table[2:], th.full((3, 128), 0.1))
     # And the predictor's backbone reads the same table, as it does elsewhere.
     assert th.equal(table, weights["predictor_backbone.embedding.weight"])
 
@@ -303,7 +309,7 @@ def test_a_task_can_embed_its_tokens_with_a_vector_file(tmp_path):
     # tokenizer hands out index it.
     assert (
         model.selector_backbone.embedding.num_embeddings
-        == len(tokenizer.vocabulary) + 1
+        == len(tokenizer.vocabulary) + 2
     )
     assert model.selector_backbone.embedding.embedding_dim == 128
 
@@ -344,7 +350,7 @@ def test_a_task_can_take_the_vector_file_s_own_vocabulary(tmp_path):
     )
     assert set(whole.tokenizer(whole.splits()).vocabulary) == {"e", "z"}
     # The model's table is sized to whichever vocabulary it was handed.
-    assert whole.build_model().selector_backbone.embedding.num_embeddings == 3
+    assert whole.build_model().selector_backbone.embedding.num_embeddings == 4
 
 
 def test_a_task_that_embeds_from_a_file_refuses_to_run_without_one():
@@ -393,13 +399,13 @@ def test_a_task_can_embed_its_tokens_one_hot(tmp_path):
 
     table = task.build_model().selector_backbone.embedding.weight
     assert table.shape == (6, 128)
-    # Row zero is the unknown and padding id and contributes nothing; the rest
-    # are orthonormal, which a frozen random table is not.
-    assert not table[0].any()
-    assert th.equal(table[1:] @ table[1:].T, th.eye(5))
+    # Rows zero and one are the padding and unknown ids and contribute
+    # nothing; the rest are orthonormal, which a frozen random table is not.
+    assert not table[:2].any()
+    assert th.equal(table[2:] @ table[2:].T, th.eye(4))
 
-    with pytest.raises(ValueError, match="needs 5 dimensions"):
-        one_hot_table(6, 4)
+    with pytest.raises(ValueError, match="needs 4 dimensions"):
+        one_hot_table(6, 3)
 
 
 def test_a_class_weights_task_writes_down_what_it_read(tmp_path):
@@ -528,3 +534,93 @@ def test_a_run_can_be_monitored_by_a_combined_score(tmp_path):
     # The criterion has to have logged, or the callbacks monitored nothing and
     # the run was silently scored on its last epoch.
     assert list(tmp_path.glob("*.ckpt")) or list(tmp_path.rglob("*.ckpt"))
+
+
+def test_every_finished_seed_is_on_disk_before_the_next_one_starts(tmp_path):
+    """A run killed at seed two of three left no results.json at all."""
+    build_registry()
+    task = Registry.from_key(
+        TOY_TASK,
+        save_path=str(tmp_path),
+        seeds=[0, 1],
+        keep_checkpoints=False,
+        trainer_args={"accelerator": "cpu", "fast_dev_run": True},
+    )
+    seen = []
+    fit = type(task).fit
+
+    def record(self, seed, loaders):
+        path = self.directory / "results.json"
+        seen.append(len(json.loads(path.read_text())["runs"]) if path.exists() else 0)
+        return fit(self, seed, loaders)
+
+    type(task).fit = record
+    try:
+        results = task.run()
+    finally:
+        type(task).fit = fit
+
+    # Nothing before the first seed, one seed's results before the second.
+    assert seen == [0, 1]
+    assert results["completed"] == [0, 1]
+    # A count is a count: `cost_models` of 1.0 reads as a measurement.
+    assert isinstance(results["runs"][0]["cost_models"], int)
+
+
+def test_a_task_that_embeds_from_a_file_refuses_to_build_without_the_matrix(tmp_path):
+    """`tokenizer` reads the matrix, so a model built before it would hold a
+    randomly initialised table and report numbers for it."""
+    build_registry()
+    vectors = tmp_path / "vectors.txt"
+    vectors.write_text(
+        "".join(f"{token} {' '.join(['0.1'] * 128)}\n" for token in ("e", "f"))
+    )
+    task = SPPTask(
+        loader=TOY,
+        model=GRU_FR,
+        save_path=str(tmp_path),
+        embeddings=str(vectors),
+        vocabulary_from="vectors",
+    )
+
+    with pytest.raises(ValueError, match="embeds from a vector file"):
+        task.build_model()
+
+    task.tokenizer(task.splits())
+    assert task.build_model().selector_backbone.embedding.num_embeddings == 4
+
+
+def test_supervision_needs_every_positive_example_annotated():
+    """An `any` check passed a corpus annotated on three rows of twenty
+    thousand, which trains exactly as an unsupervised run does."""
+    task = SPPTask(
+        loader=TOY, model=GRU_FR, highlight_supervision=True, highlight_loss=None
+    )
+    splits = {
+        "train": pd.DataFrame(
+            {
+                "sample_id": [0, 1, 2],
+                "text": ["a", "b", "c"],
+                "tokens": [["a"], ["b"], ["c"]],
+                "label": [0, 1, 1],
+                "highlights": [None, [1], None],
+            }
+        )
+    }
+
+    with pytest.raises(ValueError, match="2 positive training examples"):
+        task.check_supervision(splits)
+
+    # The negative class needs none: a fair clause instantiates nothing.
+    splits["train"].loc[2, "highlights"] = [0]
+    task.check_supervision(splits)
+
+
+def test_two_runs_started_in_one_second_take_separate_directories(tmp_path):
+    """The stamp is claimed by creating it: an `exists()` check lets two
+    processes past and then both write into one directory."""
+    first = SPPTask(loader=TOY, model=GRU_FR, name="grid", save_path=str(tmp_path))
+    second = SPPTask(loader=TOY, model=GRU_FR, name="grid", save_path=str(tmp_path))
+
+    assert first.directory != second.directory
+    assert first.directory.exists() and second.directory.exists()

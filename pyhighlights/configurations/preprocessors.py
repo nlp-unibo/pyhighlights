@@ -1,4 +1,4 @@
-"""Leakage detection and preprocessing registrations."""
+"""Corpus audits and preprocessing registrations."""
 
 from typing import List, Sequence
 
@@ -27,6 +27,29 @@ class LeakageDetectorConfig(Configuration):
 
     key: str = Param("text")
     normalize_keys: bool = Param(True)
+
+
+@register_class(
+    name="detector",
+    tags={"shortcut"},
+    namespace=NAMESPACE,
+    component="pyhighlights.components.shortcuts.ShortcutDetector",
+)
+class ShortcutDetectorConfig(Configuration):
+    """Reports what predicts the label, and refuses a corpus solvable without
+    its evidence."""
+
+    #: Longest n-gram scanned. Every shorter one is scanned too.
+    max_length: int = Param(4, ge=1)
+    #: How an n-gram's tokens are joined for display: empty for a corpus of
+    #: characters, a space for a corpus of words.
+    separator: str = Param("")
+    tokens: str = Param("tokens")
+    label: str = Param("label")
+    seed: int = Param(0)
+    #: Label shuffles the refusal threshold is the best of, which makes the
+    #: check a permutation test at a level of about ``1 / permutations``.
+    permutations: int = Param(30, ge=1)
 
 
 @register_class(
@@ -127,4 +150,5 @@ __all__: List[str] = [
     "LeakageDetectorConfig",
     "LeakageRemoverConfig",
     "PipelineConfig",
+    "ShortcutDetectorConfig",
 ]

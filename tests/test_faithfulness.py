@@ -104,6 +104,18 @@ def test_evaluate_averages_over_the_split_and_restores_the_mode():
     assert model.training
 
 
+def test_evaluate_refuses_a_term_that_is_not_one_number_per_row():
+    """`Model.faithfulness` is an extension point, and a mean needs its own
+    denominator: a term of another shape is a shape error, not a column."""
+    model, data = tiny_model(), batch()
+    model.faithfulness = lambda input_data, output_data: {
+        "sufficiency": th.zeros(data.mask.shape[0], 2)
+    }
+
+    with pytest.raises(ValueError, match="one number per row"):
+        faithfulness.evaluate(model, [data])
+
+
 def test_evaluate_refuses_an_empty_split():
     model = tiny_model()
 

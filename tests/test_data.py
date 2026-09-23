@@ -105,7 +105,7 @@ def test_vocabulary_dataset_batch_runs_registered_model():
             HighlightExample(1, ["bad"], 0),
         ]
     )
-    collator = HighlightCollator(VocabularyTokenizer({"good": 1, "stay": 2, "bad": 3}))
+    collator = HighlightCollator(VocabularyTokenizer({"good": 2, "stay": 3, "bad": 4}))
     batch = next(iter(DataLoader(dataset, batch_size=2, collate_fn=collator)))
     model = Registry.from_key(GRU_FR)
 

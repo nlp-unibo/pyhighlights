@@ -108,13 +108,44 @@ It holds no data: every method takes the splits to analyse, so the same detector
    overlap.
 
 ``detector.check(splits)``
-   The same report, but raising when any pair shares a row. Call it in a test
+   The same report, but raising when any *pair* shares a row. Call it in a test
    or before a run. There is no tolerance to set: a shared row is leakage at
    any rate, and a corpus distributed with one, R2A is, is read with
    ``report`` instead.
 
-``detector.duplicates(splits)``
-   Repeated rows inside each split.
+``detector.repeats(splits)``
+   Repeated rows inside each split. ``check`` does not read them: it compares
+   splits with each other, and a split holding the same row twice is repaired
+   by ``LeakageRemover`` rather than refused here.
+
+Shortcuts
+---------
+
+Leakage is one way a number stops meaning what it says; a shortcut is the other.
+A corpus is a control only while the evidence it annotates is the only thing that solves it, so
+:class:`~pyhighlights.components.shortcuts.ShortcutDetector` asks what else predicts the label.
+It is registered as ``detector/shortcut`` and holds no data, like the leakage detector beside it, and it reads one split's frame rather than a mapping of them.
+
+``detector.report(frame)``
+   Every n-gram up to ``max_length`` and every length threshold, in one
+   ranking: ``accuracy`` is the best single rule over the feature, ``permuted``
+   the best that feature reaches on shuffled labels, and ``baseline`` the
+   majority class. An n-gram is a token sequence rather than the string it
+   joins to, so a corpus of multi-character tokens scanned with the default
+   empty ``separator`` names its features as token tuples.
+
+``detector.check(frame)``
+   The same ranking over the corpus with every annotated position replaced by
+   a filler token, raising when anything still predicts the label above the
+   permuted best. The gate is the ablation rather than the ranking: the
+   annotated patterns are meant to predict, and what must be empty is what is
+   left once they are gone. A split carrying no annotation has nothing to
+   ablate and is refused; scan it with ``report``.
+
+   It is a permutation test on the maximum, at a level of about
+   ``1 / permutations``, so a small corpus fails it occasionally without
+   anything being wrong. The message carries the margin: a real shortcut clears
+   the threshold by a distance and holds as the corpus grows.
 
 Beer and Hotel (R2A)
 --------------------
@@ -403,6 +434,10 @@ API
    :show-inheritance:
 
 .. automodule:: pyhighlights.components.leakage
+   :members:
+   :show-inheritance:
+
+.. automodule:: pyhighlights.components.shortcuts
    :members:
    :show-inheritance:
 

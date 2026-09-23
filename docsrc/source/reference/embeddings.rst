@@ -20,6 +20,7 @@ Pretrained token vectors
    )
 
 The file's width has to be the backbone's ``embedding_dim``.
+The ids the vocabulary hands out start at ``2``: rows ``0`` and ``1`` are the padding and unknown ids, both zero, kept apart so that a highlight over an unknown word is not a highlight over padding.
 Its **length** does not have to be anything: the matrix is handed to the model through
 :meth:`~pyhighlights.components.models.spp.base.SPP.load_embeddings`, which
 sizes the table to it, so ``vocab_size`` is not a number the configuration has to have guessed.
@@ -45,7 +46,7 @@ One-hot inputs
 --------------
 
 A corpus whose tokens are symbols rather than words has nothing to pretrain and nothing to learn:
-``one_hot_embeddings=<width>`` builds the table instead of reading one, so every token is orthonormal to every other and the padding id is zero.
+``one_hot_embeddings=<width>`` builds the table instead of reading one, so every token is orthonormal to every other and the padding and unknown ids, rows ``0`` and ``1``, are zero.
 A frozen *random* table is not the same corpus to learn from, its rows are neither unit-length nor orthogonal, so the symbols arrive entangled.
 The width has to match the backbone's ``embedding_dim``, and may exceed the vocabulary, which leaves columns that are always zero.
 

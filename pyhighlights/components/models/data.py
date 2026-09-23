@@ -101,12 +101,25 @@ class InputData(ModelData):
     knowledge_true: th.Tensor | None = None
 
     def attention(self) -> th.Tensor:
-        """What the encoder attends over, whether or not the batch said."""
+        """What the encoder attends over, whether or not the batch said.
+
+        ``attention_mask`` is the answer where a batch carries one, and
+        :class:`~pyhighlights.components.data.HighlightCollator` always writes
+        it. The fallbacks are for a batch assembled by hand, and they are
+        narrower than the field they stand in for: ``word_ids >= 0`` drops
+        every special token along with the padding, because the two are both
+        ``-1`` and nothing here can tell them apart. A batch whose special
+        tokens must reach the encoder carries ``attention_mask``.
+
+        The result is a float mask in the default dtype on every path, since
+        it is multiplied into selections and states rather than indexed with.
+        """
+        dtype = th.get_default_dtype()
         if self.attention_mask is not None:
             return self.attention_mask
         if self.word_ids is not None:
-            return (self.word_ids >= 0).to(self.features.dtype)
-        return th.ones_like(self.features, dtype=th.get_default_dtype())
+            return (self.word_ids >= 0).to(dtype)
+        return th.ones_like(self.features, dtype=dtype)
 
 
 @dataclass

@@ -17,7 +17,7 @@ __all__ = ["load_vectors"]
 
 
 def one_hot_table(rows: int, width: int) -> th.Tensor:
-    """A one-hot embedding table: row 0 zero, row ``j`` the basis vector ``e[j-1]``.
+    """A one-hot embedding table: rows 0 and 1 zero, row ``j`` the vector ``e[j-2]``.
 
     What a corpus small enough to have no vector file wants, when its tokens
     are symbols rather than words: every token is orthonormal to every other
@@ -25,22 +25,25 @@ def one_hot_table(rows: int, width: int) -> th.Tensor:
     not the same thing -- its rows are neither unit-length nor orthogonal, so
     the symbols arrive already entangled.
 
-    Row zero is the unknown and padding id, matching
+    Row ``0`` is padding and row ``1`` is the unknown id, matching
     :class:`~pyhighlights.components.data.VocabularyTokenizer`, so a padded
-    position contributes nothing.
+    position and an out-of-vocabulary one each contribute nothing while
+    remaining different ids.
 
     ``width`` may exceed the vocabulary, leaving columns that are always zero.
     That is a declared embedding size larger than the alphabet turned out to
     be, which costs a few unused input weights and nothing else.
     """
-    if rows < 2:
-        raise ValueError("a one-hot table needs the padding id and one more")
-    if width < rows - 1:
+    if rows < 3:
         raise ValueError(
-            f"a one-hot table of {rows} ids needs {rows - 1} dimensions, not {width}"
+            "a one-hot table needs the padding and unknown ids and one more"
+        )
+    if width < rows - 2:
+        raise ValueError(
+            f"a one-hot table of {rows} ids needs {rows - 2} dimensions, not {width}"
         )
     table = th.zeros(rows, width)
-    table[1:rows, : rows - 1] = th.eye(rows - 1)
+    table[2:rows, : rows - 2] = th.eye(rows - 2)
     return table
 
 
@@ -71,9 +74,11 @@ def load_vectors(
     randomly initialised row inside a frozen table is noise nothing can learn
     away. ``False`` keeps the token and gives it a random row.
 
-    Row ``0`` is zeros and belongs to the unknown and padding id, matching
-    :class:`~pyhighlights.components.data.VocabularyTokenizer`, so the ids the
-    vocabulary hands out start at ``1``.
+    Rows ``0`` and ``1`` are zeros and belong to the padding and unknown ids,
+    matching :class:`~pyhighlights.components.data.VocabularyTokenizer`, so the
+    ids the vocabulary hands out start at ``2``. Both rows are zero, so neither
+    contributes to a state, and they stay separate ids so that a highlight over
+    an unknown word is not a highlight over padding.
     """
     wanted = None if tokens is None else set(tokens)
     vocabulary: Dict[str, int] = {}
@@ -96,7 +101,7 @@ def load_vectors(
                 continue
             if token in vocabulary:
                 continue
-            vocabulary[token] = len(vectors) + 1
+            vocabulary[token] = len(vectors) + 2
             vectors.append(th.tensor([float(value) for value in values.split()]))
 
     if not vectors:
@@ -109,7 +114,7 @@ def load_vectors(
         [] if wanted is None or pretrained_only else sorted(wanted - set(vocabulary))
     )
     for token in missing:
-        vocabulary[token] = len(vectors) + 1
+        vocabulary[token] = len(vectors) + 2
         vectors.append(th.randn(width, generator=generator))
 
-    return vocabulary, th.stack([th.zeros(width), *vectors])
+    return vocabulary, th.stack([th.zeros(width), th.zeros(width), *vectors])

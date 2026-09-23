@@ -1,11 +1,13 @@
 from pathlib import Path
 
+import pandas as pd
 import pytest
 from cinnamon.registry import Registry
 
 import pyhighlights
 from pyhighlights.components.leakage import LeakageDetector, duplicates, leakage
 from pyhighlights.components.loaders import HotelLoader
+from pyhighlights.components.preprocessors import remove_leakage
 from pyhighlights.configurations.keys import LEAKAGE_DETECTOR
 from tests.corpora import UNPINNED, r2a
 
@@ -42,6 +44,24 @@ def test_check_names_the_offending_pairs(tmp_path):
     # `report` is for: it says how much is shared and raises nothing.
     report = LeakageDetector().report(splits).set_index(["left", "right"])
     assert report.loc[("train", "test"), "ratio"] == 1.0
+
+
+def test_a_row_without_text_is_shared_with_nothing():
+    """Two rows a corpus left blank are two unusable rows, not a duplicate."""
+    blank = pd.DataFrame({"text": ["a", "", None, " "]})
+    splits = {"train": blank, "test": pd.DataFrame({"text": ["", "a"]})}
+
+    report = leakage(splits).set_index(["left", "right"])
+    # Only "a" is shared, and the blank test row still counts towards `size`.
+    assert report.loc[("train", "test"), "overlap"] == 1
+    assert report.loc[("train", "test"), "size"] == 2
+    assert duplicates(splits)["train"] == 0
+
+    # `test` is walked first, so it keeps "a" and loses its blank row, and
+    # `train` loses the row it shares plus all three of its blanks.
+    repaired = remove_leakage(splits)
+    assert repaired["test"]["text"].tolist() == ["a"]
+    assert repaired["train"]["text"].tolist() == []
 
 
 def test_registered_detector_builds():

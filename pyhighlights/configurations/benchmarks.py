@@ -70,6 +70,9 @@ class HighlightPositionAnalyzerConfig(Configuration):
     pattern: str = Param(PREDICTIONS)
     bins: int = Param(10, ge=1)
     absolute: bool = Param(False)
+    #: The newest run of each task, as every other analyzer reads: a re-run
+    #: task is one block of rows here and one row in the metrics table.
+    latest: bool = Param(True)
 
 
 @register_class(

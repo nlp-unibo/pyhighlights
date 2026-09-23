@@ -153,17 +153,22 @@ class Meter:
     def __exit__(self, *exception: Any) -> None:
         self.stop()
 
-    def columns(self, model: th.nn.Module) -> Dict[str, float]:
-        """What the seed cost, as columns of ``results.json``."""
+    def columns(self, model: th.nn.Module) -> Dict[str, float | int]:
+        """What the seed cost, as columns of ``results.json``.
+
+        A count stays an integer: a parameter count written as ``1234.0``
+        reads as a measurement of something, and these four are counts of
+        things rather than quantities that were measured.
+        """
         return {
             "cost_runtime_s": self.runtime,
             "cost_runtime_per_run_s": self.runtime * self.concurrency / self.models,
             "cost_memory_mib": self.peak,
-            "cost_parameters": float(parameters(model)),
-            "cost_trainable_parameters": float(parameters(model, trainable=True)),
-            "cost_frozen_parameters": float(parameters(model, trainable=False)),
-            "cost_concurrency": float(self.concurrency),
-            "cost_models": float(self.models),
+            "cost_parameters": parameters(model),
+            "cost_trainable_parameters": parameters(model, trainable=True),
+            "cost_frozen_parameters": parameters(model, trainable=False),
+            "cost_concurrency": int(self.concurrency),
+            "cost_models": int(self.models),
         }
 
 

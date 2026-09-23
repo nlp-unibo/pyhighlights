@@ -91,7 +91,15 @@ class HighlightTokenizer(Protocol):
 
     def encode(
         self, tokens: Sequence[str], max_length: int | None = None
-    ) -> TokenizedExample: ...
+    ) -> TokenizedExample:
+        """Encode ``tokens``, keeping at most ``max_length`` **encoded positions**.
+
+        The budget is counted on the axis the encoder reads, special tokens
+        included, rather than on source tokens. The two coincide only for a
+        one-token-to-one-id encoder. A tokenizer that cannot honour the bound
+        exactly may return more: :class:`HighlightCollator` clamps the result.
+        """
+        ...
 
 
 class VocabularyTokenizer:
@@ -100,11 +108,26 @@ class VocabularyTokenizer:
     def __init__(
         self,
         vocabulary: Mapping[str, int],
-        unknown_token_id: int = 0,
+        unknown_token_id: int = 1,
         pad_token_id: int = 0,
     ):
+        """``pad_token_id`` is ``0`` and ``unknown_token_id`` is ``1``, distinctly.
+
+        Sharing one id would make padding and an out-of-vocabulary word the
+        same input to the model, and a highlight over that word would then be
+        indistinguishable from a highlight over nothing. An explanation names
+        which word was selected, so the two must stay apart. Neither id may be
+        a word's, for the same reason.
+        """
         if min([unknown_token_id, pad_token_id, *vocabulary.values()]) < 0:
             raise ValueError("token ids must be non-negative")
+        if unknown_token_id == pad_token_id:
+            raise ValueError("the unknown and padding ids must differ")
+        reserved = {unknown_token_id, pad_token_id} & set(vocabulary.values())
+        if reserved:
+            raise ValueError(
+                f"ids {sorted(reserved)} are reserved for unknown and padding"
+            )
         self.vocabulary = dict(vocabulary)
         self.unknown_token_id = unknown_token_id
         self.pad_token_id = pad_token_id
@@ -151,7 +174,7 @@ class HuggingFaceTokenizer:
         # An argument rather than something fished out of `**kwargs`: it is
         # not forwarded as given, it is refused unless it is `True`.
         if use_fast is not True:
-            raise ValueError("HuggingFaceTokenizer requires a fast tokenizer")
+            raise ValueError("HuggingFaceTokenizer requires use_fast=True")
         self.add_special_tokens = add_special_tokens
         self.tokenizer = AutoTokenizer.from_pretrained(
             pretrained_model_card, use_fast=True, **tokenizer_kwargs
@@ -281,8 +304,8 @@ class HighlightCollator:
         attention = []
         sources = []
         for example, item in zip(examples, encoded):
-            input_ids = list(item.input_ids[:width])
-            word_ids = list(item.word_ids[:width])
+            input_ids = list(item.input_ids)
+            word_ids = list(item.word_ids)
             for word_id in word_ids:
                 if word_id is not None and not 0 <= word_id < len(example.tokens):
                     raise ValueError("word_id is outside source-token range")

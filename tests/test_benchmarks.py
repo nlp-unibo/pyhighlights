@@ -7,6 +7,7 @@ from cinnamon.registry import Registry
 
 import pyhighlights
 from pyhighlights.components.analyzers import (
+    PREDICTIONS,
     HighlightPositionAnalyzer,
     LabelStudioExporter,
     MetricsAnalyzer,
@@ -14,6 +15,7 @@ from pyhighlights.components.analyzers import (
     label_studio,
     latex_table,
     offsets,
+    run_directories,
 )
 from pyhighlights.components.benchmarks import Benchmark
 from pyhighlights.components.tasks import Task
@@ -88,7 +90,8 @@ def test_a_failing_task_does_not_take_the_grid_with_it(tmp_path, monkeypatch):
 
     assert report["failed"] == ["broken"]
     assert "cannot run" in report["tasks"][0]["error"]
-    assert report["tasks"][1]["summary"]["test_accuracy"]["mean"] == 0.9
+    assert report["tasks"][0]["traceback"].endswith("cannot run\n")
+    assert report["tasks"][1]["result"]["summary"]["test_accuracy"]["mean"] == 0.9
 
     strict = Benchmark(
         tasks=["broken"], name="strict", save_path=str(tmp_path), strict=True
@@ -273,6 +276,7 @@ def test_the_prediction_analyzer_reports_what_the_selector_kept(tmp_path):
         "label",
         "predicted",
         "tokens",
+        "text",
         "selected",
         "selected_text",
         "highlights",
@@ -286,7 +290,10 @@ def test_the_prediction_analyzer_reports_what_the_selector_kept(tmp_path):
         # A selection names positions in the words it selected from, and the
         # selected_text is those words.
         assert all(0 <= word < len(row.tokens) for word in row.selected)
-        assert row.selected_text == " ".join(row.tokens[word] for word in row.selected)
+        # The toy corpus is characters, so its documents join with nothing:
+        # `aab`, not `a a b`, which is what the corpus itself wrote.
+        assert row.text == "".join(row.tokens)
+        assert row.selected_text == "".join(row.tokens[word] for word in row.selected)
         assert row.label in (0, 1)
         assert row.predicted in (0, 1)
 
@@ -707,7 +714,9 @@ def test_a_benchmark_can_override_what_its_tasks_are_built_with(tmp_path):
     report = benchmark.run()
 
     assert not report["failed"]
-    assert [entry["seeds"] for entry in report["tasks"]] == [[0]]
+    assert [entry["result"]["seeds"] for entry in report["tasks"]] == [[0]]
+    # And the report says it was overridden, rather than looking registered.
+    assert report["settings"]["task_args"]["seeds"] == (0,)
 
     # And the manifest says the run was overridden rather than reporting the
     # registered configuration.
@@ -752,3 +761,109 @@ def test_a_rerun_is_not_more_samples(tmp_path):
     assert sorted(LabelStudioExporter(directory=tmp_path).export()) == [
         task / "2026-02-02T00-00-00" / "label-studio-seed=7.json"
     ]
+
+
+def test_the_report_is_written_after_every_task(tmp_path, monkeypatch):
+    """A killed process leaves the finished tasks in a report, not just on disk."""
+    written = []
+    tasks = {
+        "first": FakeTask(summary(accuracy=0.5), name="first"),
+        "second": FakeTask(summary(accuracy=0.7), name="second"),
+    }
+    benchmark = Benchmark(tasks=list(tasks), name="grid", save_path=str(tmp_path))
+    monkeypatch.setattr(benchmark, "build", lambda key: tasks[key])
+    run = FakeTask.run
+
+    def record(self):
+        path = tmp_path / "grid" / "benchmark.json"
+        written.append(
+            len(json.loads(path.read_text())["tasks"]) if path.exists() else 0
+        )
+        return run(self)
+
+    monkeypatch.setattr(FakeTask, "run", record)
+    benchmark.run()
+
+    # Nothing before the first task, one report after it.
+    assert written == [0, 1]
+
+
+def test_the_benchmark_directory_wins_over_a_task_argument(tmp_path):
+    """A task writing elsewhere leaves `benchmark.json` naming results no
+    analyzer reading this directory can find."""
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+    benchmark = Benchmark(
+        tasks=[TOY_TASK],
+        name="grid",
+        save_path=str(tmp_path),
+        task_args={"save_path": str(tmp_path / "elsewhere")},
+    )
+
+    assert benchmark.build(TOY_TASK).save_path == benchmark.directory
+
+
+def test_the_newest_run_is_the_newest_stamp_not_the_last_walked(tmp_path):
+    """A renamed task is still one task, and its newest run is the newest one.
+
+    The walk sorts by path, so a run under a name that sorts earlier is walked
+    first whatever its stamp says.
+    """
+    batch = {
+        "highlight_mask": [[1.0, 0.0]],
+        "mask": [[1.0, 1.0]],
+        "sample_ids": [0],
+        "class_logits": [[0.2, 0.8]],
+    }
+    write_run(tmp_path / "new-name", batch, stamp="2026-01-02T00-00-00", name="toy")
+    write_run(tmp_path / "old-name", batch, stamp="2026-01-01T00-00-00", name="toy")
+
+    runs = run_directories(tmp_path, PREDICTIONS, latest=True)
+
+    assert [run.name for run in runs] == ["2026-01-02T00-00-00"]
+    assert len(run_directories(tmp_path, PREDICTIONS, latest=False)) == 2
+
+
+def test_the_position_analyzer_reads_the_newest_run_like_the_others(tmp_path):
+    batch = {
+        "highlight_mask": [[1.0, 0.0]],
+        "mask": [[1.0, 1.0]],
+        "sample_ids": [0],
+        "class_logits": [[0.2, 0.8]],
+    }
+    write_run(tmp_path, batch, stamp="2026-01-01T00-00-00", name="toy")
+    write_run(tmp_path, batch, stamp="2026-01-02T00-00-00", name="toy")
+
+    assert len(HighlightPositionAnalyzer(directory=tmp_path, bins=2).analyze()) == 1
+    every = HighlightPositionAnalyzer(directory=tmp_path, bins=2, latest=False)
+    assert len(every.analyze()) == 2
+
+
+def test_a_corpus_that_changed_says_how_many_rows_it_cost(tmp_path, caplog):
+    """Both drops used to be silent, so an empty frame explained nothing."""
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+    batch = {
+        "highlight_mask": [[1.0, 0.0], [1.0, 0.0]],
+        "mask": [[1.0, 1.0], [1.0, 1.0]],
+        # The second id is not in the toy corpus at all.
+        "sample_ids": [0, 10_000],
+        "class_logits": [[0.2, 0.8], [0.8, 0.2]],
+    }
+    run = write_run(tmp_path, batch, name="toy")
+
+    analyzer = PredictionAnalyzer(directory=tmp_path)
+    with caplog.at_level("WARNING"):
+        analyzer.analyze()
+
+    counts = next(iter(analyzer.skipped.values()))
+    assert counts["missing"] == 1
+    assert "1 samples the corpus no longer holds" in caplog.text
+    assert run.exists()
+
+
+def test_offsets_address_the_text_the_corpus_wrote():
+    """A character corpus spells `aab`, and an offset into `a a b` is wrong."""
+    tokens = ["a", "a", "b"]
+
+    assert offsets(tokens, "aab") == [(0, 1), (1, 2), (2, 3)]
+    # Repeated tokens take successive occurrences rather than the first one.
+    assert offsets(tokens) == [(0, 1), (2, 3), (4, 5)]
