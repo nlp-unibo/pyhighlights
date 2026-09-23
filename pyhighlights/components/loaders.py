@@ -76,7 +76,7 @@ def to_examples(frame: pd.DataFrame) -> List[HighlightExample]:
     # `knowledge` is an extra column rather than one of COLUMNS: a corpus with
     # a knowledge base is the exception, and every loader that has none should
     # keep returning exactly the frame it returns today.
-    links = frame["knowledge"] if "knowledge" in frame else None
+    links = frame.get("knowledge")
     return [
         HighlightExample(
             sample_id=int(row.sample_id),

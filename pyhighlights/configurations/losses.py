@@ -243,7 +243,6 @@ class KnowledgeSparsityLossConfig(LossConfig):
     name: str = Param("knowledge_sparsity")
     loss: RegistrationKey[th.nn.Module] = Param(SPARSITY_PENALTY)
     inputs: List[str] = Param(["knowledge_mask", "knowledge_valid"])
-    coefficient: float = Param(1.0, ge=0.0)
 
 
 @register_class(
