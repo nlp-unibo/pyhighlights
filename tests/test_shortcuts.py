@@ -233,3 +233,46 @@ def test_ablation_rejoins_text_the_way_the_corpus_spells_it():
     # with the `ngrams` call beside it.
     detector = ShortcutDetector(separator=" ")
     assert detector.separator == " "
+
+
+def test_two_tokenizations_of_one_string_are_two_features():
+    """`("ab", "c")` and `("a", "bc")` both spell `abc` and are not one pattern."""
+    found = incidence([["ab", "c"], ["a", "bc"]], max_length=2)
+
+    assert found["('ab', 'c')"] == [0]
+    assert found["('a', 'bc')"] == [1]
+    # A corpus of characters keeps the readable names, since nothing collides.
+    assert set(incidence([["a", "b"]], max_length=2)) == {"a", "b", "ab"}
+
+
+def test_a_split_without_an_annotation_is_refused_by_the_ablation():
+    unannotated = frame([("aab", 0, [1, 1, 0])]).assign(highlights=None)
+
+    with pytest.raises(ValueError, match="nothing to remove"):
+        ablated(unannotated)
+    with pytest.raises(ValueError, match="nothing to remove"):
+        ShortcutDetector().check(unannotated)
+
+
+def test_labels_must_be_class_indices():
+    features = {"a": [0, 1]}
+
+    with pytest.raises(TypeError, match="labels must be class indices"):
+        scan(features, ["yes", "no"])
+    with pytest.raises(ValueError, match="non-negative"):
+        scan(features, [-1, 0])
+
+
+def test_the_registered_detector_builds():
+    from pathlib import Path
+
+    from cinnamon.registry import Registry
+
+    import pyhighlights
+    from pyhighlights.configurations.keys import SHORTCUT_DETECTOR
+
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+    detector = Registry.from_key(SHORTCUT_DETECTOR)
+
+    assert isinstance(detector, ShortcutDetector)
+    assert detector.max_length == 4 and detector.permutations == 30

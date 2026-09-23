@@ -32,7 +32,6 @@ from lightning.pytorch import seed_everything
 from lightning.pytorch.callbacks import Callback, ModelCheckpoint
 from torch.utils.data import DataLoader
 
-from pyhighlights.components import faithfulness
 from pyhighlights.components.callbacks import MonitoredScore
 from pyhighlights.components.data import (
     HighlightCollator,
@@ -42,6 +41,7 @@ from pyhighlights.components.data import (
     HuggingFaceTokenizer,
     VocabularyTokenizer,
 )
+from pyhighlights.components.faithfulness import evaluate as score_faithfulness
 from pyhighlights.components.loaders import HighlightLoader, to_examples
 from pyhighlights.components.models.base import InputData, Model
 from pyhighlights.components.models.spp.genspp import GenSPPTrainer
@@ -65,19 +65,22 @@ __all__ = [
 
 
 def vocabulary(frames: Iterable[pd.DataFrame], size: int) -> Dict[str, int]:
-    """Token ids ``1`` to ``size - 1``, most frequent first.
+    """Token ids ``2`` to ``size - 1``, most frequent first.
 
     ``size`` counts the ids in use rather than the tokens named, because it is
-    the embedding's width that has to hold them: id ``0`` is the unknown and
-    padding token, so ``size - 1`` tokens are mapped and the rest fall back to
-    it.
+    the embedding's width that has to hold them: id ``0`` is padding and id
+    ``1`` is the unknown token, so ``size - 2`` tokens are mapped and the rest
+    fall back to the unknown id. The two are separate ids so that a highlight
+    over an out-of-vocabulary word is distinguishable from one over nothing.
 
     Built from the training split alone. A vocabulary fitted on evaluation text
     would leak it -- quietly, since nothing downstream can tell where an id
     came from.
     """
-    if size < 2:
-        raise ValueError("a vocabulary needs room for the unknown token and one more")
+    if size < 3:
+        raise ValueError(
+            "a vocabulary needs room for the padding and unknown ids and one more"
+        )
 
     counts: Counter = Counter()
     for frame in frames:
@@ -85,7 +88,7 @@ def vocabulary(frames: Iterable[pd.DataFrame], size: int) -> Dict[str, int]:
             counts.update(tokens)
     return {
         token: index
-        for index, (token, _) in enumerate(counts.most_common(size - 1), start=1)
+        for index, (token, _) in enumerate(counts.most_common(size - 2), start=2)
     }
 
 
@@ -96,8 +99,10 @@ def load_splits(
     """The corpus a key names, preprocessed by the key that names how."""
     splits = Registry.from_key(loader, expected_type=HighlightLoader).load()
     # As parsed, before any step has run: what a preprocessor changed is only
-    # readable against what it was given.
-    diagnostics.record("loader", **splits)
+    # readable against what it was given. Guarded like every other stage,
+    # since `**splits` assembles a second mapping either way.
+    if diagnostics.active():
+        diagnostics.record("loader", **splits)
     if preprocessor is not None:
         splits = Registry.from_key(preprocessor, expected_type=Preprocessor).process(
             splits
@@ -106,13 +111,21 @@ def load_splits(
 
 
 def summarize(runs: Sequence[Mapping[str, float]]) -> Dict[str, Dict[str, float]]:
-    """Mean and standard deviation of each metric across seeds."""
+    """Mean and standard deviation of each metric across seeds.
+
+    The **sample** standard deviation, ``ddof=1``. The seeds are a sample of
+    the runs the configuration could produce rather than the whole of them,
+    which is what a table reporting ``mean +/- std`` claims, and the
+    population form is smaller by ``sqrt(n / (n - 1))`` -- 12% at five seeds
+    and 41% at two. One seed has no spread to report and gives ``0.0`` rather
+    than a ``nan``.
+    """
     names = sorted({name for run in runs for name in run})
     found = {name: [float(run[name]) for run in runs if name in run] for name in names}
     return {
         name: {
             "mean": float(np.mean(values)),
-            "std": float(np.std(values)),
+            "std": float(np.std(values, ddof=1)) if len(values) > 1 else 0.0,
             "values": values,
         }
         for name, values in found.items()
@@ -143,13 +156,17 @@ class Task(abc.ABC):
         """
         if self._started is None:
             stamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
-            # Two runs inside one second would otherwise share a directory,
-            # which is the one thing the stamp is here to prevent.
+            # Claimed by creating it rather than by finding it absent: two
+            # processes starting the same task in the same second -- a grid
+            # run in parallel, a requeued job -- both pass an `exists()` check
+            # and then write into one directory. `mkdir` is what decides.
             self._started = stamp
             for suffix in itertools.count(2):
-                if not (self.save_path / self.name / self._started).exists():
+                try:
+                    (self.save_path / self.name / self._started).mkdir(parents=True)
                     break
-                self._started = f"{stamp}-{suffix}"
+                except FileExistsError:
+                    self._started = f"{stamp}-{suffix}"
         return self.save_path / self.name / self._started
 
     @abc.abstractmethod
@@ -160,7 +177,9 @@ class Task(abc.ABC):
         """Write the results and the settings that produced them."""
         directory = self.directory
         directory.mkdir(parents=True, exist_ok=True)
-        (directory / "results.json").write_text(json.dumps(results, indent=2))
+        (directory / "results.json").write_text(
+            json.dumps(results, indent=2, default=str)
+        )
         # Not the task's attributes: those hold keys, so a record of them says
         # `name=model--tags=['fr','gru']` and not the hidden size, the sparsity
         # threshold or the learning rate that key stands for.
@@ -306,8 +325,13 @@ class SPPTask(Task):
         self.highlight_coefficient = highlight_coefficient
         # Defaults a batch run wants, overridden by whatever the caller passes:
         # the progress bar writes one line per step into a log nobody reads.
+        #
+        # No `accelerator`, so Lightning's own `"auto"` stands and a run uses
+        # the card it is given. A component defaulting to `"cpu"` made every
+        # registered task train on the CPU of a machine bought for the other
+        # thing, unless a benchmark remembered to override it; where a task
+        # must stay on the CPU, its configuration says so.
         self.trainer_args = {
-            "accelerator": "cpu",
             "max_epochs": 5,
             "enable_progress_bar": False,
             "enable_model_summary": False,
@@ -516,7 +540,31 @@ class SPPTask(Task):
         # wrong once and then cannot see.
         return sorted(callbacks, key=lambda item: not isinstance(item, MonitoredScore))
 
-    def build_model(self) -> Model:
+    def build_model(
+        self,
+        embeddings: th.Tensor | None = None,
+        knowledge: InputData | None = None,
+    ) -> Model:
+        """The model this task names, holding the data it has to be given.
+
+        ``embeddings`` and ``knowledge`` are data rather than configuration,
+        so they reach the model here rather than through a registration. Both
+        default to what :meth:`tokenizer` and :meth:`loaders` read off the
+        corpus, and both may be passed outright -- a caller that built them
+        itself, or a test.
+
+        A task that embeds from a vector file and is handed no matrix is
+        refused: it would otherwise build a model with a randomly initialised
+        table and report numbers for it.
+        """
+        embeddings = self._embedding_matrix if embeddings is None else embeddings
+        knowledge = self._knowledge if knowledge is None else knowledge
+        if self.requires_embeddings and embeddings is None:
+            raise ValueError(
+                f"{self.name}: this task embeds from a vector file, and the "
+                "matrix is read by `tokenizer`. Build the loaders first, or "
+                "pass embeddings= here"
+            )
         # Passed only when asked for, so an unsupervised run builds exactly the
         # model its key describes.
         supervision = (
@@ -538,13 +586,26 @@ class SPPTask(Task):
         )
         # The vectors are data, so they reach the model as a tensor rather than
         # through a registration: no configuration should carry a matrix.
-        if self._embedding_matrix is not None:
-            model.load_embeddings(self._embedding_matrix)
+        if embeddings is not None:
+            model.load_embeddings(embeddings)
         # Same reasoning as the vectors: it is data, so it reaches the model as
         # a batch rather than through a registration.
-        if self._knowledge is not None:
-            model.load_knowledge(self._knowledge)
+        if knowledge is not None:
+            model.load_knowledge(knowledge)
         return model
+
+    def attach_metrics(self, model: Model) -> None:
+        """Give a model the metrics this task scores it with.
+
+        :meth:`build_model` passes them to the constructor, which is where a
+        model belonging to this task gets them. A searched model is built by
+        the search from the model key alone, so it arrives without any, and
+        this is the one place that is repaired -- all three splits, so a model
+        is not left holding metrics from one path and none from another.
+        """
+        model.train_metrics = build_metrics(self.train_metrics)
+        model.val_metrics = build_metrics(self.val_metrics)
+        model.test_metrics = build_metrics(self.test_metrics)
 
     def check_supervision(self, splits: Mapping[str, pd.DataFrame]) -> None:
         """Refuse to call a run supervised when nothing supervises it.
@@ -560,6 +621,18 @@ class SPPTask(Task):
             raise ValueError(
                 f"{self.name}: highlight supervision needs an annotated train "
                 "split, and this corpus has none"
+            )
+        # Every example of a non-zero class, not merely one of them: a corpus
+        # annotated on three rows of twenty thousand passes an "any" check and
+        # trains as an unsupervised run, while reporting itself supervised.
+        # Class zero is the negative one and annotating it is optional -- a
+        # fair clause instantiates nothing, and an empty highlight says so.
+        unannotated = int(((train["label"] != 0) & train["highlights"].isna()).sum())
+        if unannotated:
+            raise ValueError(
+                f"{self.name}: highlight supervision trains on the annotation, "
+                f"and {unannotated} of {int((train['label'] != 0).sum())} "
+                "positive training examples carry none"
             )
 
     def fit(self, seed: int, loaders: Mapping[str, DataLoader]) -> Dict[str, float]:
@@ -604,7 +677,9 @@ class SPPTask(Task):
         that trains more than one model knows how many only once it has
         stopped: see :meth:`GenSPPTask.train`.
         """
-        model = self.build_model()
+        model = self.build_model(
+            embeddings=self._embedding_matrix, knowledge=self._knowledge
+        )
         callbacks = self.build_callbacks(directory)
         checkpoint = next(
             (item for item in callbacks if isinstance(item, ModelCheckpoint)), None
@@ -647,9 +722,13 @@ class SPPTask(Task):
             # A checkpoint stores the model's hyperparameters, and those hold
             # registration keys, whose tags are a frozenset. Allowlisting those
             # three keeps the load in weights-only mode rather than unpickling
-            # whatever a checkpoint file happens to contain.
+            # whatever a checkpoint file happens to contain. `weights_only` is
+            # passed rather than relied on: it defaults to `True` only from
+            # torch 2.6, and this package supports 2.0.
             with th.serialization.safe_globals([RegistrationKey, frozenset, set]):
-                state = th.load(checkpoint.best_model_path, map_location="cpu")
+                state = th.load(
+                    checkpoint.best_model_path, map_location="cpu", weights_only=True
+                )
             model.load_state_dict(state["state_dict"])
 
         return model, trainer
@@ -680,12 +759,28 @@ class SPPTask(Task):
         that finds them beside a checkpoint can only say which seed produced
         them, not which run.
         """
-        results: Dict[str, float] = {}
         # Appended rather than passed: `Trainer.test` takes no callbacks, and
         # the timer reports on the test hooks alone, so the validation pass
         # below leaves it untouched.
         timer = cost.InferenceTimer()
         trainer.callbacks.append(timer)
+        try:
+            return self.scored(trainer, model, loaders, predictions, timer)
+        finally:
+            # Removed again, so a second scoring pass over the same trainer
+            # times once rather than reporting the newest of two timers.
+            trainer.callbacks.remove(timer)
+
+    def scored(
+        self,
+        trainer: L.Trainer,
+        model: Model,
+        loaders: Mapping[str, DataLoader],
+        predictions: Path,
+        timer: cost.InferenceTimer,
+    ) -> Dict[str, float]:
+        """The scoring pass itself, with the timer already installed."""
+        results: Dict[str, float] = {}
         if "val" in loaders:
             results.update(trainer.validate(model, dataloaders=loaders["val"])[0])
         if "test" in loaders:
@@ -710,7 +805,7 @@ class SPPTask(Task):
                 results.update(
                     {
                         f"test_{name}": value
-                        for name, value in faithfulness.evaluate(
+                        for name, value in score_faithfulness(
                             model, loaders["test"]
                         ).items()
                     }
@@ -726,21 +821,43 @@ class SPPTask(Task):
         recording = (
             diagnostics.writing(self.directory) if self.diagnostics else nullcontext()
         )
+        runs: List[Dict[str, float]] = []
         with recording:
             loaders = self.loaders(self.splits())
-            runs = [self.fit(seed, loaders) for seed in self.seeds]
+            for seed in self.seeds:
+                runs.append(self.fit(seed, loaders))
+                # After every seed rather than after the list: a run killed at
+                # seed four of five otherwise leaves no `results.json` at all,
+                # and the weights of the seeds that finished are already gone
+                # when `keep_checkpoints` is off.
+                results = self.results(runs)
+                self.serialize(results)
 
-        results = {
+        logger.info("%s: %s", self.name, json.dumps(results["summary"], indent=2))
+        return results
+
+    def results(self, runs: Sequence[Mapping[str, float]]) -> Dict[str, Any]:
+        """What the seeds so far reported, and their spread.
+
+        ``seeds`` is every seed the task was asked for and ``runs`` is what
+        has finished, so a partial result says which of the two it is rather
+        than looking like a task configured with fewer seeds.
+        """
+        return {
             "name": self.name,
             "seeds": self.seeds,
+            "completed": [seed for seed, _ in zip(self.seeds, runs)],
             "runs": [
-                {name: float(value) for name, value in run.items()} for run in runs
+                # An integer stays one: `parameters` and `models` are counts,
+                # and `1234.0` in a result file reads as a measurement.
+                {
+                    name: value if isinstance(value, int) else float(value)
+                    for name, value in run.items()
+                }
+                for run in runs
             ],
             "summary": summarize(runs),
         }
-        logger.info("%s: %s", self.name, json.dumps(results["summary"], indent=2))
-        self.serialize(results)
-        return results
 
 
 class GenSPPTask(SPPTask):
@@ -772,9 +889,11 @@ class GenSPPTask(SPPTask):
             )
         self.search = search
         # The model key lives on the search: naming it twice is a way for the
-        # two to disagree about which model was actually evolved.
-        trainer = Registry.from_key(search, expected_type=GenSPPTrainer)
-        super().__init__(model=trainer.model, **kwargs)
+        # two to disagree about which model was actually evolved. Built once
+        # and kept, since `check_diagnostics` asks the same instance about the
+        # size of the search and only `train` needs a seeded one.
+        self._trainer = Registry.from_key(search, expected_type=GenSPPTrainer)
+        super().__init__(model=self._trainer.model, **kwargs)
 
     #: How many candidates a diagnosed search may evaluate. Each one trains a
     #: predictor over the whole training split, and every batch of that is a
@@ -808,8 +927,7 @@ class GenSPPTask(SPPTask):
         generation draws.
         """
         super().check_diagnostics()
-        search = Registry.from_key(self.search, expected_type=GenSPPTrainer)
-        candidates = self.candidates(search)
+        candidates = self.candidates(self._trainer)
         if candidates > self.SMOKE_CANDIDATES:
             raise ValueError(
                 f"{self.name}: this search evaluates {candidates} candidates, "
@@ -856,8 +974,7 @@ class GenSPPTask(SPPTask):
 
         # The search builds its candidates from the model key alone, so the
         # winner arrives without metrics; they are only ever read after it.
-        model.val_metrics = build_metrics(self.val_metrics)
-        model.test_metrics = build_metrics(self.test_metrics)
+        self.attach_metrics(model)
 
         th.save({"state_dict": model.state_dict()}, directory / "best.ckpt")
         # `search.json` stays even when the checkpoints are dropped: it is the

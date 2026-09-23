@@ -122,6 +122,8 @@ and the loader says so rather than guessing one.
 Text becomes ids in one of two ways.
 Name a ``pretrained_model_card`` and the matching subword tokenizer is used; leave it unset and a vocabulary is fitted on the **training split alone**, since fitting it on evaluation text would leak quietly and nothing downstream can tell where an id came from.
 Its ``vocabulary_size`` has to match the backbone's ``vocab_size``: an id the embedding has no row for is a crash at the first batch.
+``vocabulary_size`` counts ids rather than words, and two of them are reserved: id ``0`` is padding and id ``1`` is the unknown token, so a size of ``10_000`` maps the ``9_998`` most frequent training tokens.
+The two ids are separate so that a highlight over an out-of-vocabulary word is distinguishable from one over padding, which is what an exported explanation has to state.
 
 Everything else a run configures has a page of its own:
 :doc:`embeddings` for the token vectors a model starts from, :doc:`metrics` for what is scored, :doc:`supervision` for training against a highlight annotation, :doc:`faithfulness` for the sufficiency and comprehensiveness diagnostics, :doc:`diagnostics` for reading the inside of a forward pass, :doc:`cost` for what a run spent, :doc:`analyzers` for reading the results back, and :doc:`benchmarks` for running a grid of tasks.

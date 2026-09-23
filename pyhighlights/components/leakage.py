@@ -19,7 +19,18 @@ import pandas as pd
 __all__ = ["LeakageDetector", "duplicates", "leakage", "normalize"]
 
 
-def normalize(value: str) -> str:
+def normalize(value: object) -> str:
+    """One comparable key: collapsed whitespace, stripped, lower-cased.
+
+    ``object`` rather than ``str`` because the column holds whatever the
+    loader parsed. A missing value normalizes to the empty string, and an
+    empty key is never counted as shared: two rows a corpus left without text
+    are two unusable rows rather than a duplicate. They are dropped by
+    :func:`~pyhighlights.components.preprocessors.remove_leakage`, which is
+    where a row leaves a corpus.
+    """
+    if value is None or (isinstance(value, float) and value != value):
+        return ""
     return re.sub(r"\s+", " ", str(value)).strip().lower()
 
 
@@ -34,16 +45,19 @@ def leakage(
     ``ratio`` is the share of *right* rows found in *left*, so the test row of
     a train/test pair answers "how much of my evaluation set did I train on".
     Keys are whitespace- and case-normalized unless told otherwise, since raw
-    equality understates real overlap.
+    equality understates real overlap. An empty key matches nothing, and
+    ``size`` counts it all the same: a row with no text is not shared with
+    anything, and hiding it would report a share of a corpus that is smaller
+    than the one on disk.
     """
     keys = {
         name: frame[key].map(normalize) if normalize_keys else frame[key]
         for name, frame in splits.items()
     }
+    seen = {name: set(values) - {""} for name, values in keys.items()}
     rows = []
     for left, right in itertools.permutations(keys, 2):
-        seen = set(keys[left])
-        overlap = int(keys[right].isin(seen).sum())
+        overlap = int(keys[right].isin(seen[left]).sum())
         size = len(keys[right])
         rows.append(
             {
@@ -62,15 +76,17 @@ def duplicates(
     key: str = "text",
     normalize_keys: bool = True,
 ) -> Dict[str, int]:
-    """Count repeated rows inside each split."""
-    return {
-        name: int(
-            (frame[key].map(normalize) if normalize_keys else frame[key])
-            .duplicated()
-            .sum()
-        )
-        for name, frame in splits.items()
-    }
+    """Count repeated rows inside each split.
+
+    Keys are whitespace- and case-normalized as in :func:`leakage`, and
+    ``normalize_keys=False`` compares them exactly as the corpus spells them.
+    An empty key is not a repeat of another empty one.
+    """
+    counted = {}
+    for name, frame in splits.items():
+        values = frame[key].map(normalize) if normalize_keys else frame[key]
+        counted[name] = int(values[values != ""].duplicated().sum())
+    return counted
 
 
 class LeakageDetector:
@@ -88,8 +104,8 @@ class LeakageDetector:
         """Overlap for every ordered split pair."""
         return leakage(splits, key=self.key, normalize_keys=self.normalize_keys)
 
-    def duplicates(self, splits: Mapping[str, pd.DataFrame]) -> Dict[str, int]:
-        """Repeated rows within each split."""
+    def repeats(self, splits: Mapping[str, pd.DataFrame]) -> Dict[str, int]:
+        """Repeated rows within each split, which :meth:`check` does not read."""
         return duplicates(splits, key=self.key, normalize_keys=self.normalize_keys)
 
     def check(self, splits: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
@@ -102,6 +118,11 @@ class LeakageDetector:
         There is no tolerance to set. A shared row is leakage at any rate, and
         a corpus distributed with one -- R2A is -- is read with
         :meth:`report`, which says how much it shares without refusing it.
+
+        **Between splits only.** A split that holds the same row twice passes
+        here: :meth:`repeats` is what counts those, and
+        :class:`~pyhighlights.components.preprocessors.LeakageRemover` is what
+        drops them.
         """
         report = self.report(splits)
         offending = report[report["ratio"] > 0]

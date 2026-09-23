@@ -62,6 +62,7 @@ import torch as th
 from torch.utils.data import DataLoader
 
 from pyhighlights.components.models.base import Model
+from pyhighlights.utility import diagnostics
 
 __all__ = ["evaluate"]
 
@@ -72,8 +73,14 @@ def evaluate(model: Model, loader: DataLoader) -> Dict[str, float]:
     Runs outside the Lightning loop: the terms need extra forward passes with
     masks of their own rather than another binding over the fields a step
     already produced. The model is left in the mode it arrived in.
+
+    **The caller owns where the model sits.** Batches are moved to
+    ``model.device``, and the model is read where it is: a stage outside every
+    Lightning loop is one Lightning no longer places, so
+    :meth:`~pyhighlights.components.tasks.SPPTask.score` moves the model to
+    the run's device before calling this.
     """
-    totals: Dict[str, float] = {}
+    totals: Dict[str, th.Tensor] = {}
     count = 0
 
     training = model.training
@@ -82,13 +89,35 @@ def evaluate(model: Model, loader: DataLoader) -> Dict[str, float]:
         with th.no_grad():
             for batch in loader:
                 batch = batch.to(model.device)
+                rows = int(batch.mask.shape[0])
                 terms = model.faithfulness(batch, model.test_forward(batch))
                 for name, value in terms.items():
-                    totals[name] = totals.get(name, 0.0) + float(value.sum())
-                count += int(batch.mask.shape[0])
+                    # A term is one number per row. A model that returns
+                    # anything else would be averaged over a denominator that
+                    # is not its own, and the column would read as a
+                    # measurement rather than as a shape error.
+                    if value.shape != (rows,):
+                        raise ValueError(
+                            f"faithfulness term {name!r} has shape "
+                            f"{tuple(value.shape)}; one number per row was "
+                            f"expected, so ({rows},)"
+                        )
+                    # Summed on the device and read once at the end: a
+                    # `float()` here synchronizes the device on every term of
+                    # every batch, and this stage is already three predictor
+                    # passes over the split.
+                    running = totals.get(name)
+                    total = value.sum()
+                    totals[name] = total if running is None else running + total
+                count += rows
+                # In this process whatever the loader's workers are: the
+                # batches arrive here, and the record is written where it is
+                # read from.
+                if diagnostics.active():
+                    diagnostics.record("faithfulness", **terms)
     finally:
         model.train(training)
 
     if not count:
         raise ValueError("faithfulness needs at least one example to score")
-    return {name: value / count for name, value in totals.items()}
+    return {name: float(value) / count for name, value in totals.items()}

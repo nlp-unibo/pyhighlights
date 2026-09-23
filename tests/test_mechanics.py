@@ -33,7 +33,7 @@ from pyhighlights.components.data import (
 from pyhighlights.components.models.spp.base import SPP
 from pyhighlights.configurations.keys import GRU_BACKBONE, GRU_FR
 
-VOCABULARY = {word: index + 1 for index, word in enumerate("a b c d e f g".split())}
+VOCABULARY = {word: index + 2 for index, word in enumerate("a b c d e f g".split())}
 
 
 def build_registry():

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import abc
 import json
+import logging
 from collections import Counter
 from pathlib import Path
 from typing import (
@@ -36,6 +37,8 @@ from cinnamon.registry import RegistrationKey, Registry
 from pyhighlights.components.loaders import HighlightLoader
 from pyhighlights.components.preprocessors import Preprocessor
 from pyhighlights.utility.manifest import registration_key
+
+logger = logging.getLogger(__name__)
 
 #: What :func:`latest_runs` groups: a report, or the directory holding one.
 T = TypeVar("T")
@@ -60,7 +63,9 @@ __all__ = [
     "run_of",
     "reported_head",
     "seed_of",
-    "spans",
+    "separator_of",
+    "span_count",
+    "task_of",
 ]
 
 
@@ -89,28 +94,61 @@ def reported_head(masks: np.ndarray) -> np.ndarray:
     return masks[:, 0] if masks.ndim == 3 else masks
 
 
-def latest_runs(items: Iterable[Tuple[str, T]], latest: bool = True) -> List[T]:
+def latest_runs(items: Iterable[Tuple[str, str, T]], latest: bool = True) -> List[T]:
     """One entry per task, newest last, or every entry when ``latest`` is off.
 
     A task keeps every run it has ever done, one timestamped directory each,
     so a re-run or a requeued job would otherwise read as extra rows: a second
     line in a table, or the same sample exported twice for an annotator.
 
-    Grouping is by the name the run reported rather than by its directory. The
-    stamp is a path component, and a task that has been renamed or moved is
-    still the task its own record says it is. Entries arrive in path order and
-    a stamp sorts chronologically, so the last one of a name is the newest.
+    Each item arrives as ``(name, stamp, item)``. Grouping is by the name the
+    run reported rather than by its directory: the stamp is a path component,
+    and a task that has been renamed or moved is still the task its own record
+    says it is. Recency is the **stamp** rather than the order the walk
+    produced, because those two disagree in exactly that case -- a run under
+    ``new-name/2026-09-02`` is walked before one under
+    ``old-name/2026-09-01``, and taking the last walked would report the older
+    one as current.
 
     Both analyzers that read a directory of runs group them this way, and they
     differ only in where the name comes from: a metrics report carries it, and
     a predictions file has it in the manifest beside it.
     """
-    found: Dict[str, List[T]] = {}
-    for name, item in items:
-        found.setdefault(name, []).append(item)
+    found: Dict[str, List[Tuple[str, T]]] = {}
+    for name, stamp, item in items:
+        found.setdefault(name, []).append((stamp, item))
     return [
-        item for group in found.values() for item in (group[-1:] if latest else group)
+        item
+        for group in found.values()
+        for _, item in (
+            sorted(group, key=lambda entry: entry[0])[-1:] if latest else group
+        )
     ]
+
+
+def task_of(run: Path) -> str:
+    """Which task a run directory belongs to, as its manifest reports it.
+
+    A run that wrote no manifest falls back to the directory the stamp sits
+    in, which is where a task writes.
+    """
+    manifest = run / "manifest.json"
+    if not manifest.exists():
+        return run.parent.name
+    settings = json.loads(manifest.read_text()).get("settings", {})
+    return settings.get("name", run.parent.name)
+
+
+def run_directories(directory: Path, pattern: str, latest: bool = True) -> List[Path]:
+    """The run directories holding ``pattern``, newest per task when ``latest``.
+
+    Shared by every analyzer that reads stored predictions, so a re-run is one
+    run in each of their reports rather than one in some and two in others.
+    """
+    candidates = sorted({path.parent for path in directory.rglob(pattern)})
+    return sorted(
+        latest_runs(((task_of(run), run.name, run) for run in candidates), latest)
+    )
 
 
 def escape(value: Any) -> str:
@@ -210,7 +248,8 @@ class MetricsAnalyzer(Analyzer):
             for path in sorted(self.directory.rglob("results.json"))
         ]
         return latest_runs(
-            ((report.get("name", "?"), report) for report in reports), self.latest
+            ((report.get("name", "?"), report["run"], report) for report in reports),
+            self.latest,
         )
 
     def analyze(self) -> pd.DataFrame:
@@ -233,7 +272,13 @@ class MetricsAnalyzer(Analyzer):
                 if name not in found:
                     row[name] = "-"
                     continue
-                mean, std = found[name]["mean"], found[name]["std"]
+                entry = found[name]
+                if not isinstance(entry, Mapping) or not {"mean", "std"} <= set(entry):
+                    raise ValueError(
+                        f"{report['run']} reports {self.split}_{name} as "
+                        f"{entry!r}; a summary entry is a mean and a std"
+                    )
+                mean, std = entry["mean"], entry["std"]
                 row[name] = (mean, std) if self.pairs else f"{mean:.4f} +/- {std:.4f}"
             rows.append(row)
 
@@ -309,6 +354,11 @@ class HighlightPositionAnalyzer(Analyzer):
     selection past them is counted in the total without a column of its own,
     so the reported shares sum to less than one by however much the tail
     holds.
+
+    ``latest`` reads the most recent run of each task, as
+    :class:`MetricsAnalyzer` and :class:`PredictionAnalyzer` do: a re-run
+    task is one block of rows here and one row there, rather than one in some
+    reports and two in others.
     """
 
     def __init__(
@@ -317,6 +367,7 @@ class HighlightPositionAnalyzer(Analyzer):
         pattern: str = PREDICTIONS,
         bins: int = 10,
         absolute: bool = False,
+        latest: bool = True,
     ):
         super().__init__(directory)
         if bins < 1:
@@ -324,10 +375,16 @@ class HighlightPositionAnalyzer(Analyzer):
         self.pattern = pattern
         self.bins = bins
         self.absolute = absolute
+        self.latest = latest
 
     def analyze(self) -> pd.DataFrame:
         rows = []
-        for path in sorted(self.directory.rglob(self.pattern)):
+        files = [
+            path
+            for run in run_directories(self.directory, self.pattern, self.latest)
+            for path in sorted(run.glob(self.pattern))
+        ]
+        for path in files:
             positions: Counter = Counter()
             rate = 0.0
             kept = 0
@@ -388,6 +445,11 @@ class PredictionAnalyzer(Analyzer):
 
     The registry has to be built before this runs, since it resolves the keys
     the manifest names. Inside a cinnamon script it already is.
+
+    A sample the corpus no longer holds, or one whose words it places
+    differently, is left out rather than refused -- the rest of the split is
+    still worth reading. :attr:`skipped` counts both per predictions file, and
+    a file that lost anything says so through the module's logger.
     """
 
     def __init__(
@@ -401,30 +463,19 @@ class PredictionAnalyzer(Analyzer):
         self.pattern = pattern
         self.split = split
         self.latest = latest
+        #: Per predictions file, how many rows :meth:`frames` left out and
+        #: why. Written on every pass, so it describes the last one.
+        self.skipped: Dict[Path, Dict[str, int]] = {}
 
     def runs(self) -> List[Path]:
         """The run directories to read, newest per task when ``latest``.
 
         The name comes out of the run's ``manifest.json``, falling back to the
         directory the stamp sits in for a run that wrote none.
-        :func:`latest_runs` is what does the grouping, as it does for
-        :meth:`MetricsAnalyzer.reports`.
+        :func:`run_directories` is what does the grouping, for every analyzer
+        that reads stored predictions.
         """
-        candidates = sorted(
-            {path.parent for path in self.directory.rglob(self.pattern)}
-        )
-        return sorted(
-            latest_runs(((self.task_of(run), run) for run in candidates), self.latest)
-        )
-
-    @staticmethod
-    def task_of(run: Path) -> str:
-        """Which task a run directory belongs to, as its manifest reports it."""
-        manifest = run / "manifest.json"
-        if not manifest.exists():
-            return run.parent.name
-        settings = json.loads(manifest.read_text()).get("settings", {})
-        return settings.get("name", run.parent.name)
+        return run_directories(self.directory, self.pattern, self.latest)
 
     def corpus(self, run: Path) -> Dict[int, pd.Series]:
         """The split these predictions were made on, keyed by sample id."""
@@ -461,8 +512,14 @@ class PredictionAnalyzer(Analyzer):
         # cost of the analysis repeated.
         corpora: Dict[Path, Dict[int, Any]] = {}
         files = [path for run in self.runs() for path in sorted(run.glob(self.pattern))]
+        self.skipped = {}
         for path in files:
             rows: List[Dict[str, Any]] = []
+            # Both reasons a row is dropped are "the corpus changed under the
+            # run", and both used to be silent: a corpus edited enough to miss
+            # every sample produced an empty frame and no account of why.
+            missing = 0
+            misplaced = 0
             run = path.parent
             if run not in corpora:
                 corpora[run] = self.corpus(run)
@@ -485,6 +542,7 @@ class PredictionAnalyzer(Analyzer):
                         # A corpus that no longer holds the sample is a corpus
                         # that changed under the run. Reporting the rest of the
                         # split is more use than refusing all of it.
+                        missing += 1
                         continue
                     tokens = list(example.tokens)
                     # `valid` is the word axis, so it may only narrow a
@@ -503,6 +561,7 @@ class PredictionAnalyzer(Analyzer):
                         # The corpus places this sample's words differently
                         # than the run did. Folding the selection against it
                         # anyway would print words nothing selected.
+                        misplaced += 1
                         continue
                     selected = [int(word) for word in words]
                     rows.append(
@@ -513,10 +572,13 @@ class PredictionAnalyzer(Analyzer):
                             "label": int(example.label),
                             "predicted": int(predicted[index]),
                             "tokens": tokens,
+                            "text": getattr(example, "text", None) or " ".join(tokens),
                             "selected": selected,
-                            "selected_text": " ".join(
-                                tokens[word] for word in selected
-                            ),
+                            # Joined the way this corpus joins its tokens: a
+                            # character corpus spells `aab`, not `a a b`.
+                            "selected_text": separator_of(
+                                tokens, getattr(example, "text", None)
+                            ).join(tokens[word] for word in selected),
                             "highlights": None
                             if example.highlights is None
                             else [
@@ -526,6 +588,16 @@ class PredictionAnalyzer(Analyzer):
                             ],
                         }
                     )
+            self.skipped[path] = {"missing": missing, "misplaced": misplaced}
+            if missing or misplaced:
+                logger.warning(
+                    "%s: %d samples the corpus no longer holds and %d whose "
+                    "words it places differently were left out of %d",
+                    run_of(path, self.directory),
+                    missing,
+                    misplaced,
+                    missing + misplaced + len(rows),
+                )
             yield path, pd.DataFrame(rows)
 
     def analyze(self) -> pd.DataFrame:
@@ -533,7 +605,7 @@ class PredictionAnalyzer(Analyzer):
         return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
-def spans(selected: Sequence[int]) -> int:
+def span_count(selected: Sequence[int]) -> int:
     """How many contiguous runs a selection is made of."""
     positions = sorted(selected)
     if not positions:
@@ -569,7 +641,7 @@ def readability(frame: pd.DataFrame, by: str = "label") -> pd.DataFrame:
             len(selected) / len(tokens) if len(tokens) else 0.0
             for selected, tokens in zip(frame["selected"], frame["tokens"])
         ],
-        spans=frame["selected"].apply(spans),
+        spans=frame["selected"].apply(span_count),
     )
     return (
         rows.groupby(["run", by])[["selection_size", "selection_rate", "spans"]]
@@ -578,19 +650,39 @@ def readability(frame: pd.DataFrame, by: str = "label") -> pd.DataFrame:
     )
 
 
-def offsets(tokens: Sequence[str]) -> List[Tuple[int, int]]:
-    """Character span of each token in ``" ".join(tokens)``.
+def separator_of(tokens: Sequence[str], text: str | None) -> str:
+    """What joins this corpus's tokens, read off the text it wrote.
+
+    A corpus of words joins with a space and a corpus of characters joins with
+    nothing -- ``ToyLoader`` writes ``"".join(tokens)`` -- so assuming one of
+    them spells the other's documents wrongly.
+    """
+    return "" if text is not None and "".join(tokens) == text else " "
+
+
+def offsets(tokens: Sequence[str], text: str | None = None) -> List[Tuple[int, int]]:
+    """Character span of each token inside ``text``.
 
     Label Studio addresses a span by character offset into the text it shows,
-    and a corpus arrives as words. One space between them is the same
-    assumption the text itself is built on, so the two agree by construction.
+    so the offsets have to be into the document the corpus wrote rather than
+    into a rejoining of its tokens: a character corpus spells ``aab`` where a
+    rejoining with spaces spells ``a a b``, and every offset after the first
+    would then be wrong.
+
+    ``text`` defaults to ``" ".join(tokens)``, which is what a corpus of words
+    holds. Tokens are located in order, so repeated tokens take successive
+    occurrences rather than the first one every time.
     """
-    spans = []
-    start = 0
+    text = " ".join(tokens) if text is None else text
+    located = []
+    cursor = 0
     for token in tokens:
-        spans.append((start, start + len(token)))
-        start += len(token) + 1
-    return spans
+        start = text.find(token, cursor)
+        if start < 0:
+            raise ValueError(f"token {token!r} does not occur in the text it came from")
+        located.append((start, start + len(token)))
+        cursor = start + len(token)
+    return located
 
 
 def label_studio(
@@ -602,8 +694,9 @@ def label_studio(
     """Predicted highlights as Label Studio pre-annotations.
 
     Reads the columns :class:`PredictionAnalyzer` reports -- ``tokens``,
-    ``selected``, ``label``, ``predicted`` -- so it converts any frame carrying
-    them, whatever produced it.
+    ``selected``, ``label``, ``predicted`` and ``text`` -- so it converts any
+    frame carrying them, whatever produced it. A frame without ``text`` falls
+    back to joining the tokens with a space.
 
     Each selected word becomes one span. The whole document goes in ``data``
     alongside the gold and predicted label, so a reader sees what the model was
@@ -612,11 +705,14 @@ def label_studio(
     tasks = []
     for row in frame.itertuples(index=False):
         tokens = list(row.tokens)
-        spans = offsets(tokens)
+        # The corpus's own text where the frame carries it, since that is what
+        # the offsets below address and what an annotator reads.
+        text = getattr(row, "text", None) or " ".join(tokens)
+        located = offsets(tokens, text)
         tasks.append(
             {
                 "data": {
-                    "text": " ".join(tokens),
+                    "text": text,
                     "tokens": tokens,
                     "sample_id": int(row.sample_id),
                     "label": int(row.label),
@@ -633,8 +729,8 @@ def label_studio(
                                 "from_name": "label",
                                 "to_name": "text",
                                 "value": {
-                                    "start": spans[word][0],
-                                    "end": spans[word][1],
+                                    "start": located[word][0],
+                                    "end": located[word][1],
                                     "score": score,
                                     "text": tokens[word],
                                     "labels": list(labels),

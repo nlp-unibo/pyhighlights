@@ -64,7 +64,8 @@ def test_a_search_reports_what_one_of_its_candidates_cost():
 
     assert columns["cost_runtime_s"] == 3600.0
     assert columns["cost_runtime_per_run_s"] == pytest.approx(3600.0 * 8 / 5050)
-    assert (columns["cost_concurrency"], columns["cost_models"]) == (8.0, 5050.0)
+    # Counts, so they stay integers: `5050.0` models reads as a measurement.
+    assert (columns["cost_concurrency"], columns["cost_models"]) == (8, 5050)
 
 
 def test_one_model_on_one_worker_reports_its_own_wall_clock():
@@ -120,7 +121,7 @@ def test_a_seed_reports_what_it_cost_beside_what_it_scored(tmp_path):
         == run["cost_parameters"]
     )
     # A model trained by descent is one model, on one worker.
-    assert (run["cost_concurrency"], run["cost_models"]) == (1.0, 1.0)
+    assert (run["cost_concurrency"], run["cost_models"]) == (1, 1)
     assert run["cost_runtime_per_run_s"] == run["cost_runtime_s"]
     # And they summarise like any other column, so seeds can be compared.
     assert results["summary"]["cost_runtime_s"]["values"] == [run["cost_runtime_s"]]

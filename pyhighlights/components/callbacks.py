@@ -25,6 +25,23 @@ import lightning as L
 import torch as th
 from lightning.pytorch.callbacks import Callback, EarlyStopping, ModelCheckpoint
 
+#: The two Lightning internals :class:`WarmupEarlyStopping` and
+#: :class:`WarmupModelCheckpoint` extend. They are private, and a release
+#: renaming one would leave the subclass inheriting the base behaviour: no
+#: error, no warning, and a pretraining epoch stopping and checkpointing a run
+#: again. Checked here so that the upgrade fails at import instead.
+_HOOKS = (
+    (EarlyStopping, "_run_early_stopping_check"),
+    (ModelCheckpoint, "_save_topk_checkpoint"),
+)
+for _base, _hook in _HOOKS:
+    if not hasattr(_base, _hook):
+        raise ImportError(
+            f"lightning's {_base.__name__} no longer defines {_hook}, which "
+            "pyhighlights extends to skip an epoch a model pretrains in. "
+            "Port the warmup callbacks to the hook that replaced it"
+        )
+
 __all__ = [
     "GeneralizationLossScore",
     "MonitoredScore",
@@ -105,8 +122,15 @@ class GeneralizationLossScore(MonitoredScore):
         self.best_loss: float | None = None
 
     def state_dict(self) -> Mapping[str, Any]:
-        # `loss_opt` is the whole memory of the criterion: a resumed run that
-        # forgot it would charge nothing for a regression it had already seen.
+        """The floor the run is charged against, and only that.
+
+        ``loss_opt`` is the whole memory of the criterion: a resumed run that
+        forgot it would charge nothing for a regression it had already seen.
+        The warmup window is not stored, because it is the model's. A run
+        resumed against a model whose ``warmup_epochs`` has changed therefore
+        keeps a floor set under the old window, which is a different model's
+        loss.
+        """
         return {"best_loss": self.best_loss}
 
     def load_state_dict(self, state_dict: Mapping[str, Any]) -> None:
@@ -127,23 +151,38 @@ class GeneralizationLossScore(MonitoredScore):
         puts it there rather than trusting the order it was given.
         """
         logged = trainer.callback_metrics
-        if self.quality not in logged or self.loss not in logged:
-            # Sanity checking runs a validation epoch before training, and a
-            # split that logs neither is not this criterion's business.
-            return
-        quality = float(logged[self.quality])
-        loss = float(logged[self.loss])
-
         if trainer.sanity_checking:
+            # A validation epoch before training, over a model that has taken
+            # no step. Not this criterion's business, and its metrics are not
+            # evidence that the run logs what this reads.
             return
+        missing = [name for name in (self.quality, self.loss) if name not in logged]
+        if missing:
+            # Returning quietly would leave `self.name` unwritten, and the
+            # callbacks that monitor it skip a check they cannot make: the run
+            # would train to `max_epochs` and be scored on its last epoch,
+            # with nothing in `results.json` saying the criterion never ran.
+            raise KeyError(
+                f"{type(self).__name__} monitors {missing}, which nothing "
+                f"logged. The run logged {sorted(logged)}"
+            )
         if trainer.current_epoch < warmup_epochs(pl_module):
             # A pretraining epoch's loss is a different model's loss, so it
             # cannot set the floor the rest of the run is charged against.
             return
 
+        quality = float(logged[self.quality])
+        loss = float(logged[self.loss])
         if self.best_loss is None or loss < self.best_loss:
             self.best_loss = loss
-        regression = max(0.0, loss / max(self.best_loss, 1e-12) - 1.0)
+        if self.best_loss > 0:
+            regression = max(0.0, loss / self.best_loss - 1.0)
+        else:
+            # A floor of zero has no ratio to take, and dividing by an epsilon
+            # would charge a run that reached a validation loss of zero some
+            # arbitrary multiple of 1e12. The absolute rise is the same number
+            # when the floor is one, and it is bounded here.
+            regression = max(0.0, loss)
         score = quality - self.coefficient * regression
 
         # `self.log` is refused on this hook, so the value is put where the

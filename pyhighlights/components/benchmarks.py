@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Sequence
 
@@ -60,12 +61,37 @@ class Benchmark:
         return self.save_path / self.name
 
     def build(self, key: RegistrationKey[Task]) -> Task:
-        """The task, told to save inside the benchmark's own directory."""
+        """The task, told to save inside the benchmark's own directory.
+
+        ``save_path`` is the benchmark's own, whatever ``task_args`` says.
+        The report is written here and names these tasks, so a task writing
+        somewhere else would leave ``benchmark.json`` pointing at results no
+        analyzer reading this directory can find.
+        """
         return Registry.from_key(
             key,
             expected_type=Task,
-            **{"save_path": str(self.directory), **self.task_args},
+            **{**self.task_args, "save_path": str(self.directory)},
         )
+
+    def report(self, results: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
+        """The grid so far, and the settings it was run with.
+
+        ``settings`` is here for the same reason a task writes a manifest: a
+        grid run with ``task_args`` produces numbers the registered
+        configuration would not, and a report that does not say so cannot be
+        told from one that was never overridden.
+        """
+        return {
+            "name": self.name,
+            "settings": {
+                "tasks": [str(key) for key in self.tasks],
+                "strict": self.strict,
+                "task_args": self.task_args,
+            },
+            "tasks": list(results),
+            "failed": [item["task"] for item in results if "error" in item],
+        }
 
     def run(self) -> Dict[str, Any]:
         results: List[Dict[str, Any]] = []
@@ -73,7 +99,12 @@ class Benchmark:
             task = self.build(key)
             logger.info("%s: running %s", self.name, task.name)
             try:
-                results.append({"task": task.name, "key": str(key), **task.run()})
+                # Nested rather than spread: what a task reports is its own,
+                # and a task reporting a `task` or a `key` of its own would
+                # otherwise rewrite which registration the row claims to be.
+                results.append(
+                    {"task": task.name, "key": str(key), "result": task.run()}
+                )
             except Exception as error:
                 if self.strict:
                     raise
@@ -81,16 +112,22 @@ class Benchmark:
                 # one failed and why, and let the rest finish.
                 logger.exception("%s: %s failed", self.name, task.name)
                 results.append(
-                    {"task": task.name, "key": str(key), "error": repr(error)}
+                    {
+                        "task": task.name,
+                        "key": str(key),
+                        "error": repr(error),
+                        # The log holds the traceback, and a detached run's
+                        # log is usually nowhere. The artifact outlives both.
+                        "traceback": traceback.format_exc(),
+                    }
                 )
+            # After every task rather than after the grid: a process that is
+            # killed mid-run -- a card that falls over, a walltime, the OOM
+            # killer -- otherwise leaves a benchmark directory of finished
+            # tasks and no report naming any of them.
+            self.serialize(self.report(results))
 
-        report = {
-            "name": self.name,
-            "tasks": results,
-            "failed": [item["task"] for item in results if "error" in item],
-        }
-        self.serialize(report)
-        return report
+        return self.report(results)
 
     def serialize(self, report: Mapping[str, Any]) -> Path:
         self.directory.mkdir(parents=True, exist_ok=True)

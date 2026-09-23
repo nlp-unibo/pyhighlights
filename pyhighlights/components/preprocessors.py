@@ -31,13 +31,15 @@ HIGHLIGHTS = ("majority", "union", "intersection")
 TIES = ("drop", "keep")
 
 __all__ = [
+    "HIGHLIGHTS",
+    "PRIORITY",
+    "TIES",
     "AnnotationAggregator",
     "ClassWeights",
     "KnowledgeWeights",
     "LabelMapper",
     "LeakageRemover",
     "LengthFilter",
-    "PRIORITY",
     "Pipeline",
     "Preprocessor",
     "class_weights",
@@ -119,6 +121,13 @@ def remove_leakage(
     internal duplicates. Splits missing from ``priority`` are handled last, in
     their original order, and the returned mapping keeps the input order.
 
+    A row whose key is empty or missing is dropped wherever it sits. It is not
+    a duplicate of the next empty row -- comparing them would claim a leak the
+    corpus does not have -- and it is nothing to train on either: an empty
+    text is an empty token sequence, and a highlight over it names no word.
+    The check reads the normalized key, so a blank row goes whether or not
+    ``normalize_keys`` is set.
+
     ``sample_id`` is renumbered, since it indexes rows within a split.
     """
     order = [name for name in priority if name in splits]
@@ -128,8 +137,9 @@ def remove_leakage(
     kept = {}
     for name in order:
         frame = splits[name]
-        keys = frame[key].map(normalize) if normalize_keys else frame[key]
-        keep = ~keys.isin(seen) & ~keys.duplicated()
+        normalized = frame[key].map(normalize)
+        keys = normalized if normalize_keys else frame[key]
+        keep = ~keys.isin(seen) & ~keys.duplicated() & (normalized != "")
         seen.update(keys[keep])
         rows = frame[keep].reset_index(drop=True)
         kept[name] = rows.assign(sample_id=range(len(rows)))
@@ -137,7 +147,7 @@ def remove_leakage(
 
 
 class LeakageRemover(Preprocessor):
-    """Drops the rows one split shares with another, and its own repeats.
+    """Drops the rows one split shares with another, its repeats and its blanks.
 
     Which split gives a row up is what ``priority`` decides, and it is a
     judgement about the study rather than about the corpus: keeping the
@@ -147,7 +157,8 @@ class LeakageRemover(Preprocessor):
     the user built themselves are just as valid an input as the distributed
     ones.
 
-    :attr:`removed` records how many rows each split lost.
+    :attr:`removed` records how many rows each split lost, blank rows
+    included.
     """
 
     def __init__(
@@ -233,9 +244,20 @@ class AnnotationAggregator(Preprocessor):
         (name, count), *rest = ranked
         if any(other == count for _, other in rest) and self.ties == "drop":
             return None
-        if self.labels and name not in self.labels:
-            raise ValueError(f"unexpected label {name}")
-        return self.labels[name] if self.labels else int(name)
+        if self.labels:
+            if name not in self.labels:
+                raise ValueError(f"unexpected label {name}")
+            return self.labels[name]
+        # Without `labels` a vote is already a class index, and a corpus whose
+        # votes are names is a configuration that forgot to list them. The
+        # same refusal as above rather than `int()`'s, which names the string
+        # and not what to do about it.
+        try:
+            return int(name)
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                f"unexpected label {name}; name the corpus's labels to map them"
+            ) from error
 
     def process(self, splits: Mapping[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
         processed = {}
@@ -244,6 +266,16 @@ class AnnotationAggregator(Preprocessor):
                 processed[name] = frame
                 continue
 
+            # A corpus may carry more than COLUMNS -- `knowledge` is the one
+            # this library reads -- and a reduction of the annotators is no
+            # reason to lose it. Rebuilding the frame from COLUMNS alone
+            # dropped it silently, and the split then weighted no links.
+            carried = [
+                column
+                for column in frame.columns
+                if column
+                not in (*COLUMNS, self.annotator_labels, self.annotator_highlights)
+            ]
             rows = []
             for row in frame.itertuples():
                 label = self.label(getattr(row, self.annotator_labels))
@@ -259,9 +291,10 @@ class AnnotationAggregator(Preprocessor):
                         "highlights": self.aggregate(
                             getattr(row, self.annotator_highlights), len(tokens)
                         ),
+                        **{column: getattr(row, column) for column in carried},
                     }
                 )
-            processed[name] = pd.DataFrame(rows, columns=list(COLUMNS))
+            processed[name] = pd.DataFrame(rows, columns=[*COLUMNS, *carried])
         return processed
 
 
@@ -286,10 +319,13 @@ class Pipeline(Preprocessor):
             processed = preprocessor.process(processed)
             # Per step rather than once at the end: a step that drops rows
             # says how many it dropped, instead of leaving the count to a
-            # reader of two totals.
-            diagnostics.record(
-                f"preprocessor.{type(preprocessor).__name__}", **processed
-            )
+            # reader of two totals. Guarded like every other stage, since
+            # `**processed` assembles a second mapping whether or not anybody
+            # is reading about it.
+            if diagnostics.active():
+                diagnostics.record(
+                    f"preprocessor.{type(preprocessor).__name__}", **processed
+                )
         return processed
 
 
@@ -418,12 +454,17 @@ class ClassWeights(Preprocessor):
         self.weights: List[float] = []
         self.counts: Dict[int, int] = {}
 
-    def process(self, splits: Mapping[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
+    def frame(self, splits: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
+        """The split this reads, or a refusal naming what it was given."""
         if self.split not in splits:
             raise KeyError(f"no {self.split!r} split to weight; got {sorted(splits)}")
-        labels = [int(label) for label in splits[self.split]["label"]]
+        return splits[self.split]
+
+    def process(self, splits: Mapping[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
+        labels = [int(label) for label in self.frame(splits)["label"]]
         self.weights = class_weights(labels, self.classes)
-        self.counts = {index: labels.count(index) for index in range(len(self.weights))}
+        counted = Counter(labels)
+        self.counts = {index: counted[index] for index in range(len(self.weights))}
         return dict(splits)
 
 
@@ -434,6 +475,9 @@ class KnowledgeWeights(ClassWeights):
     :class:`~pyhighlights.components.tasks.ClassWeightsTask` runs it unchanged:
     ``weights`` is one positive weight per entry rather than one per class, and
     ``counts`` how many examples link to each.
+
+    ``classes`` is inherited and unused: a knowledge base has entries rather
+    than classes, and ``entries`` is what sizes this one.
 
     ``entries`` is the size of the base, and it is required rather than
     inferred. The largest index a split happens to use is not the size of the
@@ -447,9 +491,7 @@ class KnowledgeWeights(ClassWeights):
         self.entries = entries
 
     def process(self, splits: Mapping[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
-        if self.split not in splits:
-            raise KeyError(f"no {self.split!r} split to weight; got {sorted(splits)}")
-        frame = splits[self.split]
+        frame = self.frame(splits)
         if "knowledge" not in frame:
             raise KeyError(
                 f"the {self.split!r} split carries no `knowledge` column; a "

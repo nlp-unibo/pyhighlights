@@ -87,7 +87,7 @@ def test_misaligned_highlights_are_rejected(tmp_path):
     )
 
     with pytest.raises(ValueError, match="misaligned"):
-        R2ALoader.read_file(path)
+        R2ALoader.read_tsv(path)
 
 
 def test_continuous_labels_are_rejected(tmp_path):
@@ -95,7 +95,7 @@ def test_continuous_labels_are_rejected(tmp_path):
     path.write_text("task\tlabel\ttext\nbeer0\t0.3\tno taste at all\n")
 
     with pytest.raises(ValueError, match="continuous labels"):
-        R2ALoader.read_file(path)
+        R2ALoader.read_tsv(path)
 
 
 def test_toy_corpus_marks_its_trigger_and_repeats_for_a_seed():
@@ -402,6 +402,14 @@ def test_a_flat_corpus_is_divided_by_the_ratios(tmp_path):
     # Seeded, so two reads agree on which rows are validation.
     again = ToyLoader(url=str(path)).load()
     assert splits["val"]["text"].tolist() == again["val"]["text"].tolist()
+
+
+def test_a_downloaded_corpus_is_pinned_or_refused(tmp_path):
+    """`read_pickle` executes what the file says, so an unpinned URL is code."""
+    loader = ToyLoader(url="https://example.invalid/corpus.zip", directory=tmp_path)
+
+    with pytest.raises(ValueError, match="needs a sha256"):
+        loader.load()
 
 
 def test_a_corpus_older_than_these_columns_is_converted_by_parse(tmp_path):

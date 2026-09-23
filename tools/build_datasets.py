@@ -329,11 +329,16 @@ def genspp_toy_artifact() -> Tuple[str, List[Tuple[str, bytes]]]:
                 "released baselines' scheme, so the artifact is the corpus "
                 "and the split is code. A corpus ToyLoader.save() writes does "
                 "carry a `split` column; this one is converted from a release "
-                "that had none."
+                "that had none. The held-out rows are drawn with "
+                "`random.Random(split_seed)` in the pyhighlights version "
+                "this manifest records; versions before the switch drew them "
+                "with `numpy.random.RandomState`, so they divided the same "
+                "corpus differently."
             ),
             "train_ratio": 0.8,
             "val_ratio": 0.2,
             "split_seed": 15000,
+            "generator": "random.Random",
         },
         "citation": GENSPP_CITATION,
         "license": GENSPP_TOY_LICENSE,

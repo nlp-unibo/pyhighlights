@@ -20,7 +20,7 @@ from pyhighlights.components.data import (
 from pyhighlights.components.models.base import InputData
 from pyhighlights.configurations.keys import GRU_GROUNDED
 
-VOCABULARY = {word: index + 1 for index, word in enumerate("a b c d e f".split())}
+VOCABULARY = {word: index + 2 for index, word in enumerate("a b c d e f".split())}
 ENTRIES = [["a", "b"], ["c", "d"], ["e"]]
 
 
@@ -441,12 +441,12 @@ def test_a_span_count_separates_two_phrases_from_eight_fragments():
     Twenty per cent of a clause in two spans is readable; the same share
     scattered over eight is not, and they have identical selection rates.
     """
-    from pyhighlights.components.analyzers import spans
+    from pyhighlights.components.analyzers import span_count
 
-    assert spans([]) == 0
-    assert spans([3, 4, 5]) == 1
-    assert spans([0, 1, 5, 6]) == 2
-    assert spans([6, 5, 1, 0]) == 2
+    assert span_count([]) == 0
+    assert span_count([3, 4, 5]) == 1
+    assert span_count([0, 1, 5, 6]) == 2
+    assert span_count([6, 5, 1, 0]) == 2
 
 
 def test_readability_is_reported_per_class_not_pooled():

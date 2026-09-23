@@ -30,12 +30,12 @@ def build_registry():
     Registry.build(directory=Path(pyhighlights.__file__).parent)
 
 
-VOCABULARY = {"fair": 1, "unfair": 2, "clause": 3}
+VOCABULARY = {"fair": 2, "unfair": 3, "clause": 4}
 
 
 def collator(knowledge_size=None):
     return HighlightCollator(
-        VocabularyTokenizer(VOCABULARY, unknown_token_id=0, pad_token_id=0),
+        VocabularyTokenizer(VOCABULARY),
         knowledge_size=knowledge_size,
     )
 

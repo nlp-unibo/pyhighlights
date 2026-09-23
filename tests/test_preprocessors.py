@@ -6,6 +6,7 @@ from cinnamon.registry import Registry
 from pydantic import ValidationError
 
 import pyhighlights
+from pyhighlights.components.data import COLUMNS
 from pyhighlights.components.leakage import LeakageDetector
 from pyhighlights.components.loaders import HateXplainLoader, HotelLoader
 from pyhighlights.components.preprocessors import (
@@ -52,7 +53,7 @@ def test_leakage_remover_protects_the_annotated_split(tmp_path):
     assert list(repaired["train"]["text"]) == ["a room with no windows"]
     assert list(repaired["train"]["sample_id"]) == [0]
     assert (LeakageDetector().report(repaired)["ratio"] == 0).all()
-    assert LeakageDetector().duplicates(repaired) == {"train": 0, "val": 0, "test": 0}
+    assert LeakageDetector().repeats(repaired) == {"train": 0, "val": 0, "test": 0}
     # The input is left as it was.
     assert len(splits["train"]) == 3
 
@@ -145,6 +146,33 @@ def test_aggregator_rejects_settings_and_labels_it_does_not_know():
         aggregator(ties="whatever")
     with pytest.raises(ValueError, match="unexpected label"):
         aggregator().label(["mystery", "mystery", "normal"])
+    # Without `labels` a vote is a class index already, and a name is a
+    # configuration that forgot to list them rather than a bad integer.
+    with pytest.raises(ValueError, match="name the corpus's labels"):
+        AnnotationAggregator().label(["normal"])
+
+
+def test_aggregator_keeps_a_column_outside_the_standard_ones():
+    """`knowledge` is an extra column, and reducing annotators is no reason to
+    lose it: the split would then weight no links and say nothing about it."""
+    frame = pd.DataFrame(
+        {
+            "sample_id": [0],
+            "text": ["a b"],
+            "tokens": [["a", "b"]],
+            "label": [None],
+            "highlights": [None],
+            "knowledge": [[1]],
+            "annotator_labels": [["normal", "normal"]],
+            "annotator_highlights": [[[1, 0], [1, 1]]],
+        }
+    )
+
+    processed = aggregator().process({"train": frame})["train"]
+
+    assert list(processed.columns) == [*COLUMNS, "knowledge"]
+    assert processed["knowledge"].tolist() == [[1]]
+    assert processed["label"].tolist() == [1]
 
 
 def test_pipeline_runs_its_steps_in_order(tmp_path):

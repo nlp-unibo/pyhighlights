@@ -32,8 +32,7 @@ shuffled.
 
 from __future__ import annotations
 
-import random
-from typing import Dict, Iterable, List, Mapping, Sequence
+from typing import Dict, Iterable, List, Mapping, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -58,20 +57,30 @@ def incidence(
 
     ``separator`` joins the tokens for display -- empty for a character corpus
     like the toy one, a space for a corpus of words.
+
+    An n-gram is the *token sequence*, never the string it joins to. With an
+    empty separator ``("ab", "c")`` and ``("a", "bc")`` both spell ``abc``,
+    and they are two patterns: one says the corpus holds a token ``ab``
+    followed by a token ``c``. They are counted apart, and where a corpus
+    makes that distinction visible the names are written as token tuples
+    rather than as the joined string.
     """
     if max_length < 1:
         raise ValueError("max_length is at least 1")
-    found: Dict[str, List[int]] = {}
+    found: Dict[Tuple[str, ...], List[int]] = {}
+    joinable = True
     for index, tokens in enumerate(documents):
         tokens = list(tokens)
+        joinable = joinable and (separator != "" or all(len(t) == 1 for t in tokens))
         seen = {
-            separator.join(tokens[start : start + width])
+            tuple(tokens[start : start + width])
             for width in range(1, max_length + 1)
             for start in range(len(tokens) - width + 1)
         }
         for gram in seen:
             found.setdefault(gram, []).append(index)
-    return found
+    name = (lambda gram: separator.join(gram)) if joinable else str
+    return {name(gram): holders for gram, holders in found.items()}
 
 
 def _accuracy(present: np.ndarray, totals: np.ndarray) -> float:
@@ -107,28 +116,40 @@ def scan(
     labels = np.asarray(labels)
     if labels.size == 0:
         raise ValueError("nothing to scan")
+    if not np.issubdtype(labels.dtype, np.integer):
+        raise TypeError(
+            f"labels must be class indices; got dtype {labels.dtype}. A corpus "
+            "whose labels are names is mapped by a LabelMapper first"
+        )
+    if labels.min() < 0:
+        raise ValueError("labels must be non-negative class indices")
     classes = int(labels.max()) + 1
     totals = np.bincount(labels, minlength=classes)
-    generator = random.Random(seed)
-    controls = []
-    for _ in range(permutations):
-        shuffled = labels.copy()
-        generator.shuffle(shuffled)
-        controls.append(shuffled)
+    # One NumPy generator over NumPy data, and every shuffle drawn at once:
+    # `permuted` rows the controls independently, which is a permutation per
+    # row rather than one permutation reused.
+    controls = np.random.default_rng(seed).permuted(
+        np.broadcast_to(labels, (permutations, labels.size)), axis=1
+    )
+    # One-hot over the classes, so a feature's counts on every control are a
+    # single matrix product rather than `permutations` calls to `bincount`.
+    # Boolean rather than integer: a sum over a boolean array accumulates in
+    # the platform integer anyway, and the array itself is eight times smaller.
+    one_hot = controls[:, :, None] == np.arange(classes)
 
     rows = []
     for name, holders in features.items():
         holders = np.asarray(holders, dtype=int)
         present = np.bincount(labels[holders], minlength=classes)
+        permuted = one_hot[:, holders, :].sum(axis=1)
+        absent = totals - permuted
         rows.append(
             {
                 "feature": name,
                 "support": int(holders.size),
                 "accuracy": _accuracy(present, totals),
-                "permuted": max(
-                    _accuracy(np.bincount(control[holders], minlength=classes), totals)
-                    for control in controls
-                ),
+                "permuted": float((permuted.max(axis=1) + absent.max(axis=1)).max())
+                / float(totals.sum()),
                 "mutual_information": _mutual_information(present, totals),
             }
         )
@@ -207,6 +228,12 @@ def ablated(
     an ablated word corpus that reads ``the\u25aebrownfox`` is a frame nobody can
     check by eye.
     """
+    if frame["highlights"].isna().any():
+        raise ValueError(
+            "rows carry no highlight: an ablation removes the annotated "
+            "evidence, and a split that carries none has nothing to remove. "
+            "Scan such a split with `report` instead of `check`"
+        )
     out = frame.copy()
     out["tokens"] = [
         [filler if flag else token for token, flag in zip(row.tokens, row.highlights)]

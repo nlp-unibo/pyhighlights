@@ -14,19 +14,21 @@ def vectors_file(tmp_path, lines=("cat 1 0", "dog 0 1", "fish 1 1")):
 def test_vectors_are_read_into_a_vocabulary_reserving_the_unknown_id(tmp_path):
     vocabulary, matrix = load_vectors(vectors_file(tmp_path))
 
-    assert vocabulary == {"cat": 1, "dog": 2, "fish": 3}
-    assert matrix.shape == (4, 2)
-    # Row 0 is the unknown and padding id, and stays zero.
+    assert vocabulary == {"cat": 2, "dog": 3, "fish": 4}
+    assert matrix.shape == (5, 2)
+    # Rows 0 and 1 are the padding and unknown ids, and both stay zero: two
+    # ids, so a highlight over an unknown word is not one over padding.
     assert th.equal(matrix[0], th.zeros(2))
-    assert th.equal(matrix[1], th.tensor([1.0, 0.0]))
+    assert th.equal(matrix[1], th.zeros(2))
+    assert th.equal(matrix[2], th.tensor([1.0, 0.0]))
 
 
 def test_only_the_requested_tokens_are_kept(tmp_path):
     vocabulary, matrix = load_vectors(vectors_file(tmp_path), tokens=["dog", "cat"])
 
     # Ids follow the file, not the request: the matrix is built as it is read.
-    assert vocabulary == {"cat": 1, "dog": 2}
-    assert matrix.shape == (3, 2)
+    assert vocabulary == {"cat": 2, "dog": 3}
+    assert matrix.shape == (4, 2)
 
 
 def test_a_token_without_a_vector_is_dropped_or_randomised(tmp_path):
@@ -34,8 +36,8 @@ def test_a_token_without_a_vector_is_dropped_or_randomised(tmp_path):
     words = ["cat", "unicorn"]
 
     dropped, matrix = load_vectors(path, tokens=words, pretrained_only=True)
-    assert dropped == {"cat": 1}
-    assert matrix.shape == (2, 2)
+    assert dropped == {"cat": 2}
+    assert matrix.shape == (3, 2)
 
     kept, matrix = load_vectors(
         path, tokens=words, pretrained_only=False, generator=th.Generator()
@@ -53,8 +55,8 @@ def test_released_file_quirks_are_read_through(tmp_path):
 
     vocabulary, matrix = load_vectors(path)
 
-    assert vocabulary == {"cat": 1, "dog": 2}
-    assert matrix.shape == (3, 2)
+    assert vocabulary == {"cat": 2, "dog": 3}
+    assert matrix.shape == (4, 2)
 
 
 def test_an_unusable_file_says_so(tmp_path):
