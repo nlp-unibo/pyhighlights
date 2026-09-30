@@ -89,3 +89,14 @@ def test_a_backbone_sizes_its_table_to_the_matrix_and_keeps_it_frozen():
     # The width the GRU was built for is what a matrix has to match.
     with pytest.raises(ValueError, match="3-dimensional.*expects 2"):
         backbone.load_embeddings(th.zeros(5, 3))
+
+
+def test_a_backbone_takes_its_table_through_one_path():
+    """The constructor copies no matrix, so no table is sized by guesswork."""
+    with pytest.raises(TypeError, match="embedding_matrix"):
+        GRUBackbone(
+            vocab_size=3,
+            embedding_dim=2,
+            hidden_size=4,
+            embedding_matrix=th.zeros(3, 2),
+        )

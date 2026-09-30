@@ -233,13 +233,34 @@ def test_a_frozen_transformer_backbone_is_a_key_of_its_own(monkeypatch):
     assert not states.requires_grad
 
 
-def test_a_stacked_backbone_trains_a_gru_over_a_frozen_transformer(monkeypatch):
-    """The architecture the papers use, with a transformer where GloVe was.
+def test_a_frozen_transformer_stays_in_evaluation_mode(monkeypatch):
+    """Freezing the weights does not stop dropout, so a frozen encoder is held.
 
-    Every released select-then-predict implementation encodes with a
-    bidirectional GRU over a frozen embedding table, so nothing pretrained is
-    fine-tuned and everything trained starts from scratch at one learning
-    rate. This keeps that shape.
+    Lightning puts the whole model in training mode. A frozen encoder left
+    there would apply dropout to a lookup that is meant to be fixed.
+    """
+    transformers = ModuleType("transformers")
+    transformers.AutoModel = FakeAutoModel
+    monkeypatch.setitem(sys.modules, "transformers", transformers)
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+
+    frozen = Registry.from_key(FROZEN_TRANSFORMER_BACKBONE).train()
+    assert frozen.training and not frozen.transformer.training
+
+    stacked = Registry.from_key(STACKED_BACKBONE, hidden_size=4).train()
+    assert stacked.encoder.training
+    assert not stacked.transformer.transformer.training
+
+    trainable = Registry.from_key(TRANSFORMER_BACKBONE).train()
+    assert trainable.transformer.training
+    assert not trainable.eval().transformer.training
+
+
+def test_a_stacked_backbone_trains_a_gru_over_a_frozen_transformer(monkeypatch):
+    """A GRU over a frozen transformer, in place of a frozen embedding table.
+
+    Nothing pretrained is fine-tuned, and everything trained starts from
+    scratch at one learning rate.
     """
     transformers = ModuleType("transformers")
     transformers.AutoModel = FakeAutoModel
