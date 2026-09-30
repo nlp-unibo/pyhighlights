@@ -32,6 +32,21 @@ from pyhighlights.components.models.spp.data import GroundedSPPOutput
 from pyhighlights.components.models.spp.implementations import mlp
 
 
+def union_logits(pair_logits: th.Tensor) -> th.Tensor:
+    """The logits of the union, ``[B, T, 2]`` from ``[B, M, T, 2]``.
+
+    Both logits of a word come from the pair with the largest keep margin, so
+    their argmax keeps a word exactly when some pair's argmax keeps it. A
+    maximum per class would mix pairs, and a loss on the union would then
+    train an entry's pair to keep a word that entry does not concern. The
+    empty-selection repair can still keep a word no pair's argmax keeps.
+    """
+    margin = pair_logits[..., 1] - pair_logits[..., 0]
+    keeper = margin.argmax(dim=1, keepdim=True).unsqueeze(-1)
+    index = keeper.expand(-1, -1, -1, pair_logits.shape[-1])
+    return pair_logits.gather(1, index).squeeze(1)
+
+
 class SPPComparer(th.nn.Module, abc.ABC):
     """Scores whether an input highlight instantiates a knowledge highlight."""
 
@@ -241,7 +256,7 @@ class GroundedSPP(SPP):
         # compared. Each `h_i` is still conditioned on its own entry, so the
         # selection is knowledge-shaped even though the gate does not reach it.
         highlight_mask = pair_mask.amax(dim=1)
-        highlight_logits = pair_logits.amax(dim=1)
+        highlight_logits = union_logits(pair_logits)
 
         return GroundedSPPOutput(
             class_logits=self.predict(

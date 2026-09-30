@@ -533,3 +533,24 @@ def test_knowledge_weights_are_read_off_the_split_not_typed():
         link_weights([[0], [1]], entries=3)
     with pytest.raises(KeyError, match="no `knowledge` column"):
         KnowledgeWeights(entries=2).process({"train": pd.DataFrame({"label": [0]})})
+
+
+def test_the_union_logits_agree_with_the_union_mask():
+    """Both logits of a word come from the pair that most wants to keep it.
+
+    A maximum per class mixed pairs: one pair keeping a word at `[1, 2]` and
+    another dropping it at `[5, -5]` gave `[5, 2]`, which reads as a drop of
+    a word the union keeps, and a supervised loss on it moved the second pair.
+    """
+    from pyhighlights.components.models.spp.grounded import union_logits
+
+    pairs = th.tensor([[[[1.0, 2.0]], [[5.0, -5.0]]]], requires_grad=True)
+    union = union_logits(pairs)
+    assert union.tolist() == [[[1.0, 2.0]]]
+
+    th.nn.functional.cross_entropy(union.view(-1, 2), th.tensor([1])).backward()
+    assert pairs.grad[0, 1].abs().sum() == 0
+
+    random = th.randn(3, 4, 5, 2)
+    kept = random.argmax(dim=-1).amax(dim=1)
+    assert th.equal(union_logits(random).argmax(dim=-1), kept)
