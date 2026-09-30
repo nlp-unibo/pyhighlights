@@ -243,9 +243,9 @@ def test_an_unannotated_row_is_skipped_rather_than_scored_as_empty():
 def test_faithfulness_is_measured_on_both_axes():
     """The token terms every SPP model has, plus the two the base adds.
 
-    Rationale comprehensiveness is what the pipeline stands or falls on: a
-    model that predicts the same thing when the entries it named are taken
-    away has grounding that is decoration.
+    A model whose rationale comprehensiveness is near zero predicts the same
+    thing when the entries it named are taken away, so its grounding does not
+    carry the prediction.
     """
     model = grounded()
     data = batch()
@@ -261,6 +261,34 @@ def test_faithfulness_is_measured_on_both_axes():
         "rationale_comprehensiveness",
     }
     assert all(value.shape == (2,) for value in terms.values())
+
+
+def test_rationale_terms_are_reference_minus_restricted():
+    """The token-level convention, so the two sufficiencies read alike.
+
+    Token sufficiency is ``p(y|x) - p(y|h)``, where lower is better. Rationale
+    sufficiency used to be the restricted pass minus the reference, so the
+    two columns named sufficiency improved in opposite directions.
+    """
+    from pyhighlights.components.models.spp.base import probability
+
+    model = grounded()
+    data = batch()
+    model.eval()
+
+    with th.no_grad():
+        output = model(data)
+        terms = model.faithfulness(data, output)
+        head = model.reported(output)
+        predicted = head.class_logits.argmax(dim=-1)
+        on_base = probability(head.class_logits, predicted)
+        gate = head.knowledge_mask.unsqueeze(-1)
+        named = model.predict(
+            data=data, highlight_mask=(head.pair_highlight_mask * gate).amax(dim=1)
+        )
+        on_named = probability(named, predicted)
+
+    assert th.allclose(terms["rationale_sufficiency"], on_base - on_named)
 
 
 def test_the_rationale_ablation_is_over_entries_not_over_a_gate():
@@ -505,3 +533,24 @@ def test_knowledge_weights_are_read_off_the_split_not_typed():
         link_weights([[0], [1]], entries=3)
     with pytest.raises(KeyError, match="no `knowledge` column"):
         KnowledgeWeights(entries=2).process({"train": pd.DataFrame({"label": [0]})})
+
+
+def test_the_union_logits_agree_with_the_union_mask():
+    """Both logits of a word come from the pair that most wants to keep it.
+
+    A maximum per class mixed pairs: one pair keeping a word at `[1, 2]` and
+    another dropping it at `[5, -5]` gave `[5, 2]`, which reads as a drop of
+    a word the union keeps, and a supervised loss on it moved the second pair.
+    """
+    from pyhighlights.components.models.spp.grounded import union_logits
+
+    pairs = th.tensor([[[[1.0, 2.0]], [[5.0, -5.0]]]], requires_grad=True)
+    union = union_logits(pairs)
+    assert union.tolist() == [[[1.0, 2.0]]]
+
+    th.nn.functional.cross_entropy(union.view(-1, 2), th.tensor([1])).backward()
+    assert pairs.grad[0, 1].abs().sum() == 0
+
+    random = th.randn(3, 4, 5, 2)
+    kept = random.argmax(dim=-1).amax(dim=1)
+    assert th.equal(union_logits(random).argmax(dim=-1), kept)
