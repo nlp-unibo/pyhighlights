@@ -32,7 +32,7 @@ class SPPBackbone(th.nn.Module, abc.ABC):
 
     The same backbone class encodes for the selector and for the predictor.
     When it encodes for the predictor, it receives a ``selection_mask``, and
-    no information from a dropped position may reach the returned states.
+    no information from a dropped position may reach the state of a kept one.
     """
 
     @property
@@ -52,10 +52,11 @@ class SPPBackbone(th.nn.Module, abc.ABC):
         ``mask`` marks the positions the encoder attends over: ``1`` for
         content and special tokens, ``0`` for padding. ``selection_mask`` is
         ``None`` for the selector pass. For the predictor pass it marks the
-        kept positions. A dropped position must not reach any kept state
-        through attention, recurrence or a residual path, and its own state
-        must be zero. Without this guarantee the predictor reads more than the
-        highlight, and the highlight is no longer the predictor's input.
+        kept positions. The content of a dropped position must not reach any
+        kept state through attention, recurrence or a residual path. The state
+        at a dropped position is unconstrained, because the predictor pools
+        kept positions only. Without this guarantee the predictor reads more
+        than the highlight, and the highlight is no longer its input.
         """
 
     @abc.abstractmethod
