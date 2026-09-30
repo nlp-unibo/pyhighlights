@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import abc
-from typing import Dict, Generic, List, Literal, Tuple, TypeVar
+from typing import Dict, Generic, List, Literal, Mapping, Tuple, TypeVar
 
 import lightning as L
 import torch as th
 from cinnamon.registry import RegistrationKey, Registry
+from torchmetrics import Metric
 
 from pyhighlights.components.models.data import InputData, ModelData, OutputData
 from pyhighlights.utility import diagnostics
+from pyhighlights.utility.binding import TOTAL_LOSS, check_names
 from pyhighlights.utility.losses import Loss, build_losses, compute_losses
 from pyhighlights.utility.metrics import BoundMetric, build_metrics
 
@@ -21,6 +23,19 @@ __all__ = ["InputData", "Model", "ModelData", "OutputT", "OutputData", "Split"]
 
 
 class Model(L.LightningModule, abc.ABC, Generic[OutputT]):
+    """A Lightning module whose losses and metrics bind to named fields.
+
+    A subclass implements :meth:`forward`, which reads a batch passed as
+    ``data`` and returns an ``OutputT``. The base class does everything else a
+    step needs. Each split runs its own forward method, so a model can score
+    evaluation differently from training. The losses and the metrics read
+    their inputs by name out of :meth:`namespace`. A model that drives its own
+    optimizers calls :meth:`record` once it knows the loss of a step.
+
+    Each split logs its summed loss, each loss term and each metric under
+    ``{split}_{name}``. :meth:`setup` refuses any two of them sharing a name.
+    """
+
     def __init__(
         self,
         name: str,
@@ -44,23 +59,34 @@ class Model(L.LightningModule, abc.ABC, Generic[OutputT]):
         self.store_predictions = False
         self.predictions = []
         self.described_metrics = set()
-        self.forward_mapping = {
-            "train": self.training_forward,
-            "val": self.validation_forward,
-            "test": self.test_forward,
-        }
 
     def ignore_hyperparameters(self) -> List[str]:
-        return []
+        """Constructor arguments the checkpoint leaves out.
 
-    def enable_storing_predictions(self):
-        self.store_predictions = True
+        The metrics are left out because they score a model without defining
+        it. A task can also replace them after construction, so the stored
+        keys could name metrics the model never ran.
+        """
+        return ["train_metrics", "val_metrics", "test_metrics"]
 
-    def disable_storing_predictions(self):
-        self.store_predictions = False
+    @abc.abstractmethod
+    def forward(self, data: InputData) -> OutputT: ...
 
-    def flush_predictions(self):
-        self.predictions.clear()
+    def loss_names(self) -> List[str]:
+        """Every name a step of this model logs a loss term under.
+
+        A model that logs terms beyond :attr:`losses`, such as a second loss
+        list or a per-phase prefix, extends this list so that :meth:`setup`
+        checks those names too.
+        """
+        return [loss.name for loss in self.losses]
+
+    def setup(self, stage: str) -> None:
+        # Here rather than in the constructor, because a task can replace the
+        # metrics after construction. Lightning calls this before any loop.
+        losses = self.loss_names()
+        for split in ("train", "val", "test"):
+            check_names(losses, [m.name for m in getattr(self, f"{split}_metrics")])
 
     def namespace(
         self, input_data: InputData, output_data: OutputData, **extra: th.Tensor
@@ -71,15 +97,13 @@ class Model(L.LightningModule, abc.ABC, Generic[OutputT]):
     def load_knowledge(self, data: InputData) -> None:
         """Adopt the corpus's knowledge base, already tokenized.
 
-        Optional, like :meth:`faithfulness`: a model that classifies from the
-        input alone has nowhere to put a knowledge base and says so, rather
-        than accepting one and ignoring it.
+        A model that classifies from the input alone does not implement this
+        method. It refuses a knowledge base rather than accepting one and
+        ignoring it.
 
-        It arrives as an :class:`InputData` of ``M`` rows because it is text
-        and the collator is what turns text into tensors -- the same reason
-        pretrained vectors arrive as a matrix through
-        :meth:`load_embeddings`. Its ``y_true`` carries nothing: a knowledge
-        base entry has no label.
+        The knowledge base arrives as an :class:`InputData` of ``M`` rows,
+        because the collator is what turns text into tensors. Its ``y_true``
+        carries nothing, since a knowledge base entry has no label.
         """
         raise NotImplementedError(
             f"{type(self).__name__} does not read a knowledge base"
@@ -90,11 +114,10 @@ class Model(L.LightningModule, abc.ABC, Generic[OutputT]):
     ) -> Dict[str, th.Tensor]:
         """Per-sample faithfulness terms, when the architecture defines them.
 
-        Optional, like :meth:`load_embeddings` on a backbone: the terms need
-        the predictor run against masks of their own, which is a property of
-        how a family of models is put together rather than of every model.
-        A model that cannot produce them says so, so that a task asked for
-        faithfulness fails rather than reporting a column it never measured.
+        The terms need the predictor run against masks of their own, which is
+        a property of a model family rather than of every model. A model that
+        cannot produce them raises, so that a task asked for faithfulness
+        fails rather than reporting a column it never measured.
         """
         raise NotImplementedError(
             f"{type(self).__name__} does not measure faithfulness"
@@ -103,11 +126,9 @@ class Model(L.LightningModule, abc.ABC, Generic[OutputT]):
     def update_metrics(self, split: Split, input_data: InputData, output_data: OutputT):
         values = self.namespace(input_data, output_data)
         metrics = getattr(self, f"{split}_metrics")
-        # A metric binds to field names exactly as a loss does, and reads them
-        # out of a namespace built from the aggregated output rather than the
-        # one the losses saw. One call per source of names, since a metric is
-        # named by whoever registered it. Neither source changes from batch to
-        # batch, so a split says them once instead of once per step.
+        # The first call records the fields a metric can bind to and the
+        # fields each metric reads. Neither changes between batches, so each
+        # split records them once.
         if split not in self.described_metrics and diagnostics.active():
             self.described_metrics.add(split)
             diagnostics.record("metric", split=split, namespace=sorted(values))
@@ -117,42 +138,25 @@ class Model(L.LightningModule, abc.ABC, Generic[OutputT]):
         for metric in metrics:
             metric.update(values)
 
-    def compute_metrics(self, split: Split):
-        for metric in getattr(self, f"{split}_metrics"):
-            self.log(f"{split}_{metric.name}", metric.compute(), prog_bar=True)
-            metric.reset()
-
-    def on_train_epoch_end(self) -> None:
-        self.compute_metrics(split="train")
-
-    def on_validation_epoch_end(self) -> None:
-        self.compute_metrics(split="val")
-
-    def on_test_epoch_end(self) -> None:
-        self.compute_metrics(split="test")
-
     def configure_optimizers(self):
         return Registry.from_key(self.optimizer, params=self.parameters())
 
-    def log_metrics(
+    def log_values(
         self,
         split: Split,
-        total_loss: th.Tensor,
-        losses: Dict[str, th.Tensor],
+        values: Mapping[str, th.Tensor | Metric],
         batch_size: int,
-    ):
-        self.log(
-            name=f"{split}_loss",
-            value=total_loss,
-            on_step=False,
-            on_epoch=True,
-            prog_bar=True,
-            batch_size=batch_size,
-        )
-        for loss_name, loss_value in losses.items():
+    ) -> None:
+        """Log losses and metrics as epoch values under ``{split}_{name}``.
+
+        Lightning averages a tensor over the epoch, weighted by
+        ``batch_size``. A ``Metric`` is computed and reset by Lightning at the
+        end of the epoch.
+        """
+        for name, value in values.items():
             self.log(
-                name=f"{split}_{loss_name}",
-                value=loss_value,
+                name=f"{split}_{name}",
+                value=value,
                 on_step=False,
                 on_epoch=True,
                 prog_bar=True,
@@ -176,28 +180,31 @@ class Model(L.LightningModule, abc.ABC, Generic[OutputT]):
         total_loss: th.Tensor,
         losses: Dict[str, th.Tensor],
     ) -> None:
-        """Log the losses, update the metrics, keep the predictions if asked.
+        """Update the metrics, log them with the losses, keep the predictions.
 
-        What every step does once its loss is known, however it got there: a
-        model driving its own optimizers computes that loss in phases, but has
-        the same record to write afterwards.
+        Every step does this once its loss is known. A model driving its own
+        optimizers computes that loss in phases and calls this afterwards.
         """
-        self.log_metrics(
+        self.update_metrics(split=split, input_data=batch, output_data=output_data)
+        metrics = {m.name: m.metric for m in getattr(self, f"{split}_metrics")}
+        self.log_values(
             split=split,
-            total_loss=total_loss,
-            losses=losses,
+            values={TOTAL_LOSS: total_loss, **losses, **metrics},
             batch_size=batch.y_true.shape[0],
         )
-        self.update_metrics(split=split, input_data=batch, output_data=output_data)
         if self.store_predictions:
             self.predictions.append({**batch.as_numpy(), **output_data.as_numpy()})
 
     def _step(self, batch: InputData, batch_idx: int, split: Split) -> th.Tensor:
-        # What the lines after this one belong to. Every stage below reports
-        # per batch and none of them knows the split it is serving, so a
-        # record without this is one run of undifferentiated tensors.
+        # Every stage below reports per batch without knowing its split, so
+        # this line says which split and batch the following lines belong to.
         diagnostics.record("step", split=split, batch=batch_idx)
-        output_data = self.forward_mapping[split](batch)
+        forward = {
+            "train": self.training_forward,
+            "val": self.validation_forward,
+            "test": self.test_forward,
+        }[split]
+        output_data = forward(batch)
         total_loss, losses = self.compute_loss(
             input_data=batch, output_data=output_data
         )

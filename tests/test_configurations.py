@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader
 
 import pyhighlights
 from pyhighlights.components.models import InputData
+from pyhighlights.components.models.base import Model
 from pyhighlights.components.models.spp import FR, MCD, MGR
 from pyhighlights.components.models.spp.base import SPP
 from pyhighlights.configurations.keys import (
@@ -40,7 +41,11 @@ def test_every_registration_in_the_library_resolves():
     needed_runtime = set()
     for key in valid:
         try:
-            Registry.from_key(key)
+            built = Registry.from_key(key)
+            # Every name a registered model logs is checked here, since
+            # otherwise the check runs only for the models a test trains.
+            if isinstance(built, Model):
+                built.setup("fit")
             continue
         except ImportError as error:
             # The optional extra reporting itself, which is the whole of what a

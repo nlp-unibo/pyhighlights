@@ -102,6 +102,23 @@ class PhasedSPP(SPP):
         )
         self.automatic_optimization = False
 
+    def loss_names(self) -> List[str]:
+        # Training logs each phase's terms under that phase's prefix, and
+        # evaluation logs the flat list.
+        shared = [loss.name for loss in self.shared_losses]
+        phases = {
+            self.predictor_phase: [loss.name for loss in self.predictor_losses],
+            "generator": [loss.name for loss in self.generator_losses],
+        }
+        return [
+            *super().loss_names(),
+            *(
+                f"{phase}_{name}"
+                for phase, names in phases.items()
+                for name in [*shared, *names]
+            ),
+        ]
+
     @abc.abstractmethod
     def phase_class_logits(
         self, input_data: InputData, highlight_mask: th.Tensor, selection: th.Tensor

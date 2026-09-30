@@ -15,11 +15,15 @@ for a study to read a failure in either.
 
 from __future__ import annotations
 
-from typing import Mapping, Sequence, Tuple
+from collections import Counter
+from typing import Iterable, Mapping, Sequence, Tuple
 
 import torch as th
 
-__all__ = ["Binding"]
+__all__ = ["TOTAL_LOSS", "Binding", "check_names"]
+
+#: The name a split logs its summed loss under, so no binding may take it.
+TOTAL_LOSS = "loss"
 
 
 class Binding(th.nn.Module):
@@ -47,3 +51,22 @@ class Binding(th.nn.Module):
         if missing:
             raise KeyError(f"{self.kind} {self.name} misses input fields {missing}")
         return tuple(values[name] for name in self.inputs)
+
+
+def check_names(losses: Iterable[str], metrics: Iterable[str]) -> None:
+    """Refuse names that one split would log two values under.
+
+    A split logs its summed loss, each loss term and each metric under
+    ``{split}_{name}``. Lightning does not raise on a repeated key. Two values
+    logged in one step are averaged, and a metric computed at the end of an
+    epoch replaces the loss logged under its name. A metric named ``loss``
+    would therefore become the ``val_loss`` that early stopping monitors.
+    """
+    counts = Counter([TOTAL_LOSS, *losses, *metrics])
+    repeated = sorted(name for name, count in counts.items() if count > 1)
+    if repeated:
+        raise ValueError(
+            f"{repeated} would each be logged for more than one value. "
+            f"Loss and metric names must be distinct, and {TOTAL_LOSS!r} is "
+            "the summed loss"
+        )

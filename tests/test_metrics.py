@@ -22,6 +22,7 @@ from pyhighlights.configurations.keys import (
     SELECTION_SIZE_METRIC,
     SELECTION_SPANS_METRIC,
 )
+from pyhighlights.utility.binding import check_names
 from pyhighlights.utility.metrics import (
     BinaryHighlightF1Score,
     BinaryHighlightIoU,
@@ -465,3 +466,21 @@ def test_the_new_highlight_metrics_are_registered():
         bound = Registry.from_key(key, expected_type=BoundMetric)
         bound.update(values)
         assert bound.compute().item() == pytest.approx(expected), key
+
+
+def test_a_logged_name_is_refused_when_two_values_would_share_it():
+    """Lightning averages or replaces a repeated key instead of raising.
+
+    A metric named ``loss`` would become the ``val_loss`` that early stopping
+    monitors, and two losses of one name would log one term for two.
+    """
+    check_names(["classification", "sparsity"], ["f1", "highlight_f1"])
+    for losses, metrics in [
+        (["classification"], ["loss"]),
+        (["loss"], []),
+        (["classification", "classification"], []),
+        (["classification"], ["classification"]),
+        ([], ["f1", "f1"]),
+    ]:
+        with pytest.raises(ValueError, match="more than one value"):
+            check_names(losses, metrics)
