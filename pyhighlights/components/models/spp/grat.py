@@ -138,6 +138,11 @@ class GRAT(SPP):
         self.register_buffer("_model_steps", th.zeros((), dtype=th.long))
         self.automatic_optimization = False
 
+    def loss_names(self) -> List[str]:
+        # The guider's terms are logged under a prefix beside the model's.
+        guider = [f"guider_{loss.name}" for loss in self.guider_losses]
+        return [*super().loss_names(), *guider]
+
     @property
     def warmup_epochs(self) -> int:
         """The guider's pretraining, which the rationalizer sits out.

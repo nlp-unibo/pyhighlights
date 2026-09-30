@@ -139,16 +139,13 @@ class GeneralizationLossScore(MonitoredScore):
     def on_validation_end(
         self, trainer: L.Trainer, pl_module: L.LightningModule
     ) -> None:
-        """Logged here, not in ``on_validation_epoch_end``.
+        """Logged on the hook ``EarlyStopping`` checks on.
 
-        Lightning runs a callback's ``on_validation_epoch_end`` *before* the
-        module's, so the metrics this reads are not logged yet at that point
-        and the criterion would silently write nothing -- leaving early
-        stopping to fail on a quantity that never appeared. ``on_validation_end``
-        runs after the module has logged, and before ``EarlyStopping``'s own
-        check on the same hook, provided this callback comes first in the
-        list. :meth:`~pyhighlights.components.tasks.SPPTask.build_callbacks`
-        puts it there rather than trusting the order it was given.
+        ``on_validation_end`` runs after the epoch's values are logged. It
+        writes the score before ``EarlyStopping`` checks it on the same hook,
+        provided this callback comes first in the list.
+        :meth:`~pyhighlights.components.tasks.SPPTask.build_callbacks` puts it
+        there rather than trusting the order it was given.
         """
         logged = trainer.callback_metrics
         if trainer.sanity_checking:

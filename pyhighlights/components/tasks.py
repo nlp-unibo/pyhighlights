@@ -784,13 +784,12 @@ class SPPTask(Task):
         if "val" in loaders:
             results.update(trainer.validate(model, dataloaders=loaders["val"])[0])
         if "test" in loaders:
-            if self.store_predictions:
-                model.enable_storing_predictions()
+            model.store_predictions = self.store_predictions
             results.update(trainer.test(model, dataloaders=loaders["test"])[0])
             if self.store_predictions:
                 pd.to_pickle(model.predictions, predictions)
-                model.flush_predictions()
-                model.disable_storing_predictions()
+                model.predictions.clear()
+                model.store_predictions = False
             # After the metrics rather than beside them: the terms need the
             # predictor run against masks of their own, so they are a stage
             # over the split rather than another binding inside a test step.

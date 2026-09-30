@@ -133,7 +133,7 @@ def test_a_model_that_cannot_read_a_knowledge_base_refuses_one():
     """
 
     class Plain(Model):
-        def compute_loss(self, input_data, output_data):
+        def forward(self, data):
             raise NotImplementedError
 
     with pytest.raises(NotImplementedError, match="does not read a knowledge base"):
