@@ -102,7 +102,7 @@ class ClassWeightsConfig(Configuration):
     component="pyhighlights.components.preprocessors.KnowledgeWeights",
 )
 class KnowledgeWeightsConfig(Configuration):
-    """Reads one split's clause-to-entry links; changes no row.
+    """Reads one split's example-to-entry links; changes no row.
 
     ``ClassWeightsTask`` runs it unchanged, so the weights land in a
     ``results.json`` a configuration can be copied from rather than being

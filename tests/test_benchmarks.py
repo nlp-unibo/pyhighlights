@@ -597,7 +597,7 @@ def test_the_exporter_can_narrow_to_what_the_model_predicted(tmp_path):
     """The other question, and the only one an unannotated corpus can ask.
 
     Narrowing by ``label`` asks whether the model found the right words in the
-    clauses that carry the class. Narrowing by ``predicted`` asks whether the
+    examples that carry the class. Narrowing by ``predicted`` asks whether the
     words it kept justify the call it made -- which is what is left when there
     is no annotation to select by, and what surfaces a confident mistake.
     """

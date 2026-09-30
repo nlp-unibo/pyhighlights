@@ -63,7 +63,7 @@ Two optimizers, and a rationalizer that sits out the first epochs.
 5. The rationalizer's optimizer steps only once ``current_epoch >= pretrain_epochs``, so the first epochs train the guider alone.
 
 That last point is the reason ``warmup_epochs`` exists on the model.
-Until the rationalizer has taken a step the monitored quantities describe a model that has not moved, and monitoring from epoch zero stopped two of five seeds of one study inside that window.
+Until the rationalizer has taken a step the monitored quantities describe a model that has not moved, and a monitor counting from epoch zero can stop a run inside that window.
 
 Implementation
 --------------

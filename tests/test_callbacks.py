@@ -119,8 +119,7 @@ def test_the_coefficient_spans_the_two_criteria_it_replaces():
         score(GeneralizationLossScore(coefficient=0.0), Recorder(), **m)
         for m in metrics
     ]
-    # Without a penalty the second epoch wins, which is what accepted a 26 to
-    # 31% regression on the legal study's frozen arm.
+    # Without a penalty the second epoch wins, whatever its loss regression.
     assert alone[1] > alone[0]
 
     strict = GeneralizationLossScore(coefficient=5.0)

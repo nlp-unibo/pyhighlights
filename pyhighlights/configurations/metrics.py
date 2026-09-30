@@ -379,10 +379,10 @@ __all__: List[str] = [
 #:
 #: Registered per size, for the reason the classification metrics are
 #: registered per class count: ``torchmetrics`` needs the number up front, and
-#: a metric sized for the wrong base scores the wrong columns. ToS-100 runs
-#: from 7 rationales on one category to 28 on another, so a study registers a
+#: a metric sized for the wrong base scores the wrong columns. A base can
+#: differ in size between the categories of one corpus, so a study registers a
 #: variant of these carrying its own ``num_labels`` rather than overriding one
-#: at build time -- an override would not reach the metric, which a binding
+#: at build time. An override would not reach the metric, which a binding
 #: builds from its key alone.
 KNOWLEDGE_ENTRIES = 2
 

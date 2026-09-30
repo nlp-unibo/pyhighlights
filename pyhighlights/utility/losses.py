@@ -142,10 +142,9 @@ class MaskedCrossEntropy(th.nn.Module):
     def __init__(self, ignore_index: int = -1, weight: Sequence[float] | None = None):
         """``weight`` is one factor per class, for an axis that is imbalanced.
 
-        The knowledge axis is: a clause instantiates one or two of up to 28
-        rationales, so the negative class outnumbers the positive one by more
-        than an order of magnitude before the fair clauses -- which instantiate
-        nothing at all -- are counted.
+        The knowledge axis typically is. An example instantiates few entries of
+        a base, so the negative class outnumbers the positive one before the
+        examples that instantiate nothing at all are counted.
 
         Not persistent, like :class:`CrossEntropy`'s: the weights come from the
         configuration rather than from training.

@@ -92,9 +92,7 @@ class PositionalFakeTransformer(FakeTransformer):
     The one above is position-blind: its output for a token is its embedding
     plus the masked mean of the sequence, so moving a kept word cannot change
     its state. Every real transformer adds a position embedding, and that is
-    the difference the geometry test below turns on -- measured on
-    ``nlpaueb/legal-bert-base-uncased``, moving a kept word by two positions
-    moves its state by 9.39 and the pooled vector by 2.12.
+    the difference the geometry test below turns on.
     """
 
     def __init__(self):
@@ -352,8 +350,7 @@ def test_no_backbone_lets_a_dropped_word_reach_the_predictor(monkeypatch):
     strict=True,
     reason="Known, measured, and not yet fixed. A kept word gets a different "
     "position embedding when the gap before it changes, so the mask's shape "
-    "reaches the predictor alongside the words it kept. Measured on real "
-    "Legal-BERT: pooled vector moves 2.12, kept states move 9.39. This is the "
+    "reaches the predictor alongside the words it kept. This is the "
     "transformer half of the channel; the GRU half is in test_mechanics.py.",
 )
 def test_the_gap_between_kept_words_does_not_move_a_transformers_states(monkeypatch):

@@ -625,8 +625,8 @@ class SPPTask(Task):
         # Every example of a non-zero class, not merely one of them: a corpus
         # annotated on three rows of twenty thousand passes an "any" check and
         # trains as an unsupervised run, while reporting itself supervised.
-        # Class zero is the negative one and annotating it is optional -- a
-        # fair clause instantiates nothing, and an empty highlight says so.
+        # Class zero is the negative one and annotating it is optional: a
+        # negative example has no evidence, and an empty highlight says so.
         unannotated = int(((train["label"] != 0) & train["highlights"].isna()).sum())
         if unannotated:
             raise ValueError(

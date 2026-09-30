@@ -25,9 +25,9 @@ class HighlightExample:
     highlights: Sequence[int] | None = None
     #: Which entries of a knowledge base explain this example, as indices into
     #: it. ``None`` where the corpus annotates none, and an **empty tuple**
-    #: where it annotates that none apply -- the two are different claims. A
-    #: fair ToS clause instantiates no legal rationale, and that is a gold
-    #: label the grounded pipeline is scored on, not a missing one.
+    #: where it annotates that none apply. The two are different claims: an
+    #: example that instantiates no entry carries a gold label the grounded
+    #: pipeline is scored on, not a missing one.
     knowledge: Sequence[int] | None = None
 
     def __post_init__(self):
@@ -156,9 +156,8 @@ class HuggingFaceTokenizer:
     ):
         """``add_special_tokens`` keeps ``[CLS]`` and ``[SEP]``, and it should.
 
-        A pretrained encoder was trained with them and reads worse without: on
-        legal text, dropping them moves Legal-BERT's token states to a cosine
-        of 0.83 against what it would otherwise produce. They carry no word,
+        A pretrained encoder was trained with them, so dropping them moves its
+        token states away from what it would otherwise produce. They carry no word,
         so ``word_ids`` is ``None`` there and a selector never sees them --
         removing them from the input was never what kept them unselectable.
 
@@ -239,7 +238,7 @@ class HighlightCollator:
         It is also the only place an out-of-range link is caught. The indices
         are zero-based line numbers into a file nothing else reads back, so a
         base edited without its annotation being edited silently relabels
-        every clause after the inserted line. Every path to a batch goes
+        every example after the inserted line. Every path to a batch goes
         through here.
         """
         if max_length is not None and max_length < 1:
@@ -259,8 +258,8 @@ class HighlightCollator:
 
 
         A row is ``-1`` where the example carries no annotation and ``0``/``1``
-        where it carries one, so a fair clause annotated with an empty set is
-        a row of zeros rather than a row of ``-1``.
+        where it carries one, so an example annotated with an empty set is a
+        row of zeros rather than a row of ``-1``.
         """
         if self.knowledge_size is None:
             return None
@@ -325,7 +324,7 @@ class HighlightCollator:
             )
 
         # The word axis is as wide as the longest *surviving* word count, not
-        # as the longest document: truncation cuts a clause off mid-way, and a
+        # as the longest document: truncation cuts a document off mid-way, and a
         # word past the cut was never encoded and cannot be selected.
         words = [
             max((word_id + 1 for word_id in row if word_id >= 0), default=0)

@@ -211,7 +211,7 @@ def test_a_selection_rate_ignores_the_padding_it_could_not_have_kept():
     The metric excluded positions equal to an ``ignore_index`` of -1, but the
     registered binding hands it ``mask``, which is 0 for padding and never -1,
     so padding stayed in the denominator. A selector keeping a fifth of a
-    short clause reported a fifteenth of a padded batch.
+    short document reported a fifteenth of a padded batch.
     """
     # One four-token document in a batch padded to twelve, one token kept.
     preds = th.tensor([[1.0] + [0.0] * 11])
@@ -403,7 +403,7 @@ def test_selection_spans_counts_runs_not_tokens():
     """Six scattered words and six contiguous ones are the same size.
 
     Which is the whole reason this is reported: `selection_size` cannot tell a
-    phrase from a model keying on punctuation across the clause.
+    phrase from a model keying on punctuation across the document.
     """
     # Same four tokens kept in each row, in one run and then in three.
     preds = th.tensor([[1.0, 1.0, 1.0, 1.0, 0.0], [1.0, 0.0, 1.0, 0.0, 1.0]])

@@ -85,8 +85,8 @@ def test_a_grounded_model_without_a_knowledge_base_says_so():
 def test_the_output_keeps_one_highlight_pair_per_entry():
     """The experts' object: what was proposed against each entry, not the union.
 
-    A lawyer reading one clause wants the highlight the model drew against
-    every rationale, and for a clause nothing explains that is the only way to
+    A reader of one example wants the highlight the model drew against
+    every entry, and for an example nothing explains that is the only way to
     see why none of them fired.
     """
     model = grounded()
@@ -466,7 +466,7 @@ def test_the_supervision_term_reads_the_score_the_gate_came_from():
 def test_a_span_count_separates_two_phrases_from_eight_fragments():
     """A rate cannot, and a lawyer reads phrases.
 
-    Twenty per cent of a clause in two spans is readable; the same share
+    Twenty per cent of a document in two spans is readable; the same share
     scattered over eight is not, and they have identical selection rates.
     """
     from pyhighlights.components.analyzers import span_count
