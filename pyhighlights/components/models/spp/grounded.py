@@ -298,7 +298,7 @@ class GroundedSPP(SPP):
         grounded the example in nothing, not a case to repair.
         """
         terms = super().faithfulness(input_data, output_data)
-        head = self.aggregator(output_data)
+        head = self.reported(output_data)
         gate = head.knowledge_mask.unsqueeze(-1)
         pairs = head.pair_highlight_mask
 

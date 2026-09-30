@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import abc
 import math
-from typing import Any, Dict, List, Literal, Sequence, Tuple, Union
+from typing import Any, Dict, List, Literal, Sequence, Set, Tuple, Union
 
 import torch as th
 from cinnamon.registry import RegistrationKey, Registry
 
-from pyhighlights.components.models.base import InputData, Model, Split
+from pyhighlights.components.models.base import (
+    InputData,
+    Model,
+    OutputData,
+    Split,
+)
 from pyhighlights.components.models.spp.data import SPPOutput
 from pyhighlights.utility import diagnostics
 from pyhighlights.utility.losses import Loss, compute_losses
@@ -23,7 +28,12 @@ def probability(logits: th.Tensor, of: th.Tensor) -> th.Tensor:
 
 
 class SPPBackbone(th.nn.Module, abc.ABC):
-    """Backend-specific token encoder and pooler."""
+    """Backend-specific token encoder and pooler.
+
+    The same backbone class encodes for the selector and for the predictor.
+    When it encodes for the predictor, it receives a ``selection_mask``, and
+    no information from a dropped position may reach the returned states.
+    """
 
     @property
     @abc.abstractmethod
@@ -37,7 +47,16 @@ class SPPBackbone(th.nn.Module, abc.ABC):
         mask: th.Tensor,
         selection_mask: th.Tensor | None = None,
     ) -> th.Tensor:
-        """Return token states shaped [B, T, D]."""
+        """Return token states shaped [B, T, D].
+
+        ``mask`` marks the positions the encoder attends over: ``1`` for
+        content and special tokens, ``0`` for padding. ``selection_mask`` is
+        ``None`` for the selector pass. For the predictor pass it marks the
+        kept positions. A dropped position must not reach any kept state
+        through attention, recurrence or a residual path, and its own state
+        must be zero. Without this guarantee the predictor reads more than the
+        highlight, and the highlight is no longer the predictor's input.
+        """
 
     @abc.abstractmethod
     def pool(self, states: th.Tensor, mask: th.Tensor) -> th.Tensor:
@@ -46,9 +65,9 @@ class SPPBackbone(th.nn.Module, abc.ABC):
     def load_embeddings(self, matrix: th.Tensor) -> None:
         """Adopt a pretrained token embedding table.
 
-        Optional: a backbone whose tokens are already embedded by something
-        else -- a pretrained Transformer, say -- has nothing to load, and says
-        so rather than silently ignoring the tensor it was handed.
+        Optional. A backbone whose tokens are already embedded by something
+        else, such as a pretrained Transformer, has nothing to load. It raises
+        rather than silently ignoring the tensor it was handed.
         """
         raise NotImplementedError(
             f"{type(self).__name__} does not take a token embedding matrix"
@@ -56,6 +75,8 @@ class SPPBackbone(th.nn.Module, abc.ABC):
 
 
 class SPPSelector(th.nn.Module, abc.ABC):
+    """Scores each position of the selection axis as dropped or kept."""
+
     @abc.abstractmethod
     def forward(self, states: th.Tensor) -> th.Tensor:
         """Return selection logits shaped [B, T, 2]."""
@@ -75,36 +96,22 @@ class SPPSelector(th.nn.Module, abc.ABC):
 
 
 class SPPPredictor(th.nn.Module, abc.ABC):
+    """Maps a pooled state to class logits."""
+
     @abc.abstractmethod
     def forward(self, states: th.Tensor) -> th.Tensor:
         """Return class logits shaped [B, C]."""
 
 
-class SPPAggregator(th.nn.Module, abc.ABC):
-    """Collapses the head axis of an ``SPPOutput`` into a single head."""
-
-    @abc.abstractmethod
-    def forward(self, output_data: SPPOutput) -> SPPOutput: ...
-
-
-class SPPFirstAggregator(SPPAggregator):
-    def forward(self, output_data: SPPOutput) -> SPPOutput:
-        return next(output_data.unbind(dim=1))
-
-
 class SPP(Model[SPPOutput]):
     #: Training epochs this model spends before the monitored model learns.
-    #:
-    #: Zero for every architecture whose first optimizer step happens in the
-    #: first epoch. G-RAT overrides it: it gates the rationalizer on
-    #: ``current_epoch >= pretrain_epochs``, so its early epochs train a guider
-    #: and leave the thing a monitor watches untouched. Read by the monitoring
-    #: callbacks, which is why it lives on the model -- a task repeating the
-    #: number is a second place for it to disagree. Declared on the family
-    #: rather than on G-RAT alone so the contract is stated: the callbacks
-    #: reach it with ``getattr``, which would otherwise be the only place it
-    #: is named.
+    #: Zero unless the first epochs train something else, as G-RAT's guider
+    #: pretraining does. The monitoring callbacks read it with ``getattr``.
     warmup_epochs: int = 0
+
+    #: The head every metric, analysis and faithfulness term reads. A model
+    #: with one selector has only head 0. MGR sets it from its configuration.
+    inference_head: int = 0
 
     def __init__(
         self,
@@ -116,7 +123,6 @@ class SPP(Model[SPPOutput]):
         ],
         predictor: RegistrationKey[SPPPredictor],
         predictor_backbone: RegistrationKey[SPPBackbone] | None = None,
-        aggregator: RegistrationKey[SPPAggregator] | None = None,
         temperature: float = 1.0,
         compact: bool = False,
         select_over: Literal["word", "subtoken"] = "word",
@@ -129,31 +135,8 @@ class SPP(Model[SPPOutput]):
         highlight_coefficient: float = 1.0,
         **kwargs,
     ):
-        super().__init__(**kwargs)
-
-        # Off by default: it changes what the predictor is handed, so a run
-        # with it on is a different experiment rather than a better one.
-        self.compact = compact
-
-        # Supervision is a setting, not a variant: the same model key runs
-        # unsupervised or guided by the annotation, and the two are different
-        # experiments rather than two points on one scale -- the guided one is
-        # the ceiling the unsupervised one is measured against.
-        self.supervised = None
-        if supervise_highlights:
-            if highlight_loss is None:
-                raise ValueError(
-                    "supervise_highlights needs a highlight loss to supervise with"
-                )
-            self.losses.append(
-                Registry.from_key(
-                    highlight_loss,
-                    expected_type=Loss,
-                    coefficient=highlight_coefficient,
-                )
-            )
-            self.supervised = len(self.losses) - 1
-
+        # Checked before anything is built, because a backbone can load a
+        # pretrained encoder before a later check would refuse the model.
         backbone_keys = (
             [selector_backbones]
             if isinstance(selector_backbones, RegistrationKey)
@@ -164,6 +147,42 @@ class SPP(Model[SPPOutput]):
         )
         if not backbone_keys or len(backbone_keys) != len(selector_keys):
             raise ValueError("SPP requires one selector backbone per selector")
+        if not math.isfinite(temperature) or temperature <= 0:
+            raise ValueError("temperature must be finite and greater than zero")
+        if select_over not in ("word", "subtoken"):
+            raise ValueError("select_over must be 'word' or 'subtoken'")
+        if encoder_lr is not None and not encoder_lr > 0:
+            raise ValueError("encoder_lr must be positive")
+        if supervise_highlights and highlight_loss is None:
+            raise ValueError(
+                "supervise_highlights needs a highlight loss to supervise with"
+            )
+        # One annotation supervises one selector. Several selectors are there
+        # to diverge without supervision, and supervising one of them would
+        # leave the others without a role.
+        if supervise_highlights and len(selector_keys) > 1:
+            raise ValueError(
+                "highlight supervision needs exactly one selector, and this "
+                f"model has {len(selector_keys)}"
+            )
+
+        super().__init__(**kwargs)
+
+        # Off by default: it changes what the predictor is handed, so a run
+        # with it on is a different experiment rather than a better one.
+        self.compact = compact
+
+        # Supervision is a setting, not a variant: the same model key runs
+        # unsupervised or guided by the annotation. The guided run is the
+        # ceiling the unsupervised one is measured against.
+        if supervise_highlights:
+            self.losses.append(
+                Registry.from_key(
+                    highlight_loss,
+                    expected_type=Loss,
+                    coefficient=highlight_coefficient,
+                )
+            )
 
         self.selector_backbones = th.nn.ModuleList(
             Registry.from_keys(backbone_keys, expected_type=SPPBackbone)
@@ -187,37 +206,22 @@ class SPP(Model[SPPOutput]):
             expected_type=SPPPredictor,
             input_size=self.predictor_backbone.output_size,
         )
-        self.aggregator = (
-            Registry.from_key(aggregator, expected_type=SPPAggregator)
-            if aggregator is not None
-            else SPPFirstAggregator()
-        )
-        if not math.isfinite(temperature) or temperature <= 0:
-            raise ValueError("temperature must be finite and greater than zero")
         self.temperature = temperature
-        if select_over not in ("word", "subtoken"):
-            raise ValueError("select_over must be 'word' or 'subtoken'")
-        if encoder_lr is not None and not encoder_lr > 0:
-            raise ValueError("encoder_lr must be positive")
         # One rate for the encoders and another for everything above them.
-        # Left unset a model trains as it always has: one optimizer, one rate,
-        # which is what every published implementation of these architectures
-        # does -- they encode with a GRU over a frozen table, so nothing
-        # pretrained is fine-tuned. A fine-tuned transformer is the case that
-        # needs two rates, since 1e-3 destroys a pretrained encoder and 2e-5
-        # barely moves a selector initialized from scratch.
+        # Unset, one rate trains everything. A fine-tuned transformer needs
+        # two, since 1e-3 destroys a pretrained encoder and 2e-5 barely moves
+        # a selector initialized from scratch.
         self.encoder_lr = encoder_lr
         # A word is what the corpus annotates, what a sparsity target is a
-        # fraction of, and what an export shows -- and it is the same unit
-        # whichever backbone read the text. `subtoken` is the older behaviour,
-        # kept so the difference can be measured rather than argued about.
+        # fraction of, and what an export shows. It is the same unit whichever
+        # backbone read the text.
         self.select_over = select_over
 
     def selector_input_size(self, backbone: SPPBackbone) -> int:
         """How wide the states a selector reads are.
 
         A backbone's own width, unless a model hands the selector something
-        beside the states -- ``GroundedSPP`` concatenates the partner of a pair
+        beside the states. ``GroundedSPP`` concatenates the partner of a pair
         onto them, so its selectors are twice as wide.
         """
         return backbone.output_size
@@ -241,10 +245,10 @@ class SPP(Model[SPPOutput]):
         """What the encoder attends over.
 
         ``attention()`` says so on the subtoken axis, specials included. A
-        batch that carries no word ids has one axis rather than two -- a
-        vocabulary tokenizer, or a batch assembled by hand -- and there
-        ``mask`` is what the encoder reads, since the fallback cannot tell
-        padding from content.
+        batch that carries no word ids has one axis rather than two, as with a
+        vocabulary tokenizer or a batch assembled by hand. There ``mask`` is
+        what the encoder reads, since the fallback cannot tell padding from
+        content.
         """
         return data.mask if data.word_ids is None else data.attention()
 
@@ -257,7 +261,7 @@ class SPP(Model[SPPOutput]):
         return th.where(data.word_ids >= 0, spread, th.full_like(spread, -1))
 
     def namespace(
-        self, input_data: InputData, output_data, **extra: th.Tensor
+        self, input_data: InputData, output_data: OutputData, **extra: th.Tensor
     ) -> Dict[str, th.Tensor]:
         """The batch as losses and metrics see it, on the selection axis.
 
@@ -274,15 +278,17 @@ class SPP(Model[SPPOutput]):
         return values
 
     def to_words(
-        self, states: th.Tensor, data: InputData, reduce: str = "mean"
+        self,
+        states: th.Tensor,
+        data: InputData,
+        reduce: Literal["mean", "sum"] = "mean",
     ) -> th.Tensor:
         """Fold each word's subtoken states into one state for the word.
 
         A selection is made over these, so it is made over the unit a person
         reads and the corpus annotates. Selecting over subtokens instead lets
         a model keep ``un`` and drop ``##fair``, which the export then reports
-        as the word ``unfair`` -- a highlight that is not what the predictor
-        read, in a library whose whole claim is that it is.
+        as the word ``unfair``. That highlight is not what the predictor read.
 
         Pooling happens *after* the encoder, never before: the backbone still
         attends over its own subtokens and stays on the distribution it was
@@ -294,15 +300,15 @@ class SPP(Model[SPPOutput]):
         attention is what its subtokens hold together, and averaging would
         report a long word as less attended than the short one beside it.
         """
-        # No word ids means the axes already coincide -- a vocabulary
-        # tokenizer, or a batch assembled by hand in a test.
+        # No word ids means the axes already coincide: a vocabulary tokenizer,
+        # or a batch assembled by hand in a test.
         if self.select_over == "subtoken" or data.word_ids is None:
             return states
         word_ids, width = data.word_ids, data.mask.shape[1]
-        # -1 marks a special token or padding; folding those into slot 0 would
+        # -1 marks a special token or padding. Folding those into slot 0 would
         # mix `[CLS]` into the first word, so they are sent to a slot past the
         # end and dropped with the slice.
-        index = word_ids.clamp_min(-1).masked_fill(word_ids < 0, width)
+        index = word_ids.masked_fill(word_ids < 0, width)
         pooled = states.new_zeros((states.shape[0], width + 1, states.shape[2]))
         pooled.scatter_reduce_(
             dim=1,
@@ -356,7 +362,7 @@ class SPP(Model[SPPOutput]):
         """
         return [*self.predictor_backbone.parameters(), *self.predictor.parameters()]
 
-    def encoder_ids(self) -> set:
+    def encoder_ids(self) -> Set[int]:
         """Which parameters live inside a backbone.
 
         ``encoder_lr`` is defined by where a parameter sits rather than by
@@ -368,17 +374,16 @@ class SPP(Model[SPPOutput]):
         return {
             id(parameter)
             for backbone in backbones
-            if backbone is not None
             for parameter in backbone.parameters()
         }
 
     def build_optimizer(
         self, groups: Sequence[Tuple[Sequence[th.nn.Parameter], float]]
-    ):
+    ) -> th.optim.Optimizer:
         """The optimizer this model's key names, over the groups it asks for.
 
         Each entry is a list of parameters and the factor its learning rate is
-        multiplied by -- MGR trains its generators at rates that differ by
+        multiplied by. MGR trains its generators at rates that differ by
         design, and that scale is the only reason this takes one. When
         ``encoder_lr`` is set every group is split in two: what sits inside a
         backbone trains at that rate, everything above it at the optimizer's
@@ -546,15 +551,15 @@ class SPP(Model[SPPOutput]):
         transformer gives the next kept token a different position embedding.
         So the mask's *shape* reaches the predictor alongside the words it kept.
         Gathering the kept positions into a shorter sequence closes both
-        mechanisms at once -- a clause of 35 words with 4 kept becomes a
+        mechanisms at once. A clause of 35 words with 4 kept becomes a
         length-4 sequence whatever the gaps were.
 
         Order is preserved: the kept words arrive in the order they were
         written, which is what makes the result a highlight rather than a bag.
 
         **This changes what the predictor is trained on**, and is not a repair.
-        The predictor already reads a corpus of the selector's construction --
-        that is why the full input is off-distribution for it -- and compaction
+        The predictor already reads a corpus of the selector's construction,
+        which is why the full input is off-distribution for it. Compaction
         makes that corpus shorter and more artificial. Whether the channel it
         closes was the one that mattered is a measurement, not a consequence.
 
@@ -566,19 +571,19 @@ class SPP(Model[SPPOutput]):
         """
         # Stable, so kept positions keep their relative order; on the inverted
         # mask, so the kept ones sort first. Detached because the permutation
-        # is a reordering rather than a quantity -- the gradient to the
-        # selector runs through the gathered mask values.
+        # is a reordering rather than a quantity. The gradient to the selector
+        # runs through the gathered mask values.
         order = th.argsort(1 - keep.detach(), dim=1, stable=True)
         # Rounded, not truncated. Every mask that reaches here is 0.0 or 1.0 in
-        # the forward pass -- `select_activation` is a hard Gumbel in training
-        # and an argmax in evaluation -- but `int()` on a sum that is not is a
-        # silent off-by-some: a row of two 0.9s gives a width of 1 and loses a
-        # kept position. Rounding costs nothing and does not depend on that
-        # invariant holding forever.
+        # the forward pass, since `select_activation` is a hard Gumbel in
+        # training and an argmax in evaluation. `int()` on a sum that is not
+        # is a silent off-by-some: a row of two 0.9s gives a width of 1 and
+        # loses a kept position. Rounding costs nothing and does not depend on
+        # that invariant holding forever.
         counts = keep.detach().sum(dim=1).round()
         # `max(1, ...)` because a width of zero indexes nothing, and an empty
-        # batch has no maximum to take. A row that kept nothing cannot occur --
-        # `repair_empty` runs first -- but a width of one is a valid sequence
+        # batch has no maximum to take. A row that kept nothing cannot occur,
+        # because `repair_empty` runs first. A width of one is a valid sequence
         # either way, where a width of zero is not.
         width = max(1, int(counts.max().item()) if keep.numel() else 0)
         index = order[:, :width]
@@ -602,7 +607,7 @@ class SPP(Model[SPPOutput]):
 
         The other half of what a select-then-predict model reads. A highlight
         covering every valid token leaves nothing here, which the backbones
-        pool to zeros -- an honest reading of a model that kept everything.
+        pool to zeros.
         """
         valid = self.selection_valid(data).to(highlight_mask.dtype)
         return self.predict(data=data, highlight_mask=valid * (1 - highlight_mask))
@@ -612,27 +617,23 @@ class SPP(Model[SPPOutput]):
     ) -> Dict[str, th.Tensor]:
         """Per-sample sufficiency and comprehensiveness.
 
-        Scored on the head the aggregator keeps, which is the head every
-        reported metric scores, and against the class that head predicts --
-        see :mod:`pyhighlights.components.faithfulness` for why ``y_hat``
-        comes from the highlight rather than from the full input.
+        Scored on the reported head, and against the class that head
+        predicts. :mod:`pyhighlights.components.faithfulness` explains why
+        ``y_hat`` comes from the highlight rather than from the full input.
 
         Two extra predictor passes: the full input, and the input with the
         highlight removed. The highlight pass is the model's own output and is
         read off ``output_data`` rather than recomputed. A highlight covering
         every valid token leaves the complement empty, which the backbones
-        pool to zeros -- an honest measurement of a model that kept
-        everything, not a case to repair.
+        pool to zeros. That is a measurement of a model that kept everything,
+        not a case to repair.
         """
-        head = self.aggregator(output_data)
-        valid = self.selection_valid(input_data).to(head.highlight_mask.dtype)
-        highlight = head.highlight_mask * valid
-
+        head = self.reported(output_data)
         predicted = head.class_logits.argmax(dim=-1)
         on_highlight = probability(head.class_logits, predicted)
         on_full = probability(self.predict_full(input_data), predicted)
         on_complement = probability(
-            self.predict_complement(input_data, highlight), predicted
+            self.predict_complement(input_data, head.highlight_mask), predicted
         )
         return {
             "sufficiency": on_full - on_highlight,
@@ -658,11 +659,21 @@ class SPP(Model[SPPOutput]):
             highlight_mask=th.stack(highlight_masks, dim=1),
         )
 
+    def reported(self, output_data: SPPOutput) -> SPPOutput:
+        """The reported head, with the head axis dropped.
+
+        An output with one head is that head, which includes MGR at
+        evaluation, since it runs only its inference head there. An output
+        with several heads is read at :attr:`inference_head`.
+        """
+        heads = list(output_data.unbind(dim=1))
+        return heads[self.inference_head if len(heads) > 1 else 0]
+
     def head_namespace(
         self, input_data: InputData, output_data: SPPOutput, **extra: th.Tensor
     ) -> Dict[str, th.Tensor]:
-        """Namespace of the first head, with the head dimension dropped."""
-        return self.namespace(input_data, next(output_data.unbind(dim=1)), **extra)
+        """Namespace of the reported head, with the head dimension dropped."""
+        return self.namespace(input_data, self.reported(output_data), **extra)
 
     def update_metrics(
         self, split: Split, input_data: InputData, output_data: SPPOutput
@@ -670,7 +681,7 @@ class SPP(Model[SPPOutput]):
         super().update_metrics(
             split=split,
             input_data=input_data,
-            output_data=self.aggregator(output_data),
+            output_data=self.reported(output_data),
         )
 
     def compute_loss(
@@ -681,18 +692,9 @@ class SPP(Model[SPPOutput]):
         total_loss = output_data.class_logits.new_zeros(())
         losses: Dict[str, th.Tensor] = {}
 
-        for index, head_output in enumerate(output_data.unbind(dim=1)):
-            # There is one annotation, so it guides one head: the one the
-            # aggregator keeps and every reported metric scores. Guiding the
-            # rest towards the same tokens would undo what a model with several
-            # generators has them for.
-            head_losses = [
-                loss
-                for position, loss in enumerate(self.losses)
-                if index == 0 or position != self.supervised
-            ]
+        for head_output in output_data.unbind(dim=1):
             head_loss, computed = compute_losses(
-                head_losses, self.namespace(input_data, head_output)
+                self.losses, self.namespace(input_data, head_output)
             )
             total_loss = total_loss + head_loss
             for name, value in computed.items():

@@ -94,7 +94,7 @@ class DR(SPP):
         loss, so it is read outside the graph.
         """
         with th.no_grad():
-            head = self.aggregator(output_data)
+            head = self.reported(output_data)
             valid = self.selection_valid(data).to(head.highlight_mask.dtype)
             return (head.highlight_mask * valid).sum() / valid.sum().clamp_min(1)
 

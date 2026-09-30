@@ -53,7 +53,7 @@ def test_the_complement_is_what_the_highlight_left():
     model = Registry.from_key(GRU_MRD)
     batch = batch_of()
     output = model(batch)
-    highlight = model.aggregator(output).highlight_mask
+    highlight = model.reported(output).highlight_mask
 
     kept = model.predict(batch, highlight)
     left = model.predict_complement(batch, highlight)

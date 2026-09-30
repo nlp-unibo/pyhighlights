@@ -173,7 +173,7 @@ def test_the_alignment_term_trains_the_generator_alone(tmp_path):
     batch = batch_of()
 
     output = model(batch)
-    highlight = model.aggregator(output).highlight_mask
+    highlight = model.reported(output).highlight_mask
     model.align(batch, highlight).sum().backward()
 
     assert model.selectors[0].selector[-1].weight.grad is not None
@@ -206,8 +206,8 @@ def test_the_aligner_reads_the_highlight_and_not_the_rest(tmp_path):
 def test_supervision_reaches_a_model_that_appends_a_term_of_its_own():
     """DAR adds the alignment term to `losses` after the base class is done.
 
-    Highlight supervision appends to the same list and remembers where it put
-    it, so the two appends have to coexist: the guided run is the ceiling the
+    Highlight supervision appends to the same list, so the two appends have
+    to coexist: the guided run is the ceiling the
     unsupervised one is measured against, and a model that quietly dropped
     either term would report a number nobody can read as wrong.
     """
@@ -217,7 +217,6 @@ def test_supervision_reaches_a_model_that_appends_a_term_of_its_own():
     names = [loss.name for loss in model.losses]
 
     assert "highlight" in names and "alignment_classification" in names
-    assert model.losses[model.supervised].name == "highlight"
     total, losses = model.compute_loss(batch_of(), model(batch_of()))
     assert "alignment_classification" in losses and "highlight" in losses
 

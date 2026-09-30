@@ -101,7 +101,7 @@ def test_the_output_keeps_one_highlight_pair_per_entry():
     assert output.knowledge_highlight_mask.shape == (2, 1, entries, entry_width)
     assert output.knowledge_logits.shape == (2, 1, entries, 2)
     assert output.knowledge_mask.shape == (2, 1, entries)
-    # The head axis every other SPP output carries, so the aggregator, the
+    # The head axis every other SPP output carries, so `reported`, the
     # metrics and `unbind` treat a grounded output as an ordinary one.
     assert output.class_logits.shape[1] == 1
     assert output.highlight_mask.shape == (2, 1, width)
@@ -299,7 +299,7 @@ def test_a_grounded_model_trains_through_a_real_loop(tmp_path):
 
     A task builds the base, the model is moved to its device with the base
     following, Lightning steps it, the metrics read a grounded output through
-    the aggregator, and a run is written down. The toy corpus annotates no
+    `reported`, and a run is written down. The toy corpus annotates no
     links, so the knowledge term contributes nothing here -- what this proves
     is the plumbing, and the term itself is scored above.
     """

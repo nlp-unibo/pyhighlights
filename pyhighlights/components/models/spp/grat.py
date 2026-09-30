@@ -1,7 +1,7 @@
 import abc
 import math
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
+from typing import Dict, List, Set, Tuple
 
 import torch as th
 from cinnamon.registry import RegistrationKey, Registry
@@ -218,7 +218,7 @@ class GRAT(SPP):
             guider_output = self.guider(input_data, self.encoder_mask(input_data))
         return self.model_loss(input_data, output_data, guider_output)
 
-    def guider_encoder_ids(self) -> set:
+    def guider_encoder_ids(self) -> Set[int]:
         """The guider's own encoder, which is pretrained when the model's is.
 
         `encoder_ids` covers the backbones a rationalizer reads with; the
@@ -227,7 +227,7 @@ class GRAT(SPP):
         """
         return {id(parameter) for parameter in self.guider.backbone.parameters()}
 
-    def encoder_ids(self) -> set:
+    def encoder_ids(self) -> Set[int]:
         return super().encoder_ids() | self.guider_encoder_ids()
 
     def configure_optimizers(self):

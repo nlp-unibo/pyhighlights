@@ -220,7 +220,7 @@ def test_latex_table_typesets_pairs_and_escapes_the_rest():
 
 
 def test_position_analyzer_reads_the_head_the_metrics_score(tmp_path):
-    """A multi-head model stores one mask per head; the aggregator keeps one."""
+    """A multi-head model stores one mask per head, and head 0 is the reported one."""
     run = tmp_path / "2026-01-01T00-00-00"
     run.mkdir()
     batch = {

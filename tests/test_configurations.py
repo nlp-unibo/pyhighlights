@@ -10,12 +10,13 @@ import pyhighlights
 from pyhighlights.components.models import InputData
 from pyhighlights.components.models.base import Model
 from pyhighlights.components.models.spp import FR, MCD, MGR
-from pyhighlights.components.models.spp.base import SPP
 from pyhighlights.configurations.keys import (
+    ADAM,
     GRU_BACKBONE,
     GRU_FR,
     GRU_MCD,
     GRU_MGR,
+    MLP_PREDICTOR,
     MLP_SELECTOR,
 )
 from pyhighlights.configurations.mgr import GRUMGRConfig
@@ -267,12 +268,11 @@ def test_registered_gru_mgr_has_independent_generators_and_head_policy():
 def test_mgr_scores_the_inference_head_and_not_the_first_one(monkeypatch):
     """Which generator a training metric is about.
 
-    MGR emits every head while training, and `update_metrics` slices to
-    `inference_head` before scoring. Nothing asserted that it sliced to the
-    right one: `validation_forward` was covered, this path was not, so a wrong
-    index here would report generator 0's highlight through training while
-    validation reported generator 1's -- two numbers about one model that
-    disagree, which is a defect this project has already paid for once.
+    MGR emits every head while training, and `update_metrics` reads
+    `inference_head` through `SPP.reported` before scoring. A wrong index here
+    would report generator 0's highlight through training while validation
+    reported generator 1's, which gives two disagreeing numbers about one
+    model.
     """
     Registry.build(directory=Path(pyhighlights.__file__).parent)
     model = Registry.from_key(GRU_MGR)
@@ -292,16 +292,16 @@ def test_mgr_scores_the_inference_head_and_not_the_first_one(monkeypatch):
 
     seen = {}
     monkeypatch.setattr(
-        SPP,
+        Model,
         "update_metrics",
         lambda self, split, input_data, output_data: seen.update(output=output_data),
     )
     model.update_metrics("train", batch, output)
 
     scored = seen["output"]
-    assert scored.class_logits.shape[1] == 1
-    assert th.equal(scored.class_logits, output.class_logits[:, 2:3])
-    assert th.equal(scored.highlight_mask, output.highlight_mask[:, 2:3])
+    assert scored.class_logits.shape == (2, 2)
+    assert th.equal(scored.class_logits, output.class_logits[:, 2])
+    assert th.equal(scored.highlight_mask, output.highlight_mask[:, 2])
 
 
 def test_a_task_refuses_two_embedding_sources_before_it_is_built():
@@ -405,3 +405,31 @@ def test_every_architecture_inherits_the_shared_shape():
         and config.model_fields[field].default == shared[field].default
     ]
     assert not restated, restated
+
+
+@pytest.mark.parametrize(
+    "update",
+    [
+        {"temperature": 0.0},
+        {"select_over": "character"},
+        {"encoder_lr": 0.0},
+        {"supervise_highlights": True},
+    ],
+)
+def test_an_invalid_model_is_refused_before_a_backbone_is_built(monkeypatch, update):
+    """A backbone can load a pretrained encoder, so the checks come first."""
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("a backbone was built before the model was checked")
+
+    monkeypatch.setattr(Registry, "from_keys", refuse)
+    with pytest.raises(ValueError):
+        FR(
+            name="fr",
+            losses=[],
+            optimizer=ADAM,
+            selector_backbones=GRU_BACKBONE,
+            selectors=MLP_SELECTOR,
+            predictor=MLP_PREDICTOR,
+            **update,
+        )
