@@ -46,9 +46,10 @@ The two guidance terms are annealed against each other rather than both applied 
    \mathcal{L} = \mathcal{L}_{\text{cls}} + \lambda_s \Omega_s(h) + \lambda_c \Omega_c(h)
    + \alpha_t \, \mathcal{L}_{\text{guide}} + (1 - \alpha_t) \, \mathcal{L}_{\text{jsd}},
    \qquad
-   \alpha_t = \max\!\big(1 - t \cdot \texttt{guide\_decay},\; 0\big)
+   \alpha_t = \max\!\big(1 - \max(t - 1, 0) \cdot \texttt{guide\_decay},\; 0\big)
 
 Here :math:`t` counts the steps the rationalizer has taken.
+The first two steps both train at :math:`\alpha_t = 1`, as in the reference implementation, whose annealer applies its decay before counting the step.
 Early in training the attention target carries the weight, since the selector has nothing of its own to go on; as :math:`\alpha_t` decays the distribution-matching term takes over, so the guider stops dictating the words and keeps agreeing about the label.
 
 Training
@@ -92,6 +93,20 @@ Implementation
 The guider attends over subtokens, since that is what its encoder reads, while the selection it guides is over words, so each word takes the attention its subtokens hold between them.
 The fold sums rather than averages, because attention is a distribution and averaging would report a long word as less attended than the short one beside it.
 ``AttentionGuider`` adds positive noise to its scores during training, which is the reference implementation's way of keeping the attention from collapsing onto a handful of words.
+
+Differences from the reference implementation
+---------------------------------------------
+
+Two details differ from the reference, and both remove a dependence on padding.
+Numbers from this implementation therefore do not reproduce the reference's exactly.
+
+The per-word target divides each word's attention by the mean attention plus :math:`1 / (1 + n)`, over the :math:`n` valid words.
+This implementation takes that mean over the valid words.
+The reference takes it over the padded width, so its target depends on the widest document in the batch.
+For a document of 10 words in a batch padded to 50, the reference divides by 0.111 and this implementation by 0.191.
+
+The guide term is a binary cross entropy over valid words.
+The reference averages it over every position, padding included, where the target is zero.
 
 Configuration
 -------------
