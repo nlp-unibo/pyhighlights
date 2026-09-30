@@ -1,27 +1,27 @@
 """Select-then-predict grounded in a knowledge base.
 
-A corpus may explain its labels with free text rather than with spans: ToS-100
-records, for every unfair clause, which legal rationales make it unfair, but
-never which words carry them. The rationales are the knowledge base
-``K = {k_1, ..., k_M}``, and grounding means answering *which* of them a given
-input instantiates -- a discrete, finite, checkable output the direct pipeline
-cannot produce.
+A corpus may explain its labels with free text rather than with spans. The
+ToS-100 corpus of Ruggeri, Lagioia, Lippi and Torroni, 2022, *Detecting and
+explaining unfairness in consumer contracts through memory networks*,
+Artificial Intelligence and Law 30(1), 59-92,
+<https://doi.org/10.1007/s10506-021-09288-2>, records which legal rationales
+make a clause unfair, but not which words carry them. The rationales are the
+knowledge base ``K = {k_1, ..., k_M}``. Grounding means answering which of
+them a given input instantiates, which is a discrete and checkable output.
 
 For every pair ``(x, k_i)`` a highlight pair ``(h_i, h_k_i)`` is extracted: the
-words of the input that match the rationale, and the words of the rationale
-that match the input. A comparer scores each pair, and those scores name the
-subset ``K_x``. The predictor reads the union of the input-side highlights and
+words of the input that match the entry, and the words of the entry that match
+the input. A comparer scores each pair, and those scores name the subset
+``K_x``. The predictor reads the union of the input-side highlights and
 classifies from that alone, so the select-then-predict guarantee is unchanged.
 
-Why each piece is the shape it is was settled in the project's design notes,
-which are not part of this repository. What a reader needs in order to use
-these classes is here and in ``docsrc/source/models.rst``.
+:doc:`/models/grounded` describes the model in full.
 """
 
 from __future__ import annotations
 
 import abc
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
 import torch as th
 from cinnamon.registry import RegistrationKey, Registry
@@ -29,6 +29,22 @@ from cinnamon.registry import RegistrationKey, Registry
 from pyhighlights.components.models.base import InputData
 from pyhighlights.components.models.spp.base import SPP, SPPBackbone, probability
 from pyhighlights.components.models.spp.data import GroundedSPPOutput
+from pyhighlights.components.models.spp.implementations import mlp
+
+
+def union_logits(pair_logits: th.Tensor) -> th.Tensor:
+    """The logits of the union, ``[B, T, 2]`` from ``[B, M, T, 2]``.
+
+    Both logits of a word come from the pair with the largest keep margin, so
+    their argmax keeps a word exactly when some pair's argmax keeps it. A
+    maximum per class would mix pairs, and a loss on the union would then
+    train an entry's pair to keep a word that entry does not concern. The
+    empty-selection repair can still keep a word no pair's argmax keeps.
+    """
+    margin = pair_logits[..., 1] - pair_logits[..., 0]
+    keeper = margin.argmax(dim=1, keepdim=True).unsqueeze(-1)
+    index = keeper.expand(-1, -1, -1, pair_logits.shape[-1])
+    return pair_logits.gather(1, index).squeeze(1)
 
 
 class SPPComparer(th.nn.Module, abc.ABC):
@@ -42,24 +58,14 @@ class SPPComparer(th.nn.Module, abc.ABC):
 class EntailmentComparer(SPPComparer):
     """A directed judgement over ``[u; v; u - v; u * v]``.
 
-    The relation between a clause and a rationale is **instantiation**, not
-    similarity: the clause is a factual statement about what a provider may do,
-    the rationale a normative statement about what makes such a power unfair.
-    So the scorer is directed, and ``u - v`` is what makes it so -- ``|u - v|``
-    would restore the symmetry this exists to break.
-
-    It matters here more than the framing suggests. Every rationale of one
-    category shares the same legal register, so each is lexically close to
-    every clause of that category and a similarity function cannot separate
-    them where an entailment judgement can.
-
-    The feature set is the standard one for sentence-pair inference, which is
-    the register the relation belongs to.
+    The relation between an input and an entry is instantiation, not
+    similarity: the input states a fact, and the entry states the rule the
+    fact may instantiate. The scorer is therefore directed, and ``u - v`` is
+    what makes it so. ``|u - v|`` would restore the symmetry this exists to
+    break.
     """
 
     def __init__(self, input_size: int, hidden_sizes: List[int]):
-        from pyhighlights.components.models.spp.implementations import mlp
-
         super().__init__()
         self.comparer = mlp([4 * input_size, *hidden_sizes, 2])
 
@@ -81,12 +87,10 @@ class GroundedSPP(SPP):
     """Select-then-predict over an input and a knowledge base.
 
     One selector instance serves both sides. The input is read conditioned on
-    each knowledge entry and each entry conditioned on the input, and both are
-    the same legal register read by the same encoder -- so sharing weights is
-    the assumption to start from rather than a saving. Conditioning is a
-    concatenation of the partner's pooled state onto the states being scored,
-    which is why the selector is built at twice a backbone's output size and
-    why no second selector contract was needed.
+    each knowledge entry and each entry conditioned on the input, and the same
+    encoder reads both. Conditioning concatenates the partner's pooled state
+    onto the states being scored, which is why the selector is built at twice
+    a backbone's output size.
 
     The knowledge base is a property of the corpus, not of a sample: the same
     entries serve every example of a run. It arrives once through
@@ -94,8 +98,8 @@ class GroundedSPP(SPP):
     encoder passes per batch whatever ``M`` is.
 
     What the predictor reads is the **ungated** union of the input-side
-    highlights. Gating it looks right and fails on the majority class -- see
-    :meth:`forward`.
+    highlights. :meth:`forward` explains why gating it fails on the majority
+    class.
     """
 
     def __init__(self, comparer: RegistrationKey[SPPComparer], **kwargs):
@@ -107,7 +111,7 @@ class GroundedSPP(SPP):
             expected_type=SPPComparer,
             input_size=self.selector_backbone.output_size,
         )
-        # Not a buffer and not a parameter: the base is text the corpus already
+        # Not a buffer and not a parameter. The base is text the corpus already
         # ships, so a checkpoint carrying it would store a copy of the corpus
         # and refuse to load into a run configured with a different one. It is
         # moved onto the module's device the first time it is read.
@@ -143,8 +147,8 @@ class GroundedSPP(SPP):
         """One vector per pair, over the positions that pair selected.
 
         The pair axis folds into the batch, because pooling is the backbone's
-        own operation -- a maximum for a recurrent encoder, a masked mean for a
-        transformer -- and it reads one sequence axis. Reimplementing it here
+        own operation, a maximum for a recurrent encoder and a masked mean for
+        a transformer, and it reads one sequence axis. Reimplementing it here
         would give the comparer a different summary than the predictor sees.
         """
         *leading, width = selection.shape
@@ -181,12 +185,10 @@ class GroundedSPP(SPP):
         entries_count, entry_width, _ = entries.shape
         shape = (batch, entries_count)
 
-        # The conditioned states are materialised as [B, M, T, 2D]. At the
-        # widths this library runs -- a GRU over a frozen transformer, D around
-        # 256, and ToS clauses well under 256 words -- that is on the order of
-        # a hundred megabytes. A wide backbone over long documents would need
-        # this chunked over M, or the concatenation replaced by a projected
-        # sum.
+        # ponytail: the conditioned states are materialised as [B, M, T, 2D],
+        # which is B * M * T * 2D * 4 bytes in float32. Chunk over M, or
+        # replace the concatenation with a projected sum, when that exceeds
+        # memory.
         pair_logits = selector(
             th.cat(
                 [
@@ -244,18 +246,17 @@ class GroundedSPP(SPP):
         gate = self.select_activation(scores)
 
         # Ungated, and that is the decision the rest of this model rests on.
-        # Gating the union looks right -- the predictor should read what fired
-        # -- and it collapses on the majority class: an example that gates
-        # everything off leaves an empty union, the token-level repair rescues
-        # exactly one word, and the predictor learns that one word means
-        # negative. The label would be decided by the size of the selection,
+        # Gating the union collapses on the majority class. An example that
+        # gates everything off leaves an empty union, the token-level repair
+        # rescues exactly one word, and the predictor learns that one word
+        # means negative. The label would be decided by the size of the selection,
         # which is the degeneracy select-then-predict exists to avoid. Ungated,
         # every example carries a full-size highlight under one sparsity
         # target, so a negative one can be read beside a positive one and
         # compared. Each `h_i` is still conditioned on its own entry, so the
         # selection is knowledge-shaped even though the gate does not reach it.
         highlight_mask = pair_mask.amax(dim=1)
-        highlight_logits = pair_logits.amax(dim=1)
+        highlight_logits = union_logits(pair_logits)
 
         return GroundedSPPOutput(
             class_logits=self.predict(
@@ -271,7 +272,9 @@ class GroundedSPP(SPP):
             knowledge_highlight_mask=entry_mask.unsqueeze(1),
         )
 
-    def faithfulness(self, input_data, output_data):
+    def faithfulness(
+        self, input_data: InputData, output_data: GroundedSPPOutput
+    ) -> Dict[str, th.Tensor]:
         """Token-level terms, and the two the knowledge axis adds.
 
         Writing ``K`` for the whole base and ``K_x`` for the entries the model
@@ -279,23 +282,25 @@ class GroundedSPP(SPP):
 
         .. code-block:: text
 
-           rationale sufficiency       = p(y_hat | x, K_x) - p(y_hat | x, K)
-           rationale comprehensiveness = p(y_hat | x, K)   - p(y_hat | x, K \\ K_x)
+           rationale sufficiency       = p(y_hat | x, K) - p(y_hat | x, K_x)
+           rationale comprehensiveness = p(y_hat | x, K) - p(y_hat | x, K \\ K_x)
 
-        This is the measurement the pipeline stands or falls on. A model whose
-        rationale comprehensiveness is near zero predicts the same thing when
-        the entries it named are taken away, which means the grounding is
-        decoration. Nobody has reported either quantity on this corpus.
+        Both follow the token-level convention of
+        :mod:`pyhighlights.components.faithfulness`: reference minus
+        restricted. Lower sufficiency is better, and higher comprehensiveness
+        is better. A model whose rationale comprehensiveness is near zero
+        predicts the same thing when the entries it named are taken away, so
+        its grounding does not carry the prediction.
 
-        The union the predictor reads is ungated, so restricting the base is
-        restricting which pairs enter that union -- the ablation is over which
-        entries are *present*, not over a gate. ``p(y_hat | x, K)`` is the
+        The union the predictor reads is ungated, so restricting the base
+        restricts which pairs enter that union. The ablation is over which
+        entries are present, not over a gate. ``p(y_hat | x, K)`` is the
         model's own output and is read off ``output_data`` rather than
         recomputed.
 
         An example that named nothing leaves the first union empty, which the
-        backbones pool to zeros. That is an honest reading of a model that
-        grounded the example in nothing, not a case to repair.
+        backbones pool to zeros. That measures a model that grounded the
+        example in nothing, and is not a case to repair.
         """
         terms = super().faithfulness(input_data, output_data)
         head = self.reported(output_data)
@@ -316,6 +321,6 @@ class GroundedSPP(SPP):
         )
         return {
             **terms,
-            "rationale_sufficiency": on_named - on_base,
+            "rationale_sufficiency": on_base - on_named,
             "rationale_comprehensiveness": on_base - on_rest,
         }

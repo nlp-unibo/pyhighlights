@@ -47,6 +47,9 @@ All eight answer one question, which is how to stop a selector and a predictor t
      - ACL 2025
      - A predictor per candidate
 
+:doc:`grounded` answers a different question.
+It grounds a select-then-predict model in a corpus's knowledge base, for corpora that explain their labels with free text rather than with spans.
+
 Writing a method of your own rather than running one of these is :doc:`../tutorials/custom-model`, which builds a small architecture end to end and names what to override for what.
 
 Every architecture is registered for a GRU backbone and for a Transformer one.
@@ -63,6 +66,7 @@ The algorithms mention neither, since a backbone is anything implementing ``enco
    dar
    mrd
    genspp
+   grounded
 
 Reading order
 -------------
