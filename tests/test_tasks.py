@@ -611,7 +611,7 @@ def test_supervision_needs_every_positive_example_annotated():
     with pytest.raises(ValueError, match="2 positive training examples"):
         task.check_supervision(splits)
 
-    # The negative class needs none: a fair clause instantiates nothing.
+    # The negative class needs none: a negative example has no evidence.
     splits["train"].loc[2, "highlights"] = [0]
     task.check_supervision(splits)
 

@@ -469,7 +469,7 @@ class ClassWeights(Preprocessor):
 
 
 class KnowledgeWeights(ClassWeights):
-    """Reads a split's clause-to-entry links and hands every row back unchanged.
+    """Reads a split's example-to-entry links and hands every row back unchanged.
 
     The knowledge-axis counterpart of :class:`ClassWeights`, and a
     :class:`~pyhighlights.components.tasks.ClassWeightsTask` runs it unchanged:

@@ -57,9 +57,9 @@ def warmup_epochs(module: L.LightningModule) -> int:
     A model that pretrains a component over the first epochs of the training
     loop is not improving the thing a monitor watches, so a patience counted
     from epoch zero can exhaust before the model has taken a single step.
-    G-RAT is that case -- it gates its optimizer on
-    ``current_epoch >= pretrain_epochs`` -- and two of five seeds of the legal
-    study's frozen arm stopped inside that window.
+    G-RAT is that case, since it gates its optimizer on
+    ``current_epoch >= pretrain_epochs``, so an early-stopping patience shorter
+    than that window stops a run before its model has trained.
 
     The number comes from the model rather than from the task's configuration,
     because a task repeating it is a second place for it to be wrong. A model
@@ -96,10 +96,9 @@ class GeneralizationLossScore(MonitoredScore):
     regression is dimensionless, and the coefficient means one thing -- how
     much ``quality`` an epoch forfeits per unit of relative loss regression.
 
-    Measured over the legal study's frozen arm, monitoring the rare class's F1
-    alone accepted a 26 to 31% relative loss regression, and monitoring the
-    loss alone gave up three to four points of that F1 at a regression under
-    1%. The coefficient is what chooses between those, and it belongs to an
+    Monitoring a rare class's F1 alone can accept a large relative loss
+    regression, and monitoring the loss alone can give up F1 to avoid a small
+    one. The coefficient is what chooses between those, and it belongs to an
     architecture rather than to the library: a coefficient of 0 monitors
     ``quality`` alone and a large one monitors the loss alone, so both of the
     criteria it replaces are special cases of it.

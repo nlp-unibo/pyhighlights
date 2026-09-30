@@ -77,8 +77,7 @@ def test_the_word_axis_is_words_and_the_subtoken_axis_is_subtokens():
 
     ``features`` and ``word_ids`` are subtokens, ``mask`` and
     ``highlight_true`` are words. Reading a word-axis field on the subtoken
-    axis is off by the number of split words, which for legal text is most of
-    them.
+    axis is off by the number of split words.
     """
     data = batch(
         [HighlightExample(0, ["a", "b", "c"], 1, [1, 0, 1])], SubwordTokenizer()
@@ -325,7 +324,7 @@ def test_compaction_keeps_the_gradient_path_to_the_selector_open():
 def test_a_compact_model_answers_the_same_for_two_gaps_of_one_highlight():
     """End to end, through ``SPP.predict``, which is what a run uses.
 
-    The tests above check the primitive. This checks the flag: two clauses
+    The tests above check the primitive. This checks the flag: two documents
     whose highlights hold the same words in the same order, differing only in
     what sits between them, must reach the predictor as one input.
     """
@@ -401,7 +400,7 @@ def test_compaction_keeps_a_special_token_where_a_pretrained_encoder_expects_it(
 
     `to_subtokens` always keeps a special token, and the gather is stable, so
     the two ends stay the two ends. A transformer pretrained on that shape
-    would otherwise be handed a sequence starting mid-clause.
+    would otherwise be handed a sequence starting mid-document.
     """
     features = th.tensor([[101, 2000, 3000, 4000, 5000, 102]])
     keep = th.tensor([[1.0, 0.0, 0.0, 1.0, 0.0, 1.0]])

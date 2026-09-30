@@ -624,7 +624,7 @@ def readability(frame: pd.DataFrame, by: str = "label") -> pd.DataFrame:
 
     **Two columns nothing else reports.** A span count, because a rate cannot
     tell two readable phrases from eight scattered fragments -- twenty per cent
-    of a clause in two spans is something a person can read, and the same share
+    of a document in two spans is something a person can read, and the same share
     in eight is not. And the split by class, because domain experts asked
     whether the highlights of negative examples differ from those of positive
     ones, and a pooled average over a split that is 97.7% negative reports the

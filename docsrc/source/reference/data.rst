@@ -18,7 +18,7 @@ Selecting over words
 
 A selection is made over words by default.
 The alternative, ``select_over="subtoken"`` on any SPP model, lets a model keep ``un`` and drop ``##fair``, and an export then reports the word ``unfair``: a highlight that is not what the predictor read, in a library whose claim is that it is.
-Measured on 16 legal clauses with Legal-BERT, an untrained selector splits 38 of 438 words that way; over words it splits none, by construction.
+Over words it splits none, by construction.
 
 Pooling happens *after* the encoder, never before, so a pretrained backbone still attends over its own subtokens.
 What the predictor is then given is the selection spread back over every piece of each word it kept.
@@ -30,7 +30,7 @@ Special tokens
 
 ``[CLS]`` and ``[SEP]`` are added by default.
 They carry no word, so ``word_ids`` is ``-1`` there and a selector never sees them, but the encoder attends over them always, whatever the selection, because that is what it was pretrained to read.
-On legal text, dropping them moves Legal-BERT's token states to a cosine of 0.83 against what it would otherwise produce; with a frozen backbone nothing can adapt to the difference.
+Dropping them moves the encoder's token states away from what it would otherwise produce, and with a frozen backbone nothing can adapt to the difference.
 
 This is what ``attention_mask`` is for, and why it is not ``mask``: one says what is *read*, the other what may be *chosen*.
 

@@ -15,16 +15,10 @@ The half that does not
 ----------------------
 
 The **shape** of the mask reaches the predictor even though the dropped words do not.
-Two clauses with the same kept words, in the same order, differing only in the gaps between them, produce different predictor inputs.
+Two documents with the same kept words, in the same order, differing only in the gaps between them, produce different predictor inputs.
 
-.. code-block:: text
-
-   backbone                       identical   gap changed   a kept word changed
-   GRUBackbone                     0.000000         0.644                 1.989
-   TransformerBackbone             0.000000         0.395                 1.803
-
-The numbers are the largest element-wise difference in ``pool(...)``, the single vector the predictor reads, and they are best read as a ratio: changing where the kept words sit moves the predictor's input by about a third of what swapping a kept word for a different word does.
-The ``identical`` column is the control.
+The difference shows in ``pool(...)``, the single vector the predictor reads.
+``tests/test_mechanics.py`` shows it for the GRU backbone, and ``tests/test_transformer_configurations.py`` shows it for a transformer with a position embedding.
 
 Two mechanisms, one per family.
 
@@ -36,14 +30,13 @@ Why it matters
 
 A selector can signal the label through the shape of the mask instead of through the words in it, most cheaply through how many words survive, and a predictor that honestly reads only the highlight can still read that signal.
 The highlight is then formally sufficient and semantically empty, which is the private-code failure of :doc:`../concepts/select-then-predict` arriving through the encoder rather than through the vocabulary.
-Measured on a legal corpus, a logistic regression given mask shape alone and no text reproduced a model's own decisions at 81.30 unfair F1 against 28.20 for the same features on shuffled decisions, while the highlighted words scored 2.58 on the task itself.
 
 Both cases are marked ``xfail(strict=True)``, so the suite states that the channel is open and will fail loudly on the day it is closed.
 
 Closing it
 ----------
 
-**Compaction** gathers the kept positions into a shorter sequence rather than zeroing the dropped ones, and it closes both mechanisms at once: a clause of 35 words with 4 kept becomes a sequence of length 4 whatever the gaps were.
+**Compaction** gathers the kept positions into a shorter sequence rather than zeroing the dropped ones, and it closes both mechanisms at once: a document of 35 words with 4 kept becomes a sequence of length 4 whatever the gaps were.
 Order is preserved, which is what makes the result a highlight rather than a bag of words.
 
 It is off by default and it is not a repair.

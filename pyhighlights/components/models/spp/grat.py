@@ -20,21 +20,25 @@ from pyhighlights.utility.losses import Loss, build_losses, compute_losses
 
 @dataclass
 class GRATGuiderOutput:
+    """What a guider reads off the full input."""
+
+    #: ``[B, T]``: attention over the encoder axis, summing to one per row.
     attention: th.Tensor
+    #: ``[B, C]``: the guider's class logits.
     class_logits: th.Tensor
 
 
 class GRATGuider(th.nn.Module, abc.ABC):
+    """An attention classifier over the full input, which guides the selector."""
+
     @abc.abstractmethod
-    def forward(
-        self, data: InputData, mask: th.Tensor | None = None
-    ) -> GRATGuiderOutput:
+    def forward(self, data: InputData, mask: th.Tensor) -> GRATGuiderOutput:
         """Return normalized token attention [B, T] and logits [B, C].
 
-        ``mask`` is what the guider's encoder attends over, ``data.mask`` when
-        the caller says nothing. G-RAT passes the subtoken axis, which is the
-        only one a subword backbone can encode; the attention is then folded
-        back onto the selection axis by whoever asked for it.
+        ``mask`` is what the guider's encoder attends over, on the encoder
+        axis. G-RAT passes ``encoder_mask``, which is the only axis a subword
+        backbone can encode, and folds the attention back onto the selection
+        axis itself.
         """
 
 
@@ -59,16 +63,9 @@ class AttentionGuider(GRATGuider):
         )
         self.noise_sigma = noise_sigma
 
-    def forward(
-        self, data: InputData, mask: th.Tensor | None = None
-    ) -> GRATGuiderOutput:
-        # The encoder's own axis, subtokens included: `mask` is the word axis,
-        # which is narrower than `features` whenever a backbone tokenizes into
-        # subwords, and encoding against it is a crash. G-RAT passes the axis
-        # its own encoders read and folds the attention that comes back.
-        attends = data.mask if mask is None else mask
-        valid = attends.bool()
-        states = self.backbone.encode(data.features, attends)
+    def forward(self, data: InputData, mask: th.Tensor) -> GRATGuiderOutput:
+        valid = mask.bool()
+        states = self.backbone.encode(data.features, mask)
         scores = self.attention(states).squeeze(-1)
         if self.training and self.noise_sigma:
             scores = scores + th.randn_like(scores).abs() * self.noise_sigma
@@ -129,6 +126,15 @@ class GRAT(SPP):
         )
         if len(self.selectors) != 1:
             raise ValueError("G-RAT requires exactly one selector")
+        # The annealing scales losses by name, and a name matching no loss
+        # scales nothing, so a misnamed term would train at full weight.
+        names = [loss.name for loss in self.losses]
+        for field, loss_name in (("guide_loss", guide_loss), ("jsd_loss", jsd_loss)):
+            if loss_name not in names:
+                raise ValueError(
+                    f"{field} {loss_name!r} names no loss of this model, "
+                    f"whose losses are {names}"
+                )
         self.guider = Registry.from_key(guider, expected_type=GRATGuider)
         self.guider_losses = th.nn.ModuleList(build_losses(guider_losses))
         self.pretrain_epochs = pretrain_epochs
@@ -149,16 +155,22 @@ class GRAT(SPP):
 
         ``training_step`` gates the model's optimizer on
         ``current_epoch >= pretrain_epochs``, so until then the monitored
-        quantities describe a model that has taken no step. Monitoring from
-        epoch zero stopped two of five seeds of the legal study's frozen arm
-        inside this window.
+        quantities describe a model that has taken no step, and a monitor
+        counting from epoch zero can stop a run inside this window.
         """
         return int(self.pretrain_epochs)
 
     @property
-    def guide_factor(self) -> float:
-        completed_decay_steps = max(self._model_steps.item() - 1, 0)
-        return max(1.0 - completed_decay_steps * self.guide_decay, 0.0)
+    def guide_factor(self) -> th.Tensor:
+        """The guide term's weight, ``max(1 - max(t - 1, 0) * guide_decay, 0)``.
+
+        ``t`` counts the rationalizer's steps. The reference implementation's
+        ``FactorAnnealer`` applies its decay before counting the step, so the
+        first two steps both train at a weight of one. A tensor rather than a
+        float, so reading it does not synchronise with the device.
+        """
+        completed = (self._model_steps - 1).clamp_min(0)
+        return (1.0 - completed * self.guide_decay).clamp_min(0.0)
 
     def guider_loss(
         self, input_data: InputData, output_data: GRATGuiderOutput
@@ -175,13 +187,20 @@ class GRAT(SPP):
 
         The guider attends over subtokens because that is what its encoder
         reads. The selection it guides is over words, so each word takes the
-        attention its subtokens hold between them -- summed, since attention
-        is a distribution. A model selecting over subtokens, or a vocabulary
+        attention its subtokens hold between them, summed, since attention is
+        a distribution. A model selecting over subtokens, or a vocabulary
         tokenizer, needs no folding and gets none.
         """
         return self.to_words(attention.unsqueeze(-1), data, reduce="sum").squeeze(-1)
 
     def guide_target(self, attention: th.Tensor, mask: th.Tensor) -> th.Tensor:
+        """The per-word target the guide term trains the selection towards.
+
+        ``min(a_i / (mean(a) + 1 / (1 + n)), 1)`` over the ``n`` valid words,
+        zero elsewhere. The mean is taken over valid words. The reference
+        implementation takes it over the padded width, which makes a target
+        depend on the widest document in its batch.
+        """
         valid = mask.bool()
         count = valid.sum(dim=1, keepdim=True).clamp_min(1)
         mean = (attention * valid).sum(dim=1, keepdim=True) / count
@@ -197,7 +216,7 @@ class GRAT(SPP):
         values = self.head_namespace(
             input_data,
             output_data,
-            selection_logits=output_data.highlight_logits[:, 0, :, 1],
+            selection_logits=self.reported(output_data).highlight_logits[..., 1],
             guide_target=self.guide_target(
                 self.to_selection_axis(guider_output.attention.detach(), input_data),
                 self.selection_valid(input_data),
@@ -221,7 +240,7 @@ class GRAT(SPP):
     def guider_encoder_ids(self) -> Set[int]:
         """The guider's own encoder, which is pretrained when the model's is.
 
-        `encoder_ids` covers the backbones a rationalizer reads with; the
+        ``encoder_ids`` covers the backbones a rationalizer reads with. The
         guider holds a third, and a rate meant for pretrained encoders that
         skipped it would fine-tune one of the three at the selector's rate.
         """

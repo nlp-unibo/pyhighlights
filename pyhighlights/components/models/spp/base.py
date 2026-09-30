@@ -552,7 +552,7 @@ class SPP(Model[SPPOutput]):
         transformer gives the next kept token a different position embedding.
         So the mask's *shape* reaches the predictor alongside the words it kept.
         Gathering the kept positions into a shorter sequence closes both
-        mechanisms at once. A clause of 35 words with 4 kept becomes a
+        mechanisms at once. A document of 35 words with 4 kept becomes a
         length-4 sequence whatever the gaps were.
 
         Order is preserved: the kept words arrive in the order they were
