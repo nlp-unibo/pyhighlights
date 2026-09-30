@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import math
 import random
 from collections.abc import Sequence
@@ -8,7 +9,7 @@ from itertools import chain
 from multiprocessing import TimeoutError as MPTimeoutError
 from multiprocessing import get_all_start_methods, get_context
 from multiprocessing.pool import ThreadPool
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List, Set, Tuple
 
 import torch as th
 from cinnamon.registry import RegistrationKey, Registry
@@ -16,6 +17,8 @@ from cinnamon.registry import RegistrationKey, Registry
 from pyhighlights.components.models import InputData
 from pyhighlights.components.models.spp.base import SPP, SPPBackbone, SPPSelector
 from pyhighlights.utility import diagnostics
+
+logger = logging.getLogger(__name__)
 
 
 class GenSPP(SPP):
@@ -86,7 +89,7 @@ class GenSPP(SPP):
         data: InputData,
         selector: SPPSelector,
         backbone: SPPBackbone,
-    ) -> tuple[th.Tensor, th.Tensor]:
+    ) -> Tuple[th.Tensor, th.Tensor]:
         # The encoder reads its own subtokens and the selection is made over
         # words, exactly as `SPP.select` does it. What this override leaves out
         # is the empty-selection fallback: a search scores an empty selection
@@ -97,9 +100,16 @@ class GenSPP(SPP):
         highlight_logits = selector(states)
         highlight_mask = highlight_logits.argmax(dim=-1).to(highlight_logits.dtype)
         valid = self.selection_valid(data).to(highlight_mask.dtype)
-        return highlight_logits, highlight_mask * valid
+        highlight_mask = highlight_mask * valid
+        diagnostics.record(
+            "selector",
+            states=states,
+            highlight_logits=highlight_logits,
+            highlight_mask=highlight_mask,
+        )
+        return highlight_logits, highlight_mask
 
-    def generator_parameters(self) -> list[th.nn.Parameter]:
+    def generator_parameters(self) -> List[th.nn.Parameter]:
         """The evolvable half, which is narrower than the family's answer.
 
         A chromosome is what the search may change, so a frozen parameter is
@@ -112,7 +122,7 @@ class GenSPP(SPP):
             if parameter.requires_grad
         ]
 
-    def predictor_parameters(self) -> list[th.nn.Parameter]:
+    def predictor_parameters(self) -> List[th.nn.Parameter]:
         """What descent moves in a candidate, frozen encoders excluded."""
         return [
             parameter
@@ -124,21 +134,11 @@ class GenSPP(SPP):
         # Training mode is set on the whole model. The generator is frozen
         # while a predictor is fitted on it, and dropout inside it would score
         # the same candidate differently from one epoch to the next.
+        # A frozen predictor encoder keeps itself in evaluation mode, as
+        # `TransformerBackbone.train` does.
         super().on_train_epoch_start()
         self.selector_backbones.eval()
         self.selectors.eval()
-        # And so would dropout inside a predictor backbone that descent never
-        # moves -- `GenSPPTransformerBackboneConfig` sets
-        # `freeze_transformer`, and a frozen Hugging Face encoder left in
-        # training mode still drops. That made a candidate's fitness a
-        # property of the random state as well as of its chromosome, which is
-        # the one thing a search cannot have: the same chromosome scored twice
-        # would not agree with itself.
-        if not any(
-            parameter.requires_grad
-            for parameter in self.predictor_backbone.parameters()
-        ):
-            self.predictor_backbone.eval()
 
     def configure_optimizers(self):
         # Gradient descent only ever reaches the predictor: the generator is
@@ -164,7 +164,7 @@ _WORK: Tuple["GenSPPTrainer", Any, Any] | None = None
 
 def _score_in_worker(item: Tuple[int, th.Tensor | None, th.device]):
     """One candidate, in a process of its own. Module level to be picklable."""
-    if _WORK is None:  # pragma: no cover -- a worker that never forked
+    if _WORK is None:  # pragma: no cover: a worker that never forked
         raise RuntimeError("worker started without a search to score for")
     trainer, train_loader, val_loader = _WORK
     _, chromosome, device = item
@@ -261,13 +261,15 @@ class GenSPPTrainer:
             raise ValueError("task_loss_limit must be finite and non-negative")
         if not math.isfinite(stop_threshold) or stop_threshold <= 0:
             raise ValueError("stop_threshold must be finite and greater than zero")
+        if not devices:
+            raise ValueError("devices must name at least one device")
 
         self.model = model
         self.n_generations = n_generations
         self.population_size = population_size
         #: How many couples a generation draws, as a share of the population.
         #: Each couple crosses into two children, so the release's 0.5 adds one
-        #: child per member -- ``int(0.5 * 50) = 25`` couples and 50 children,
+        #: child per member: ``int(0.5 * 50) = 25`` couples and 50 children,
         #: which then compete with their 50 parents for 50 places.
         self.selection_rate = selection_rate
         self.mutation_probability = mutation_probability
@@ -283,8 +285,6 @@ class GenSPPTrainer:
         self.task_loss_limit = task_loss_limit
         self.stop_threshold = stop_threshold
         self.seed = seed
-        if not devices:
-            raise ValueError("devices must name at least one device")
         # One worker per device, which is the same knob for both cases the
         # search is run under: ``("cpu",) * 8`` is eight candidates at once on
         # eight cores, ``("cuda:0", "cuda:1")`` is a node's cards. A candidate
@@ -293,17 +293,17 @@ class GenSPPTrainer:
         # is a process or a thread is :meth:`_score`'s decision, not this one's.
         self.devices = [th.device(device) for device in devices]
 
-        self.population: list[_Individual] = []
+        self.population: List[_Individual] = []
         #: One entry per generation: the best **objective** reached in it,
         #: which is ``1 / fitness`` and therefore falls as the search
         #: improves. It is what ``stop_threshold`` is compared against. The
         #: name is the released implementation's rather than a description,
         #: and it is serialized under itself inside ``search.json``, so it is
         #: left alone rather than renamed under existing readers.
-        self.training_progress: list[float] = []
+        self.training_progress: List[float] = []
         self._best_model: GenSPP | None = None
         self._best_fitness = -math.inf
-        self._initial_state: dict[str, th.Tensor] | None = None
+        self._initial_state: Dict[str, th.Tensor] | None = None
         self._embeddings: th.Tensor | None = None
         self._random = random.Random()
         self._torch_generator = th.Generator()
@@ -325,7 +325,7 @@ class GenSPPTrainer:
         ``task_loss_limit`` is the cross entropy above which a candidate is not
         competing at all: it gets the floor of 1.0 whatever it selected, so the
         search cannot buy a sparse selection with a model that has stopped
-        classifying. The paper sets it per corpus -- 0.1 on the toy corpus,
+        classifying. The paper sets it per corpus: 0.1 on the toy corpus,
         which is nearly solved, and 0.6 on HateXplain, which is not.
 
         Below the limit the objective is
@@ -422,9 +422,9 @@ class GenSPPTrainer:
             diagnostics.record("generation", index=generation)
             self._run_generation(train_batches, val_batches)
             best = max(self.population, key=lambda individual: individual.fitness)
-            best_loss = 1.0 / best.fitness
-            self.training_progress.append(best_loss)
-            if best_loss <= self.stop_threshold:
+            best_objective = 1.0 / best.fitness
+            self.training_progress.append(best_objective)
+            if best_objective <= self.stop_threshold:
                 break
 
         if self._best_model is None:
@@ -434,9 +434,9 @@ class GenSPPTrainer:
         # The winner's generator is a chromosome the search settled on, and
         # nothing moves it again: scoring it is a forward pass, and a second
         # search draws its own founders rather than resuming this one. Saying
-        # so on the model is what lets a reader of it -- a cost table counting
-        # what gradient descent moves, a caller building an optimizer over
-        # `parameters()` -- tell the searched half from the trained one.
+        # so on the model lets a reader of it tell the searched half from the
+        # trained one, such as a cost table counting what gradient descent
+        # moves, or a caller building an optimizer over `parameters()`.
         for parameter in self._best_model.generator_parameters():
             parameter.requires_grad_(False)
         return self._best_model
@@ -544,11 +544,17 @@ class GenSPPTrainer:
         parameters sit on. A task that trains on a GPU around the search
         therefore leaves the search on threads.
         """
-        return (
-            all(device.type == "cpu" for device in self.devices)
-            and "fork" in get_all_start_methods()
-            and not th.cuda.is_initialized()
-        )
+        return self._unforkable_reason() is None
+
+    def _unforkable_reason(self) -> str | None:
+        """Why this search cannot fork its workers, or ``None`` when it can."""
+        if not all(device.type == "cpu" for device in self.devices):
+            return "a CUDA device cannot be inherited across a fork"
+        if "fork" not in get_all_start_methods():
+            return "this platform does not offer fork"
+        if th.cuda.is_initialized():
+            return "this process has already initialised CUDA"
+        return None
 
     def _open_pool(
         self, train_loader: Iterable[InputData], val_loader: Iterable[InputData]
@@ -575,12 +581,18 @@ class GenSPPTrainer:
         release, and a parent that hangs inside ``fork`` itself is out of its
         reach. See :doc:`/models/genspp` for what makes that unlikely here.
         """
-        if len(self.devices) == 1 or diagnostics.active() or not self._forkable():
+        if len(self.devices) == 1 or diagnostics.active():
+            return
+        if not self._forkable():
+            logger.info(
+                "GenSPP scores candidates on threads: %s",
+                self._unforkable_reason(),
+            )
             return
         try:
             # Named as the workers' inputs rather than left in a global
             # for them to find. Under fork these are inherited and not
-            # pickled -- a closure `pickle` refuses arrives intact -- so
+            # pickled, so a closure `pickle` refuses arrives intact and
             # handing over the corpus costs nothing. What it buys is that a
             # launch which fails leaves nothing here still holding it, and
             # that a worker's inputs are written down rather than being
@@ -591,7 +603,15 @@ class GenSPPTrainer:
                 initargs=(self, train_loader, val_loader),
             )
             self._pool.apply_async(_worker_can_train).get(timeout=PROBE_SECONDS)
-        except (RuntimeError, OSError, TimeoutError, MPTimeoutError):
+        except (RuntimeError, OSError, TimeoutError, MPTimeoutError) as error:
+            # Threads hold the GIL through the training loop, so the search
+            # runs several times slower than on processes.
+            logger.warning(
+                "GenSPP worker processes failed their probe (%s: %s), so "
+                "candidates are scored on threads",
+                type(error).__name__,
+                error,
+            )
             self._close_pool()
 
     def _close_pool(self) -> None:
@@ -647,7 +667,7 @@ class GenSPPTrainer:
         **Nothing here may depend on the global random state**, which is what
         lets several candidates run at once: torch's default generator is
         process-wide, so what a thread drew from it would depend on how the
-        threads interleaved. Nothing does — the model's own initialisation is
+        threads interleaved. Nothing does. The model's own initialisation is
         entirely overwritten, by ``_initial_state`` outside the chromosome and
         by the chromosome inside it, the batches arrive as the list :meth:`_fit`
         froze rather than as a loader that would shuffle them again, and the
@@ -688,7 +708,7 @@ class GenSPPTrainer:
         # race between workers on `_best_fitness`.
         return individual, model
 
-    def _cuda_indices(self) -> list[int]:
+    def _cuda_indices(self) -> List[int]:
         """The CUDA devices `fork_rng` has to save, which may be none."""
         return [
             device.index if device.index is not None else th.cuda.current_device()
@@ -722,7 +742,7 @@ class GenSPPTrainer:
             raise ValueError("GenSPP candidates have incompatible state")
 
     @staticmethod
-    def _generator_names(model: GenSPP) -> set:
+    def _generator_names(model: GenSPP) -> Set[str]:
         """The state-dict keys the chromosome owns.
 
         Everything else is shared, so these are the only entries a candidate
@@ -770,7 +790,7 @@ class GenSPPTrainer:
 
     def _evaluate(
         self, model: GenSPP, val_loader: Iterable[InputData], device: th.device
-    ) -> tuple[float, float]:
+    ) -> Tuple[float, float]:
         model.to(device)
         model.eval()
         total_loss = 0.0
@@ -790,7 +810,7 @@ class GenSPPTrainer:
                 # subtokens over a word count and feed the search a rate that
                 # is not one.
                 valid = model.selection_valid(batch).sum(dim=-1).clamp_min(1)
-                rates = output.highlight_mask[:, 0].sum(dim=-1) / valid
+                rates = model.reported(output).highlight_mask.sum(dim=-1) / valid
                 total_rate += rates.sum().item()
                 sample_count += batch_size
 
@@ -806,9 +826,9 @@ class GenSPPTrainer:
     ) -> None:
         """Breed one generation and keep ``population_size`` of the result.
 
-        Couples are drawn by roulette wheel -- fitness-proportional, with
-        replacement, so a good chromosome can parent several children -- and
-        each couple crosses into two. ``selection_rate`` is therefore about
+        Couples are drawn by roulette wheel: fitness-proportional and with
+        replacement, so a good chromosome can parent several children. Each
+        couple crosses into two. ``selection_rate`` is therefore about
         *couples*: at 0.5 a population of fifty draws twenty-five of them and
         so gains fifty children, which then compete with their fifty parents
         for fifty places.
@@ -831,7 +851,7 @@ class GenSPPTrainer:
         scored = self._score(train_loader, val_loader, children)
         self.population = self._select_survivors([*self.population, *scored])
 
-    def _select_survivors(self, candidates: list[_Individual]) -> list[_Individual]:
+    def _select_survivors(self, candidates: List[_Individual]) -> List[_Individual]:
         """Half elitism: the best half kept outright, the rest drawn by fitness.
 
         The top ``population_size // 2`` survive because they are the top; the
@@ -862,11 +882,11 @@ class GenSPPTrainer:
 
     def _crossover(
         self, chromosome_1: th.Tensor, chromosome_2: th.Tensor
-    ) -> tuple[th.Tensor, th.Tensor]:
+    ) -> Tuple[th.Tensor, th.Tensor]:
         """One-point crossover, returning both children of the cut.
 
         The cut is anywhere in the chromosome, which is the generator's
-        parameters flattened into one vector -- so it usually falls inside a
+        parameters flattened into one vector, so it usually falls inside a
         weight matrix rather than between two of them.
         """
         point = self._random.randrange(chromosome_1.numel())
@@ -885,7 +905,7 @@ class GenSPPTrainer:
         chromosome, because :meth:`_mutate` gives its own deviation to a
         trailing slice of that vector. A selector that keeps its threshold
         anywhere else, or that declares none, contributes nothing and is
-        searched with one deviation throughout -- rather than having whatever
+        searched with one deviation throughout, rather than having whatever
         parameter happens to be last mutated in its place.
         """
         declared = {

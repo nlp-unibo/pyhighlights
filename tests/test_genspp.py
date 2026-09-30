@@ -867,7 +867,7 @@ def _refuses_to_differentiate() -> bool:
     )
 
 
-def test_a_pool_that_cannot_differentiate_is_not_used(monkeypatch):
+def test_a_pool_that_cannot_differentiate_is_not_used(caplog, monkeypatch):
     """Torch refuses fork once autograd has run threads in the parent.
 
     It refuses in the worker rather than at the fork, so a search that asked
@@ -880,14 +880,20 @@ def test_a_pool_that_cannot_differentiate_is_not_used(monkeypatch):
     that trained something first would assert it on some runs and not others.
     """
     monkeypatch.setattr(genspp, "_worker_can_train", _refuses_to_differentiate)
+    # An earlier optimizer step initialises CUDA on a machine that has it,
+    # which rules fork out before any probe. The probe is what this is about.
+    monkeypatch.setattr(th.cuda, "is_initialized", lambda: False)
     model = register_tiny_genspp()
     train, validation = [batch(labels=(0, 1))], [batch(labels=(0, 1))]
 
     search = trainer(model, devices=["cpu"] * 4)
-    search._open_pool(train, validation)
+    with caplog.at_level("WARNING", logger=genspp.__name__):
+        search._open_pool(train, validation)
 
     assert search._pool is None
     assert genspp._WORK is None
+    # Threads are several times slower, so the fallback is said.
+    assert "failed their probe" in caplog.text
     # And the search still runs, on threads.
     assert search.fit(train, validation) is not None
 
@@ -907,6 +913,7 @@ def test_a_cuda_parent_keeps_the_search_on_threads(monkeypatch):
     assert search._forkable() is True
     monkeypatch.setattr(th.cuda, "is_initialized", lambda: True)
     assert search._forkable() is False
+    assert search._unforkable_reason() == "this process has already initialised CUDA"
 
 
 def test_the_worker_probe_descends_as_well_as_differentiates(monkeypatch):
@@ -927,28 +934,35 @@ def test_the_worker_probe_descends_as_well_as_differentiates(monkeypatch):
         genspp._worker_can_train()
 
 
-def test_a_frozen_predictor_backbone_does_not_drop_while_a_candidate_trains():
+def test_a_frozen_predictor_encoder_does_not_drop_while_a_candidate_trains(
+    monkeypatch,
+):
     """Or a chromosome's fitness is a property of the random state too.
 
-    `GenSPPTransformerBackboneConfig` sets `freeze_transformer`, and a frozen
-    Hugging Face encoder left in training mode still drops: the same candidate
-    would score differently depending on what had drawn before it, which
-    across workers is a matter of scheduling. Only the generator used to be
-    put back into eval mode, because only the generator is frozen when the
-    backbone is a GRU this study trains.
+    A frozen transformer left in training mode still applies dropout, so the
+    same candidate would score differently from one epoch to the next. The
+    backbone keeps a frozen encoder in evaluation mode, and a candidate
+    trained the way `_train_predictor` trains it inherits that.
     """
-    search = trainer(register_tiny_genspp(), devices=["cpu"])
-    search._embeddings = None
-    search._initial_state = None
+    import sys
+    from types import ModuleType
+
+    from pyhighlights.configurations.keys import TRANSFORMER_GENSPP
+    from tests.test_transformer_configurations import FakeAutoModel
+
+    transformers = ModuleType("transformers")
+    transformers.AutoModel = FakeAutoModel
+    monkeypatch.setitem(sys.modules, "transformers", transformers)
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+    search = trainer(TRANSFORMER_GENSPP, devices=["cpu"])
     model = search._candidate()
-    for parameter in model.predictor_backbone.parameters():
-        parameter.requires_grad_(False)
 
     # What `_train_predictor` does before it steps the model.
     model.train(True)
     model.on_train_epoch_start()
 
-    assert not model.predictor_backbone.training
+    assert not model.predictor_backbone.transformer.training
+    assert not model.selector_backbone.training
     # The predictor itself is what descent moves, and does train.
     assert model.predictor.training
 
@@ -999,3 +1013,13 @@ def test_a_pool_that_fails_to_launch_leaves_nothing_behind(monkeypatch):
     assert search._pool is None
     assert genspp._WORK is None
     assert search.fit(train, validation) is not None
+
+
+def test_a_search_that_cannot_fork_says_why(caplog, monkeypatch):
+    """Threads are several times slower than processes, so the choice is said."""
+    search = trainer(register_tiny_genspp(), devices=["cpu"] * 2)
+    monkeypatch.setattr(th.cuda, "is_initialized", lambda: True)
+    with caplog.at_level("INFO", logger=genspp.__name__):
+        search._open_pool([batch()], [batch()])
+    assert search._pool is None
+    assert "already initialised CUDA" in caplog.text
