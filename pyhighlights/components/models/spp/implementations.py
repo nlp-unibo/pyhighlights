@@ -20,12 +20,16 @@ def recurrent_states(
 ) -> th.Tensor:
     """Run ``encoder`` over ``inputs``, back on the width it came in at.
 
-    Shared by the two backbones that encode recurrently, which differ in what
-    they hand the recurrence -- an embedding table for ``GRUBackbone``, a
-    pretrained encoder's states for ``StackedBackbone`` -- and in nothing
-    after it. Packing is what keeps padding out of the recurrence, and the
-    clamp is for a row that is padding throughout: a length of zero is not a
-    sequence, and such a row is masked to zeros on the way out anyway.
+    Shared by the two backbones that encode recurrently. ``GRUBackbone`` hands
+    the recurrence an embedding table, and ``StackedBackbone`` a pretrained
+    encoder's states. Packing keeps padding out of the recurrence.
+
+    ``valid`` must mark a prefix of each row, with padding only at the end.
+    Packing reads the first ``valid.sum()`` positions, so a row with a zero
+    between ones would be packed wrongly without an error. Every mask the
+    library builds pads at the end, including the compacted one. A row that
+    is padding throughout gets a length of one, because a length of zero is
+    not a sequence, and it is masked to zeros on the way out.
     """
     packed = th.nn.utils.rnn.pack_padded_sequence(
         inputs,
@@ -43,9 +47,9 @@ def recurrent_states(
 def max_pool(states: th.Tensor, mask: th.Tensor) -> th.Tensor:
     """The largest value each dimension takes over the unmasked positions.
 
-    A row with nothing unmasked pools to zeros rather than to ``-inf``: an
-    empty complement is a reading of a model that kept everything, not a
-    number to propagate.
+    A row with nothing unmasked pools to zeros rather than to ``-inf``. That
+    row is the empty complement of a model that kept everything, and ``-inf``
+    would propagate through the predictor.
     """
     valid = mask.bool()
     pooled = states.masked_fill(~valid.unsqueeze(-1), -th.inf).amax(dim=1)
@@ -53,12 +57,18 @@ def max_pool(states: th.Tensor, mask: th.Tensor) -> th.Tensor:
 
 
 class GRUBackbone(SPPBackbone):
+    """A recurrent encoder over a token embedding table, max-pooled.
+
+    A pretrained table arrives through :meth:`load_embeddings`. For the
+    predictor pass, the embeddings of dropped positions are zeroed before the
+    recurrence, so their content reaches no kept state.
+    """
+
     def __init__(
         self,
         vocab_size: int,
         embedding_dim: int,
         hidden_size: int,
-        embedding_matrix: th.Tensor | None = None,
         freeze_embeddings: bool = False,
         num_layers: int = 1,
         bidirectional: bool = True,
@@ -66,9 +76,6 @@ class GRUBackbone(SPPBackbone):
     ):
         super().__init__()
         self.embedding = th.nn.Embedding(vocab_size, embedding_dim)
-        if embedding_matrix is not None:
-            with th.no_grad():
-                self.embedding.weight.copy_(embedding_matrix)
         self.embedding.weight.requires_grad_(not freeze_embeddings)
 
         self.encoder = th.nn.GRU(
@@ -100,7 +107,7 @@ class GRUBackbone(SPPBackbone):
                 f"backbone expects {self.embedding.embedding_dim}"
             )
         weight = self.embedding.weight
-        # The replacement lands where the old table was: a backbone already
+        # The replacement lands where the old table was. A backbone already
         # moved to a device would otherwise hold a CPU table.
         self.embedding = th.nn.Embedding.from_pretrained(
             matrix.to(device=weight.device, dtype=weight.dtype),
@@ -125,6 +132,14 @@ class GRUBackbone(SPPBackbone):
 
 
 class TransformerBackbone(SPPBackbone):
+    """A pretrained Hugging Face encoder, mean-pooled.
+
+    For the predictor pass, dropped positions are removed from the attention
+    mask, so no kept position attends to them. A frozen encoder stays in
+    evaluation mode, so its dropout never runs and the same input always
+    gives the same states.
+    """
+
     def __init__(
         self,
         pretrained_model_card: str,
@@ -143,10 +158,20 @@ class TransformerBackbone(SPPBackbone):
         if num_features is not None:
             self.transformer.resize_token_embeddings(num_features)
         self.transformer.requires_grad_(not freeze_transformer)
+        self.frozen = freeze_transformer
 
     @property
     def output_size(self) -> int:
         return self.transformer.config.hidden_size
+
+    def train(self, mode: bool = True) -> TransformerBackbone:
+        # Lightning calls this on the whole model, and freezing the weights
+        # does not stop dropout. A frozen encoder is a fixed lookup, so it
+        # stays in evaluation mode.
+        super().train(mode)
+        if self.frozen:
+            self.transformer.eval()
+        return self
 
     def encode(
         self,
@@ -178,28 +203,16 @@ def mlp(sizes: List[int]) -> th.nn.Sequential:
 class StackedBackbone(SPPBackbone):
     """A pretrained encoder read by a recurrent one trained from scratch.
 
-    Registered as ``StackedBackboneConfig`` and available to any study; no
-    benchmark in this repository configures it, since the reproductions here
-    are the GloVe-and-GRU papers it generalises.
+    The shape of a bidirectional GRU over a frozen embedding table, with the
+    table replaced by a pretrained transformer. The transformer is the frozen
+    lookup and the GRU is the encoder, so everything trainable starts from
+    scratch and one learning rate serves it. A frozen transformer read by a
+    linear selector would instead train a few thousand parameters, which is a
+    probe rather than a select-then-predict model.
 
-    The architecture the select-then-predict papers actually use, with a better
-    frozen representation underneath it. FR, MCD, MGR and G-RAT all encode with
-    a bidirectional GRU over a **frozen** embedding table -- GloVe, in every
-    released implementation -- so nothing pretrained is ever fine-tuned and
-    everything trained starts from scratch at one learning rate. Swapping GloVe
-    for a pretrained transformer keeps that shape: the transformer is the frozen
-    lookup, the GRU is the encoder.
-
-    Two things this avoids. A frozen transformer read by a linear selector
-    trains a few thousand parameters, which is a probe rather than any of these
-    architectures. Fine-tuning the transformer instead makes one learning rate
-    wrong for the model -- 1e-3 destroys a pretrained encoder and 2e-5 barely
-    moves a selector initialized from scratch -- which is what
-    ``encoder_lr`` exists for when that is the experiment.
-
-    ``freeze_transformer`` defaults to holding the weights, since a trainable
-    encoder underneath a trainable GRU is the case that wants two learning
-    rates.
+    ``freeze_transformer`` defaults to holding the weights. A trainable
+    encoder underneath a trainable GRU needs two learning rates, which is what
+    ``encoder_lr`` is for.
     """
 
     def __init__(
@@ -239,18 +252,13 @@ class StackedBackbone(SPPBackbone):
         mask: th.Tensor,
         selection_mask: th.Tensor | None = None,
     ) -> th.Tensor:
-        # The selection reaches the transformer *and* the GRU, and it has to
+        # The selection reaches the transformer and the GRU, and it has to
         # reach both. Masking only the transformer's attention leaves a dropped
-        # subtoken with a state of its own -- a transformer carries every
-        # position's input forward through the residual stream whether or not
-        # anything attended to it -- and the GRU is recurrent, so that state
-        # reaches every position after it. The predictor would then read a
-        # summary that depends on words the highlight excluded, which is the
-        # one thing select-then-predict is for.
-        #
-        # `GRUBackbone` zeroes its dropped embeddings for the same reason. The
-        # two now agree, which is what makes a highlight mean the same thing
-        # whichever backbone read the text.
+        # subtoken with a state of its own, because the residual stream
+        # carries every position's input forward. The GRU is recurrent, so
+        # that state would reach every position after it, and the predictor
+        # would read words the highlight excluded. `GRUBackbone` zeroes its
+        # dropped embeddings for the same reason.
         states = self.transformer.encode(features, mask, selection_mask)
         if selection_mask is not None:
             states = states * selection_mask.to(states.dtype).unsqueeze(-1)
@@ -264,6 +272,8 @@ class StackedBackbone(SPPBackbone):
 
 
 class MLPSelector(SPPSelector):
+    """A feed-forward head scoring each position as dropped or kept."""
+
     def __init__(self, input_size: int, hidden_sizes: List[int]):
         super().__init__()
         self.selector = mlp([input_size, *hidden_sizes, 2])
@@ -272,11 +282,12 @@ class MLPSelector(SPPSelector):
         return self.selector(states)
 
     def threshold_parameters(self) -> List[th.nn.Parameter]:
-        bias = self.selector[-1].bias
-        return [] if bias is None else [bias]
+        return [self.selector[-1].bias]
 
 
 class MLPPredictor(SPPPredictor):
+    """A feed-forward head mapping a pooled state to class logits."""
+
     def __init__(self, input_size: int, hidden_sizes: List[int], num_classes: int):
         super().__init__()
         self.predictor = mlp([input_size, *hidden_sizes, num_classes])
