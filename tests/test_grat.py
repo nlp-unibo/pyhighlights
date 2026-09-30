@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import lightning as L
+import pytest
 import torch as th
 from cinnamon.registry import Registry
 from torch.utils.data import DataLoader
@@ -36,7 +37,7 @@ def test_registered_gru_grat_guidance_and_staged_training():
     model._model_steps.zero_()
 
     output = model(data)
-    guider_output = model.guider(data)
+    guider_output = model.guider(data, model.encoder_mask(data))
     assert output.class_logits.shape == (2, 1, 2)
     assert output.highlight_logits.shape == (2, 1, 4, 2)
     assert guider_output.attention.shape == (2, 4)
@@ -51,7 +52,9 @@ def test_registered_gru_grat_guidance_and_staged_training():
     assert all(parameter.grad is None for parameter in model.guider.parameters())
 
     model.zero_grad(set_to_none=True)
-    guider_total, guider_losses = model.guider_loss(data, model.guider(data))
+    guider_total, guider_losses = model.guider_loss(
+        data, model.guider(data, model.encoder_mask(data))
+    )
     assert set(guider_losses) == {"classification"}
     guider_total.backward()
     assert any(parameter.grad is not None for parameter in model.guider.parameters())
@@ -140,3 +143,11 @@ def test_grat_guides_a_selection_over_words_from_attention_over_subtokens():
     total, losses = model.model_loss(data, output, guider_output)
     assert set(losses) == {"classification", "sparsity", "contiguity", "guide", "jsd"}
     total.backward()
+
+
+@pytest.mark.parametrize("field", ["guide_loss", "jsd_loss"])
+def test_an_annealed_term_must_name_a_loss(field):
+    """A name matching no loss scales nothing, so the run would not anneal."""
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+    with pytest.raises(ValueError, match=f"{field} 'guidance' names no loss"):
+        Registry.from_key(GRU_GRAT, **{field: "guidance"})
