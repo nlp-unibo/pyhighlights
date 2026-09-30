@@ -7,6 +7,8 @@ generator and nothing else, and that a resumed run finds it trained rather
 than training it again on a model that has already moved.
 """
 
+import subprocess
+import sys
 from pathlib import Path
 
 import lightning as L
@@ -225,8 +227,8 @@ def test_the_aligner_pretrains_inside_the_bound_the_run_was_given(tmp_path):
     """`limit_train_batches` bounds the fit loop, not a loop a model runs.
 
     The aligner's loop is the model's own, so a run bounded to two batches
-    still pretrained on all eight the split holds, once per pretraining epoch
-    -- which is what a smoke test asks not to happen.
+    still pretrained on all eight the split holds, once per pretraining epoch.
+    A smoke test asks for exactly that not to happen.
     """
     model = Registry.from_key(GRU_DAR, pretrain_epochs=2)
     seen = []
@@ -238,3 +240,39 @@ def test_the_aligner_pretrains_inside_the_bound_the_run_was_given(tmp_path):
     # Two epochs of the two batches the run allowed. Rationalization aligns
     # the highlight rather than the full input, so nothing after this adds.
     assert len(seen) == 4
+
+
+def test_the_aligner_is_frozen_before_anything_wraps_the_model():
+    """A data-parallel wrapper registers what requires a gradient when it wraps.
+
+    It wraps before the pretraining loop runs, and raises once a registered
+    parameter stops receiving a gradient. An aligner still trainable at that
+    point is one the wrapper expects to train.
+    """
+    model = Registry.from_key(GRU_DAR)
+
+    assert not any(parameter.requires_grad for parameter in model.aligner_parameters())
+
+
+def test_a_frozen_aligner_stays_in_evaluation_mode(tmp_path):
+    model = trained(tmp_path)
+
+    model.train()
+
+    assert model.predictor_backbone.training
+    assert not model.aligner_backbone.training
+    assert not model.aligner.training
+
+
+def test_every_process_pretrains_the_same_aligner(tmp_path):
+    """Each process reads its own shard, and the gradients are averaged.
+
+    Run as a script, because Lightning's ``ddp`` launcher starts the other
+    process by running the script again.
+    """
+    script = Path(__file__).with_name("data_parallel.py")
+    subprocess.run(
+        [sys.executable, str(script), str(tmp_path)], check=True, timeout=300
+    )
+
+    assert th.equal(th.load(tmp_path / "rank0.pt"), th.load(tmp_path / "rank1.pt"))

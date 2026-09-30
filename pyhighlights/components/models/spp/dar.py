@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 from itertools import islice
 from typing import Dict, List, Set, Tuple
@@ -21,13 +23,13 @@ logger = logging.getLogger(__name__)
 class DAR(SPP):
     """Rationalizer whose highlight has to read like the input it came from.
 
-    A cooperative game lets the pair agree on a private code: the selection
-    drifts away from the semantics of the full input, the predictor learns to
-    read the drift, accuracy stays high and the generator is rewarded for a
+    A cooperative game lets the pair agree on a private code. The selection
+    drifts away from the semantics of the full input, and the predictor learns
+    to read the drift. Accuracy stays high, and the generator is rewarded for a
     highlight nobody else can interpret. The paper calls that rationale shift.
-    DAR answers it with a second predictor -- an aligner -- trained on the full
+    DAR answers it with a second predictor, the aligner, trained on the full
     input alone and then frozen. That module never sees a highlight during its
-    own training, so it can only read one the way it reads text; asking it to
+    own training, so it can only read one the way it reads text. Asking it to
     predict the label *from the highlight* therefore costs the generator
     anything it selected in a private code. The aligner is frozen, so this term
     trains the generator only.
@@ -41,12 +43,15 @@ class DAR(SPP):
     The aligner is pretrained here rather than by the task: it is part of the
     model, is checkpointed with it, and a resumed run finds it trained. The
     pretraining runs its own loop over the training loader before the first
-    epoch, which is why two limits are worth knowing. Under data parallelism
-    each process pretrains its own aligner on its own shard, with no gradient
-    sync -- the loop is outside the strategy Lightning drives. And an
-    ``EarlyStopping`` callback counts epochs of the *rationalizer*, since the
-    pretraining is not one of them; the reference implementation spends 100
-    epochs there, and this keeps that off the patience counter.
+    epoch. Under data parallelism every process averages its gradients with
+    the others', so all processes hold the same aligner. An ``EarlyStopping``
+    callback counts epochs of the *rationalizer* only, so a long pretraining
+    stays off the patience counter.
+
+    The frozen aligner stays in evaluation mode, so the alignment term is a
+    fixed function of the highlight. The reference implementation reloads its
+    aligner in training mode, so its dropout runs on every highlight the
+    aligner scores. This library treats that as an error in the reference.
     """
 
     def __init__(
@@ -76,11 +81,21 @@ class DAR(SPP):
         )
         self.pretrain_epochs = pretrain_epochs
         # The same binding scores both passes: the aligner reads the full
-        # input while it trains and the highlight afterwards, and both are the
-        # same question asked of the same module -- what the label looks like
-        # from what it was given.
+        # input while it trains and the highlight afterwards. Both passes ask
+        # the same module what the label looks like from what it was given.
         self.aligner_loss = Registry.from_key(aligner_loss, expected_type=Loss)
         self.losses.append(self.aligner_loss)
+        # Frozen from construction, and trainable only inside the pretraining
+        # loop. A data-parallel wrapper registers every parameter that requires
+        # a gradient when it wraps the model, and raises once one stops
+        # receiving it. A frozen pretrained encoder stays frozen throughout.
+        self._aligner_trainable = [
+            parameter
+            for parameter in self.aligner_parameters()
+            if parameter.requires_grad
+        ]
+        for parameter in self._aligner_trainable:
+            parameter.requires_grad_(False)
         # Saved with the weights, so a resumed run does not pretrain an
         # aligner the checkpoint already carries trained.
         self.register_buffer("aligner_ready", th.zeros((), dtype=th.bool))
@@ -127,18 +142,29 @@ class DAR(SPP):
         """What the aligner makes of the whole input, which is all it is taught."""
         return self.align(data, th.ones_like(self.selection_valid(data)))
 
+    def train(self, mode: bool = True) -> DAR:
+        # Lightning calls this on the whole model. A trained aligner is frozen,
+        # and freezing the weights does not stop dropout.
+        super().train(mode)
+        if bool(self.aligner_ready):
+            self.aligner_backbone.eval()
+            self.aligner.eval()
+        return self
+
     def pretrain_aligner(self) -> None:
         """Train the aligner on the full input, then freeze it.
 
         Once per fit and before the first epoch, so every rationalization
-        batch is scored against the same module -- an aligner that kept moving
+        batch is scored against the same module. An aligner that kept moving
         could co-adapt to the highlight, which is the thing it exists not to
         do.
         """
         loader = self.trainer.train_dataloader
         if loader is None:
             raise RuntimeError("DAR pretrains its aligner on the training loader")
-        optimizer = self.build_optimizer([(self.aligner_parameters(), 1.0)])
+        for parameter in self._aligner_trainable:
+            parameter.requires_grad_(True)
+        optimizer = self.build_optimizer([(self._aligner_trainable, 1.0)])
         for epoch in range(self.pretrain_epochs):
             total = 0.0
             batches = 0
@@ -165,6 +191,14 @@ class DAR(SPP):
                     {**batch.as_dict(), "aligner_class_logits": self.align_full(batch)},
                 )
                 loss.backward()
+                # The wrapper that averages gradients across processes does
+                # not see this loop, so the loop averages them itself. One
+                # process reduces to the identity.
+                for parameter in self._aligner_trainable:
+                    if parameter.grad is not None:
+                        parameter.grad = self.trainer.strategy.reduce(
+                            parameter.grad, reduce_op="mean"
+                        )
                 optimizer.step()
                 total += loss.item()
                 batches += 1
@@ -175,27 +209,24 @@ class DAR(SPP):
                 self.pretrain_epochs,
                 total / max(batches, 1),
             )
-        for parameter in self.aligner_parameters():
+        optimizer.zero_grad()
+        for parameter in self._aligner_trainable:
             parameter.requires_grad_(False)
         self.aligner_ready.fill_(True)
 
     def on_train_start(self) -> None:
         super().on_train_start()
-        if bool(self.aligner_ready):
-            # Restored from a checkpoint, or already pretrained in this
-            # process: either way it is trained, and training it again on a
-            # model whose generator has moved is a different module.
-            for parameter in self.aligner_parameters():
-                parameter.requires_grad_(False)
-            return
-        self.pretrain_aligner()
+        # An aligner restored from a checkpoint, or pretrained earlier in this
+        # process, is trained. Training it again on a model whose generator has
+        # moved would make it a different module.
+        if not bool(self.aligner_ready):
+            self.pretrain_aligner()
+        self.train(self.training)
 
     def compute_loss(
         self, input_data: InputData, output_data: SPPOutput
     ) -> Tuple[th.Tensor, Dict[str, th.Tensor]]:
-        if output_data.class_logits.shape[1] != 1:
-            raise ValueError("DAR output must contain exactly one head")
-        highlight_mask = next(output_data.unbind(dim=1)).highlight_mask
+        highlight_mask = self.reported(output_data).highlight_mask
         values = self.head_namespace(
             input_data,
             output_data,
