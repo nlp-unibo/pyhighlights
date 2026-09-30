@@ -134,7 +134,7 @@ Here that is ``compute_loss``, since the consistency term needs a prediction the
            return highlight_mask * keep.to(highlight_mask.dtype)
 
        def compute_loss(self, input_data, output_data):
-           head = self.aggregator(output_data)
+           head = self.reported(output_data)
            thinned_logits = self.predict(
                data=input_data, highlight_mask=self.thinned(head.highlight_mask)
            )
@@ -147,7 +147,7 @@ Four things in that class are worth naming, because every architecture in the li
 
 First, ``self.predict`` is how a model reads a selection, and passing it a different mask is how an extra pass is taken.
 ``predict_full`` and ``predict_complement`` are the two other passes the base class offers, and MCD and MRD are built out of exactly those.
-Second, ``self.aggregator`` collapses the head axis, which is what makes a model with one selector and a model with several read the same way.
+Second, ``self.reported`` returns the reported head without the head axis, which is what makes a model with one selector and a model with several read the same way.
 Third, ``head_namespace`` is what a loss binds to, and the keyword arguments handed to it are added to it, so ``thinned_class_logits`` becomes a field a registered loss can name.
 Fourth, the constructor validates what the method assumes rather than trusting the configuration, which is why every library model refuses a shape it cannot mean.
 

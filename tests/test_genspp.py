@@ -102,7 +102,6 @@ class TinyGenSPPConfig(Configuration):
     predictor_backbone: RegistrationKey[SPPBackbone] = Param(
         RegistrationKey(name="backbone", namespace=NAMESPACE)
     )
-    aggregator: RegistrationKey | None = Param(None)
     temperature: float = Param(1.0)
     losses: List[RegistrationKey] = Param(
         [RegistrationKey(name="loss", namespace=NAMESPACE)]

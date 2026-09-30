@@ -13,7 +13,7 @@ Nothing else changes: the same model key runs either way.
 The two settings are different experiments, not two points on one scale.
 The unsupervised one is the realistic problem; the supervised one is the ceiling it is measured against, and its ``val_loss`` carries a term the other has no equivalent for, so only the metrics compare.
 
-**One annotation guides one head.** A model with several generators supervises the head its aggregator keeps, the one every reported metric scores, and leaves the rest to diverge, which is what those generators are there for.
+**Supervision needs exactly one selector.** One annotation supervises one selector. A model with several selectors, such as MGR, is refused, because its selectors are there to diverge without supervision, and supervising one of them would leave the others without a role.
 
 **A corpus without training annotations is refused.** Unannotated positions are padded with ``-1`` and skipped by the criterion, so supervising a corpus annotated on test alone would train exactly as an unsupervised run does and report itself as that run's ceiling.
 The task checks the training split and raises instead.

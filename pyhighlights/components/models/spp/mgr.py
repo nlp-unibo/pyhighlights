@@ -3,7 +3,7 @@ from typing import Dict, Literal, Tuple
 import torch as th
 from cinnamon.registry import RegistrationKey
 
-from pyhighlights.components.models.base import InputData, Split
+from pyhighlights.components.models.base import InputData
 from pyhighlights.components.models.spp.base import SPP, SPPBackbone
 from pyhighlights.components.models.spp.data import SPPOutput
 
@@ -83,18 +83,6 @@ class MGR(SPP):
 
     def test_forward(self, batch: InputData) -> SPPOutput:
         return self.forward_one_head(data=batch)
-
-    def update_metrics(
-        self, split: Split, input_data: InputData, output_data: SPPOutput
-    ):
-        if output_data.class_logits.shape[1] > 1:
-            head = self.inference_head
-            output_data = SPPOutput(
-                class_logits=output_data.class_logits[:, head : head + 1],
-                highlight_logits=output_data.highlight_logits[:, head : head + 1],
-                highlight_mask=output_data.highlight_mask[:, head : head + 1],
-            )
-        super().update_metrics(split, input_data, output_data)
 
     def compute_loss(
         self, input_data: InputData, output_data: SPPOutput

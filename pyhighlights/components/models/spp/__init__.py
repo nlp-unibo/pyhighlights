@@ -1,7 +1,5 @@
 from pyhighlights.components.models.spp.base import (
-    SPPAggregator,
     SPPBackbone,
-    SPPFirstAggregator,
     SPPPredictor,
     SPPSelector,
 )
@@ -54,11 +52,9 @@ __all__ = [
     "PhasedSPP",
     "MLPPredictor",
     "MLPSelector",
-    "SPPAggregator",
     "SPPOutput",
     "SPPBackbone",
     "SPPComparer",
-    "SPPFirstAggregator",
     "SPPPredictor",
     "SPPSelector",
     "TransformerBackbone",

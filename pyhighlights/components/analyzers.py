@@ -88,8 +88,9 @@ def run_of(path: Path, directory: Path) -> str:
 def reported_head(masks: np.ndarray) -> np.ndarray:
     """The head a model with several selectors is scored on.
 
-    The reported metrics score the head the aggregator keeps, so every analysis
-    reads that one rather than a mixture of heads nothing else reports on.
+    The reported metrics score ``SPP.inference_head``. MGR stores only that
+    head at test, and every other model reports head 0, so a stored mask with a
+    head axis is read at head 0.
     """
     return masks[:, 0] if masks.ndim == 3 else masks
 

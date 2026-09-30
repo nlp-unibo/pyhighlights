@@ -1,6 +1,6 @@
 import logging
 from itertools import islice
-from typing import Dict, List, Tuple
+from typing import Dict, List, Set, Tuple
 
 import torch as th
 from cinnamon.registry import RegistrationKey, Registry
@@ -88,7 +88,7 @@ class DAR(SPP):
     def aligner_parameters(self) -> List[th.nn.Parameter]:
         return [*self.aligner_backbone.parameters(), *self.aligner.parameters()]
 
-    def encoder_ids(self) -> set:
+    def encoder_ids(self) -> Set[int]:
         return super().encoder_ids() | {
             id(parameter) for parameter in self.aligner_backbone.parameters()
         }

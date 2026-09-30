@@ -24,7 +24,7 @@ An analyzer reads a results directory back and answers one question about it, re
    has learned nothing still selects something; position is what tells the two
    apart, since a model keying on the opening tokens of every document scores
    like one that found the highlight. A model with several selectors stores one
-   mask per head; the analysis reads the head its aggregator keeps, which is
+   mask per head; the analysis reads the reported head, which is
    the one every reported metric scored.
 
    Positions are word positions on either selection axis: a selection made

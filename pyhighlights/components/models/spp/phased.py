@@ -197,7 +197,7 @@ class PhasedSPP(SPP):
         name = type(self).__name__
         if output_data.class_logits.shape[1] != 1:
             raise ValueError(f"{name} output must contain exactly one head")
-        head = self.aggregator(output_data)
+        head = self.reported(output_data)
         values = self.head_namespace(
             input_data,
             output_data,

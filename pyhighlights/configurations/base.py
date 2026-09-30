@@ -18,7 +18,6 @@ from cinnamon.configuration import Configuration, Param
 from cinnamon.registry import RegistrationKey
 
 from pyhighlights.components.models.spp.base import (
-    SPPAggregator,
     SPPBackbone,
     SPPPredictor,
     SPPSelector,
@@ -52,7 +51,6 @@ class SPPShapeConfig(Configuration):
     selectors: RegistrationKey[SPPSelector] = Param(MLP_SELECTOR)
     predictor: RegistrationKey[SPPPredictor] = Param(MLP_PREDICTOR)
     predictor_backbone: RegistrationKey[SPPBackbone] | None = Param(None)
-    aggregator: RegistrationKey[SPPAggregator] | None = Param(None)
     temperature: float = Param(1.0, gt=0.0)
     #: Gather the kept positions into a shorter sequence instead of zeroing the
     #: dropped ones in place. Off by default, because it changes what the

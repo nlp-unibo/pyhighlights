@@ -17,7 +17,7 @@ class SPPOutput(OutputData):
 class GroundedSPPOutput(SPPOutput):
     """An SPP output plus the knowledge axis that produced it.
 
-    Every field carries the head axis the aggregator collapses, so a grounded
+    Every field carries the head axis that ``SPP.reported`` drops, so a grounded
     output unbinds exactly as an ungrounded one does.
 
     The per-pair masks are kept rather than folded into the aggregate on

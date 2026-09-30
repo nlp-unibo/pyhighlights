@@ -13,7 +13,6 @@ from pyhighlights.utility.losses import (
     JSDiv,
     Loss,
     MaskedCrossEntropy,
-    SparsityPenalty,
     compute_losses,
 )
 
@@ -113,59 +112,38 @@ def test_compute_losses_scales_by_name_and_skips_disabled_losses():
         penalty({"highlight_mask": th.ones((1, 2))})
 
 
-def test_supervision_appends_the_highlight_loss_and_guides_the_first_head_only():
-    """One annotation guides one head: the one every metric scores."""
-    import pyhighlights
-    from pyhighlights.components.models import InputData
-    from pyhighlights.configurations.keys import GRU_MGR, HIGHLIGHT_LOSS
+def test_supervision_appends_the_highlight_loss_to_a_single_selector():
+    """The highlight term joins the model's losses with its own coefficient."""
+    from pyhighlights.configurations.keys import GRU_FR, HIGHLIGHT_LOSS
 
     Registry.build(directory=Path(pyhighlights.__file__).parent)
-    plain = Registry.from_key(GRU_MGR)
+    plain = Registry.from_key(GRU_FR)
     guided = Registry.from_key(
-        GRU_MGR,
+        GRU_FR,
         supervise_highlights=True,
         highlight_loss=HIGHLIGHT_LOSS,
         highlight_coefficient=0.5,
     )
-    assert [loss.name for loss in plain.losses] == [
-        "classification",
-        "sparsity",
-        "contiguity",
-    ]
-    assert guided.losses[guided.supervised].name == "highlight"
-    assert guided.losses[guided.supervised].coefficient == 0.5
-    assert plain.supervised is None
+    names = [loss.name for loss in plain.losses]
+    assert "highlight" not in names
+    assert [loss.name for loss in guided.losses] == [*names, "highlight"]
+    assert guided.losses[-1].coefficient == 0.5
 
-    batch = InputData(
-        features=th.tensor([[4, 5, 6, 0]]),
-        mask=th.tensor([[1.0, 1.0, 1.0, 0.0]]),
-        sample_ids=th.tensor([0]),
-        y_true=th.tensor([1]),
-        highlight_true=th.tensor([[0, 1, 1, -1]]),
-    )
-    guided.eval()
-    with th.no_grad():
-        output = guided(batch)
-        _, terms = guided.compute_loss(batch, output)
 
-        criterion = MaskedCrossEntropy()
-        heads = list(output.unbind(dim=1))
-        first = criterion(heads[0].highlight_logits, batch.highlight_true, batch.mask)
-        every = sum(
-            criterion(head.highlight_logits, batch.highlight_true, batch.mask)
-            for head in heads
+def test_supervision_refuses_a_model_with_several_selectors():
+    """One annotation supervises one selector, so MGR runs unsupervised only.
+
+    Supervising one of MGR's heads trained a head the model does not report
+    when ``inference_head`` named another, and left the remaining heads
+    without a role.
+    """
+    from pyhighlights.configurations.keys import GRU_MGR, HIGHLIGHT_LOSS
+
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+    with pytest.raises(ValueError, match="exactly one selector"):
+        Registry.from_key(
+            GRU_MGR, supervise_highlights=True, highlight_loss=HIGHLIGHT_LOSS
         )
-
-    assert len(heads) == 3
-    # The other terms are summed over every head; the supervised one is not.
-    assert terms["highlight"] == pytest.approx(first.item())
-    assert terms["highlight"] != pytest.approx(every.item())
-
-    with th.no_grad():
-        sparsity = sum(
-            SparsityPenalty()(head.highlight_mask, batch.mask) for head in heads
-        )
-    assert terms["sparsity"] == pytest.approx(sparsity.item())
 
 
 def test_unweighted_cross_entropy_is_the_one_torch_ships():
