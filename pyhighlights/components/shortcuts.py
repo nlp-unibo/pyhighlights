@@ -13,8 +13,8 @@ still predict the class perfectly, and that is exactly the shortcut the check
 is supposed to exclude. What is asked here is the other question, over every
 n-gram the corpus actually contains.
 
-The same scan answers it of a real corpus. Whether punctuation predicts an
-unfair ToS clause is this question, asked of words instead of characters.
+The same scan answers it of a real corpus. Whether punctuation predicts a
+class is this question, asked of words instead of characters.
 
 **What a clean report does and does not say.** No scan proves the annotated
 evidence is the *only* solution: any feature fine enough to index the sample

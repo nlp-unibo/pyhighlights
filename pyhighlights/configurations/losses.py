@@ -47,8 +47,8 @@ class MaskedCrossEntropyConfig(Configuration):
     """Cross entropy over valid, labelled positions of any axis."""
 
     #: One weight per class, for an axis whose classes are imbalanced. The
-    #: knowledge axis is: a clause instantiates one or two of up to 28
-    #: rationales, before the clauses that instantiate none are counted.
+    #: knowledge axis typically is, since an example instantiates few entries
+    #: of a base and many examples instantiate none.
     weight: List[float] | None = Param(None)
 
 

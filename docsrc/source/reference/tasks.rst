@@ -64,7 +64,7 @@ What lands on disk
    └── seed=1337/…
 
 The weights are the one part of that tree nothing downstream reads: the task restores the best checkpoint itself before scoring, and an analyzer reads ``results.json`` and the stored predictions.
-On a grid of fine-tuned transformer cells they are also most of the bytes, since a Legal-BERT MGR cell is over a gigabyte per seed.
+On a grid of fine-tuned transformer cells they are also most of the bytes, since a checkpoint holds every encoder the model trains.
 ``keep_checkpoints=False`` writes the checkpoint, restores it, scores, and then deletes it; ``save_weights_only`` keeps it but drops the optimizer state, which is only needed to resume training and no task resumes.
 Both are off by default, and the trade the first one makes is that a number cannot be re-scored without training again.
 

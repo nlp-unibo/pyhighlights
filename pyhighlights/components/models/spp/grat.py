@@ -149,9 +149,8 @@ class GRAT(SPP):
 
         ``training_step`` gates the model's optimizer on
         ``current_epoch >= pretrain_epochs``, so until then the monitored
-        quantities describe a model that has taken no step. Monitoring from
-        epoch zero stopped two of five seeds of the legal study's frozen arm
-        inside this window.
+        quantities describe a model that has taken no step, and a monitor
+        counting from epoch zero can stop a run inside this window.
         """
         return int(self.pretrain_epochs)
 

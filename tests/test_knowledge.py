@@ -1,8 +1,7 @@
 """The knowledge axis: links from an example to the entries explaining it.
 
 A corpus may annotate *which* knowledge base entries explain an example while
-annotating nothing about which words carry them -- ToS-100 does exactly that,
-with legal rationales per unfairness category. These tests pin the two things
+annotating nothing about which words carry them. These tests pin the two things
 that annotation needs: the distinction between "no entry applies" and "nobody
 said", and the refusal of a link pointing outside the base it indexes.
 """
@@ -43,8 +42,8 @@ def collator(knowledge_size=None):
 def test_an_empty_link_set_is_not_a_missing_one():
     """The distinction the grounded pipeline is scored on.
 
-    A fair clause instantiates no rationale, and that is a gold answer. A
-    clause nobody annotated is a row a loss has to skip. Collapsing the two
+    An example that instantiates no entry carries a gold answer. An
+    example nobody annotated is a row a loss has to skip. Collapsing the two
     would score every unannotated example as if it had been called fair.
     """
     batch = collator(knowledge_size=3)(
@@ -129,7 +128,7 @@ def test_a_model_that_cannot_read_a_knowledge_base_refuses_one():
     """Same contract as ``load_embeddings``: refuse rather than ignore.
 
     A model handed a knowledge base it drops on the floor would report itself
-    as grounded while classifying from the clause alone.
+    as grounded while classifying from the input alone.
     """
 
     class Plain(Model):
@@ -144,15 +143,15 @@ def test_a_task_tokenizes_the_base_once_with_the_corpus_tokenizer(tmp_path):
     """The base reaches the model as a batch, not as a column of every batch.
 
     It is shared by every example of a run, so it is encoded once. Tokenizing
-    it with the collator the corpus uses is what makes its ids comparable to a
-    clause's -- a base read by a second tokenizer would put the two texts in
+    it with the collator the corpus uses is what makes its ids comparable to an
+    input's -- a base read by a second tokenizer would put the two texts in
     different vocabularies.
     """
     build_registry()
 
     class Grounded(SPPTask):
         def knowledge(self):
-            return [["a", "legal", "rationale"], ["another", "one"]]
+            return [["a", "knowledge", "entry"], ["another", "one"]]
 
     task = Grounded(loader=TOY, model=GRU_FR, save_path=str(tmp_path))
     task.loaders(task.splits())
@@ -176,7 +175,7 @@ def test_a_model_that_cannot_ground_refuses_a_grounded_corpus(tmp_path):
 
     class Grounded(SPPTask):
         def knowledge(self):
-            return [["a", "legal", "rationale"]]
+            return [["a", "knowledge", "entry"]]
 
     task = Grounded(loader=TOY, model=GRU_FR, save_path=str(tmp_path))
     task.loaders(task.splits())

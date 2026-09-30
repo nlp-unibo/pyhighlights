@@ -130,7 +130,7 @@ def test_every_architecture_accepts_an_encoder_rate(key):
 
     It did not, once: ``encoder_lr`` was added to ``SPPModelConfig`` while
     MCD, MRD, MGR and G-RAT declared the field set instead of inheriting it,
-    so the legal grid would have fine-tuned Legal-BERT at the optimizer's own
+    so a fine-tuned transformer would have trained at the optimizer's own
     rate (PR #48). They inherit now -- ``SPPShapeConfig`` for the shape,
     ``SPPModelConfig`` or ``PhasedSPPModelConfig`` for the criteria -- and this
     test is what says so from the outside.

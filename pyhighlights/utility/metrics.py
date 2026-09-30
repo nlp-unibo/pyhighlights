@@ -171,8 +171,8 @@ class SelectionMetric(Metric):
 
     The distinction is the whole metric. Counting padding makes a rate depend
     on the widest row in the batch rather than on the document: a 6-token
-    selection out of a 34-token clause is 18%, and reads as 6% once 67 columns
-    of padding join the denominator. Sizes survive that -- padding adds zero to
+    selection out of a 34-token document is 18%, and reads as 6% once 67
+    columns of padding join the denominator. Sizes survive that -- padding adds zero to
     a sum -- and rates do not.
     """
 
@@ -248,7 +248,7 @@ class SelectionSpans(SelectionMetric):
     Contiguity is a penalty in :mod:`pyhighlights.utility.losses` and was never
     a reported number, so a run said how much it kept and never whether the
     kept words sit together. Six words in one span and six scattered over a
-    clause are the same selection size and not the same highlight: the first
+    document are the same selection size and not the same highlight: the first
     can be read as a phrase, the second is what a model keying on punctuation
     produces.
 
@@ -319,8 +319,8 @@ class ExactSetMatch(KnowledgeSetMetric):
     """Share of examples whose named set is exactly the annotated one.
 
     Strict, and the number a domain expert cares about: naming two of the
-    three rationales that make a clause unfair explains it two thirds of the
-    way, which is not what an explanation is for.
+    three entries that explain an example explains it two thirds of the way,
+    which is not what an explanation is for.
     """
 
     def update(self, preds: th.Tensor, target: th.Tensor) -> None:
@@ -333,8 +333,8 @@ class EmptySetAccuracy(KnowledgeSetMetric):
     """Share of examples annotated with nothing that were named nothing.
 
     Reported on its own rather than folded into an average, because the
-    examples that instantiate nothing are the overwhelming majority -- 97.7% of
-    ToS-100 -- and would otherwise carry every number they entered. An example
+    examples that instantiate nothing can be the overwhelming majority of a
+    corpus, and would otherwise carry every number they entered. An example
     grounded in an entry it has no business in has invented a reason, which is
     a scoring error and not an ambiguity.
     """
