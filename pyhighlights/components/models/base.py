@@ -150,8 +150,10 @@ class Model(L.LightningModule, abc.ABC, Generic[OutputT]):
         """Log losses and metrics as epoch values under ``{split}_{name}``.
 
         Lightning averages a tensor over the epoch, weighted by
-        ``batch_size``. A ``Metric`` is computed and reset by Lightning at the
-        end of the epoch.
+        ``batch_size``, and over every process: under data parallelism each
+        process reads its own shard, and a monitor reading one process's loss
+        would decide on that shard alone. A ``Metric`` synchronises its own
+        state, and is computed and reset by Lightning at the end of the epoch.
         """
         for name, value in values.items():
             self.log(
@@ -161,6 +163,7 @@ class Model(L.LightningModule, abc.ABC, Generic[OutputT]):
                 on_epoch=True,
                 prog_bar=True,
                 batch_size=batch_size,
+                sync_dist=True,
             )
 
     def training_forward(self, batch: InputData) -> OutputT:
