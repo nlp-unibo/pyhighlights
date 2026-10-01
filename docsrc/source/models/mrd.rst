@@ -7,7 +7,8 @@ Reference implementation: https://github.com/jugechengzi/Rationalization-MRD.
 Problem
 -------
 
-Maximum mutual information asks the highlight to predict the label, and a spurious feature correlated with the label answers that question just as well as a causal one.
+Maximum mutual information asks the highlight to predict the label.
+A spurious feature correlated with the label answers that question as well as a causal one.
 Every architecture up to this point attacks the cooperation between the two modules, and none of them changes the question being asked.
 MRD changes the question.
 
@@ -15,7 +16,9 @@ Method
 ------
 
 Instead of asking what the highlight can say, MRD asks what is left once the highlight is removed.
-Removing plain noise leaves the conditional distribution of the remainder unchanged, and removing a spurious feature leaves it unchanged as well, so only removing the causal features moves it, which makes a corpus full of spurious features behave like a clean one rather than needing a penalty for each pattern.
+Removing plain noise leaves the conditional distribution of the remainder unchanged, and so does removing a spurious feature.
+Only removing the causal features moves it.
+A corpus full of spurious features therefore behaves like a clean one, and no penalty for each pattern is needed.
 The generator therefore maximises the divergence between what the complement predicts and what the whole document predicts.
 
 .. mermaid::
@@ -44,8 +47,9 @@ The generator therefore maximises the divergence between what the complement pre
      \text{generator phase:} \quad & \max_{\theta} \;\; \mathcal{D}\big(p_\phi(y \mid (1 - h) \odot x) \,\|\, p_\phi(y \mid x)\big) - \lambda_s \Omega_s(h) - \lambda_c \Omega_c(h)
    \end{aligned}
 
-Two consequences make this model read oddly beside the others, and both are real rather than an artefact of the implementation.
-The predictor never trains on the highlight at all: it is trained on the complement and on the full input, and the highlight pass exists only so the metrics have something to score.
+Two consequences set this model apart from the others.
+The predictor never trains on the highlight, since it is trained on the complement and on the full input.
+The highlight pass exists only so the metrics have something to score.
 The generator maximises a divergence rather than minimising one, which in the library is a loss registered with a negative coefficient.
 
 Training
@@ -84,7 +88,7 @@ Like MCD, MRD is a :class:`~pyhighlights.components.models.spp.phased.PhasedSPP`
      - ``PhasedSPP.training_step``
 
 A highlight covering every valid word leaves the complement empty, which the backbones pool to zeros.
-That is an honest reading of a model that kept everything rather than a case to repair, and it is why nothing guards it.
+That measures a model that kept everything, so nothing guards it.
 
 Configuration
 -------------

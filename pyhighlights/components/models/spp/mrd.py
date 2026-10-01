@@ -14,12 +14,11 @@ class MRD(PhasedSPP):
     asks the opposite question: remove the highlight, and what remains should
     stop looking like the whole input. Removing plain noise or a spurious
     feature leaves the conditional distribution of the rest unchanged, so only
-    the causal features move it -- which makes a corpus full of spurious
-    features behave like a clean one rather than needing a penalty per
-    spurious feature.
+    the causal features move it. A corpus full of spurious features therefore
+    behaves like a clean one, and no penalty per spurious feature is needed.
 
-    Two consequences that make this model read oddly beside the others. The
-    predictor never trains on the highlight: it is trained on the
+    Two consequences set this model apart from the others. The predictor
+    never trains on the highlight: it is trained on the
     **complement** and on the full input, and the highlight pass exists only
     so the metrics have something to score. And the generator maximizes a
     divergence rather than minimizing one, which is a loss with a negative
