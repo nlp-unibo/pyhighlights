@@ -10,6 +10,7 @@ import pyhighlights
 from pyhighlights.components.models import InputData
 from pyhighlights.components.models.spp import GRAT
 from pyhighlights.configurations.keys import GRU_GRAT
+from tests.data_parallel import processes_agree
 
 
 def batch() -> InputData:
@@ -151,3 +152,12 @@ def test_an_annealed_term_must_name_a_loss(field):
     Registry.build(directory=Path(pyhighlights.__file__).parent)
     with pytest.raises(ValueError, match=f"{field} 'guidance' names no loss"):
         Registry.from_key(GRU_GRAT, **{field: "guidance"})
+
+
+def test_every_process_trains_the_same_model(tmp_path):
+    """Each backward pass reaches one half of the model, which made ``ddp`` raise.
+
+    One pretraining epoch, so the fit runs both the guider-only epoch and the
+    epoch that steps the rationalizer as well.
+    """
+    assert processes_agree("GRU_GRAT", tmp_path, pretrain_epochs=1)

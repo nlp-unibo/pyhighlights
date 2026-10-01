@@ -89,10 +89,16 @@ Implementation
      - ``GRAT.training_step``
    * - Epochs the monitors should skip
      - ``GRAT.warmup_epochs``
+   * - Gradients averaged across processes
+     - ``GRAT.backward_and_average``
 
 The guider attends over subtokens, since that is what its encoder reads, while the selection it guides is over words, so each word takes the attention its subtokens hold between them.
 The fold sums rather than averages, because attention is a distribution and averaging would report a long word as less attended than the short one beside it.
 ``AttentionGuider`` adds positive noise to its scores during training, which is the reference implementation's way of keeping the attention from collapsing onto a handful of words.
+
+Each of the two backward passes reaches one half of the model: the guider's pass reaches the guider, and the rationalizer's pass reaches the rationalizer.
+A data-parallel wrapper expects every parameter it registered in every pass, so ``backward_and_average`` blocks its synchronisation for the pass.
+The method then averages the gradients of the half that pass trains across processes itself.
 
 Differences from the reference implementation
 ---------------------------------------------
