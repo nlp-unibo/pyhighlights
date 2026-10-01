@@ -95,6 +95,11 @@ A resumed run would otherwise rescale objects the optimizer no longer owns.
 DR owns the predictor's rate, so a learning-rate scheduler over that group would be overwritten at the next step.
 Nothing in the library configures one.
 
+Differences from the reference implementation
+---------------------------------------------
+
+The sparsity and contiguity penalties also differ from the reference implementation, as :ref:`penalty-differences` on the FR page describes.
+
 Configuration
 -------------
 

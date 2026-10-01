@@ -86,6 +86,11 @@ Like MCD, MRD is a :class:`~pyhighlights.components.models.spp.phased.PhasedSPP`
 A highlight covering every valid word leaves the complement empty, which the backbones pool to zeros.
 That is an honest reading of a model that kept everything rather than a case to repair, and it is why nothing guards it.
 
+Differences from the reference implementation
+---------------------------------------------
+
+The sparsity and contiguity penalties also differ from the reference implementation, as :ref:`penalty-differences` on the FR page describes.
+
 Configuration
 -------------
 

@@ -95,6 +95,8 @@ Its dropout therefore runs on every highlight the aligner scores, and the alignm
 This library treats that as an error in the reference.
 Once frozen, the aligner stays in evaluation mode, and the alignment term is a fixed function of the highlight.
 
+The sparsity and contiguity penalties also differ from the reference implementation, as :ref:`penalty-differences` on the FR page describes.
+
 Configuration
 -------------
 

@@ -7,16 +7,23 @@ Reference implementation: https://github.com/jugechengzi/FR.
 Problem
 -------
 
-In the standard select-then-predict pair the selector and the predictor own one encoder each, and the two encoders never read the same text: the selector encodes whole documents, since it has to decide about every word of one, while the predictor encodes only what the selector kept, which is a corpus of the selector's own construction and is off the distribution the selector sees.
+In the standard select-then-predict pair, the selector and the predictor own one encoder each, and the two encoders never read the same text.
+The selector encodes whole documents, since it has to decide about every word of one.
+The predictor encodes only what the selector kept, which is a corpus of the selector's own construction and is off the distribution the selector sees.
 The two representations drift apart.
-Since the predictor's loss reaches the selector through a module that has learned to read something else, the gradient arriving at the selector is informative about the predictor's private corpus rather than about the document, and the pair is free to settle into the interlocking equilibrium described in :doc:`../concepts/select-then-predict`.
+
+The predictor's loss reaches the selector through a module that has learned to read something else.
+The gradient arriving at the selector is therefore informative about the predictor's private corpus rather than about the document.
+The pair is then free to settle into the interlocking equilibrium described in :doc:`../concepts/select-then-predict`.
 The argument of the paper is that a predictor holding a representation of its own can accommodate whatever subset it is handed, so the drift is not a side effect of interlocking but a condition for it.
 
 Method
 ------
 
 FR folds the two encoders into one.
-While the selector and the predictor remain separate heads, they read the states of a single shared encoder, so the predictor's gradient reaches the selector through weights the selector itself uses, and neither module can build a representation the other does not share.
+The selector and the predictor remain separate heads, and they read the states of a single shared encoder.
+The predictor's gradient therefore reaches the selector through weights the selector itself uses.
+Neither module can build a representation the other does not share.
 
 .. mermaid::
 
@@ -80,17 +87,21 @@ Every symbol, in order of appearance.
    * - :math:`\theta_{\text{enc}} = \phi_{\text{enc}}`
      - The folding: selector and predictor do not hold two encoders whose weights happen to agree, they hold one encoder.
 
-Two details of the penalties are easy to read past.
-The selection rate is one number for the whole batch rather than a mean of per-document rates, so a long document and a short one pull on it in proportion to their length, and a batch can meet the target by selecting sparsely in the long documents while the short ones keep everything.
+Two details of the penalties matter.
+The selection rate is one number for the whole batch rather than a mean of per-document rates.
+A long document and a short one therefore pull on it in proportion to their length.
+A batch can meet the target by selecting sparsely in the long documents while the short ones keep everything.
 The contiguity term averages over neighbouring pairs rather than summing, so its scale does not follow the length of the documents in the batch.
 
-The highlight annotation appears nowhere above, so FR trains unsupervised with respect to the highlight and the annotation is used to score it afterwards.
-Indeed, the whole intervention sits in that last constraint, and it costs one encoder's worth of parameters rather than two.
+The highlight annotation appears nowhere above, so FR trains unsupervised with respect to the highlight.
+The annotation is used to score the highlight afterwards.
+The whole intervention sits in the last constraint, and it costs one encoder's worth of parameters rather than two.
 
 .. note::
 
    Those three criteria are what every model in the library optimises by default, and FR does not fix them.
-   The target rate :math:`s`, the two weights, and the criteria themselves are fields of a configuration, so a study changes them by registering its own configuration rather than by editing the model.
+   The target rate :math:`s`, the two weights, and the criteria themselves are fields of a configuration.
+   A study changes them by registering its own configuration rather than by editing the model.
    See :doc:`../reference/configurations`.
 
 Training
@@ -108,14 +119,17 @@ One optimizer, one step per batch, and no phases.
 Implementation
 --------------
 
-The ``FR`` class holds no layer, no loss and no training logic of its own, since everything the architecture asks for is already what the base class does when it is given one encoder instead of two.
+The ``FR`` class holds no layer, no loss and no training logic of its own.
+Everything the architecture asks for is what the base class does when it is given one encoder instead of two.
 What is left is a constructor with two checks, and it is the whole file.
 
 .. literalinclude:: ../../../pyhighlights/components/models/spp/fr.py
    :language: python
    :pyobject: FR
 
-Given that the base class already reads a missing ``predictor_backbone`` as an instruction to reuse the selector's, the subclass exists to make that sharing mandatory rather than accidental, and to refuse a configuration whose key says FR while its fields describe an ordinary two-encoder rationalizer.
+The base class already reads a missing ``predictor_backbone`` as an instruction to reuse the selector's.
+The subclass makes that sharing mandatory rather than accidental.
+It also refuses a configuration whose key says FR while its fields describe an ordinary two-encoder rationalizer.
 
 .. list-table::
    :header-rows: 1
@@ -134,8 +148,27 @@ Given that the base class already reads a missing ``predictor_backbone`` as an i
    * - Refusal of a second encoder
      - ``FR.__init__``
 
-Two invariants a reader can check directly: first, ``self.predictor_backbone is self.selector_backbones[0]`` holds for every FR instance, which is the architecture's whole claim written in one line; second, exactly one selector is allowed, since folding is defined for a pair and says nothing about what several selectors sharing one encoder would mean.
-``tests/test_fr.py`` asserts both.
+Two invariants hold for every FR instance, and ``tests/test_fr.py`` asserts both.
+First, ``self.predictor_backbone is self.selector_backbones[0]``.
+Second, exactly one selector is allowed, since folding is defined for a pair and says nothing about several selectors sharing one encoder.
+
+.. _penalty-differences:
+
+Differences from the reference implementation
+---------------------------------------------
+
+The reference implementation computes the two penalties over padding as well as over words.
+Its sampled mask is not masked at padding positions, and its encoder's output there is not zero.
+A padding position can therefore be selected.
+
+First, its sparsity penalty divides the selected positions by the valid ones, ``sum(z) / sum(mask)``.
+A selected padding position therefore counts in the numerator and not in the denominator.
+
+Second, its contiguity penalty averages the transitions over every neighbouring pair, ``mean(|z[:, 1:] - z[:, :-1]|)``, padding included.
+Its value therefore depends on the padded width of the batch.
+
+This library zeroes the selection outside valid positions, and averages the contiguity transitions over pairs of valid positions only.
+The reference implementations of MCD, MRD, DR, MGR and DAR share the same two functions, so the difference applies to each of them.
 
 Configuration
 -------------
@@ -172,8 +205,9 @@ Two keys, one per backbone.
    )
    results = task.run()
 
-Passing ``predictor_backbone`` to either key raises ``ValueError``, and deliberately so, since an FR run with two encoders is a different architecture reported under FR's name.
-Still, three fields are worth setting: the sparsity target of the sparsity loss, the Gumbel temperature, and ``encoder_lr`` when a pretrained transformer is fine-tuned, since one rate cannot serve both a pretrained encoder and a selector initialized from scratch.
+Passing ``predictor_backbone`` to either key raises ``ValueError``, since an FR run with two encoders is a different architecture reported under FR's name.
+Three fields are commonly set: the sparsity target of the sparsity loss, the Gumbel temperature, and ``encoder_lr``.
+``encoder_lr`` matters when a pretrained transformer is fine-tuned, since one rate cannot serve both a pretrained encoder and a selector initialized from scratch.
 
 API
 ---

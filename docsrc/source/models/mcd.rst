@@ -97,6 +97,11 @@ What MCD adds is two methods naming the passes its criteria bind to.
 Highlight supervision is refused rather than ignored, since a supervision loss appended to the flat list would be dropped before the first batch.
 It has to name the phase it belongs to and go in ``shared_losses``.
 
+Differences from the reference implementation
+---------------------------------------------
+
+The sparsity and contiguity penalties also differ from the reference implementation, as :ref:`penalty-differences` on the FR page describes.
+
 Configuration
 -------------
 
