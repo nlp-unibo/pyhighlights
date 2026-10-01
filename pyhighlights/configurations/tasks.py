@@ -1,9 +1,10 @@
 """Task registrations: a corpus, a model, and what to score them with.
 
-The metric set follows the corpus. Beer, Hotel, Movies and Toy are binary, so
-they take the binary accuracy and F1; HateXplain has three classes and takes
-the multiclass ones. Highlight and selection metrics are the same everywhere,
-since a token is either selected or it is not.
+The metric set follows the corpus. Beer, Hotel, Movies and Toy have two
+classes and take the two-class accuracy and F1. A task over HateXplain, which
+has three, names ``MULTICLASS_ACCURACY_METRIC`` and ``MULTICLASS_F1_METRIC``
+instead. Highlight and selection metrics are the same everywhere, since a
+token is either selected or it is not.
 """
 
 from typing import Any, Dict, List, Sequence
@@ -88,6 +89,10 @@ class TaskConfig(Configuration):
     #: numbers are a released vector file's. Implied by
     #: ``vocabulary_from="vectors"``.
     requires_embeddings: bool = Param(False)
+    #: Build a one-hot table of this width instead of reading or learning one,
+    #: for a corpus whose tokens are symbols. See
+    #: :func:`~pyhighlights.utility.embeddings.one_hot_table`.
+    one_hot_embeddings: int | None = Param(None, ge=1)
     #: What monitors the run: early stopping, checkpointing, and any criterion
     #: they read. The default pair stops and checkpoints on ``val_loss``.
     #:
@@ -101,16 +106,19 @@ class TaskConfig(Configuration):
     )
     store_predictions: bool = Param(False)
     #: Whether the weights survive the run. A checkpoint holds the whole
-    #: model, and nothing downstream reads one -- the task restores the best
+    #: model, and nothing downstream reads one: the task restores the best
     #: one itself before scoring, and an analyzer reads ``results.json`` and
-    #: the stored predictions. On a grid of transformer cells that is hundreds
-    #: of gigabytes; turning this off trades the ability to re-score without
-    #: retraining for the ability to fit on a filesystem.
+    #: the stored predictions. Turning this off trades the ability to re-score
+    #: without retraining for disk space, which a grid of transformer cells
+    #: runs out of.
     keep_checkpoints: bool = Param(True)
     #: Weights without the optimizer state: most of a fine-tuned encoder's
     #: file, and only needed to resume training, which no task does.
     save_weights_only: bool = Param(False)
     faithfulness: bool = Param(False)
+    #: Record what each pipeline stage held, for a bounded run. See
+    #: :mod:`~pyhighlights.utility.diagnostics`.
+    diagnostics: bool = Param(False)
     highlight_supervision: bool = Param(False)
     highlight_loss: RegistrationKey[Loss] = Param(HIGHLIGHT_LOSS)
     highlight_coefficient: float = Param(1.0, ge=0.0)
@@ -126,11 +134,19 @@ class TaskConfig(Configuration):
         config.add_condition(
             name="one_embedding_source",
             description=(
-                "A task embeds its tokens with a pretrained model card or with "
-                "a vector file, never with both."
+                "A task embeds its tokens with a pretrained model card, a "
+                "vector file or a one-hot table, never with two of them."
             ),
             condition=lambda task: (
-                task.pretrained_model_card is None or task.embeddings is None
+                sum(
+                    source is not None
+                    for source in (
+                        task.pretrained_model_card,
+                        task.embeddings,
+                        task.one_hot_embeddings,
+                    )
+                )
+                <= 1
             ),
         )
         return config
@@ -192,9 +208,9 @@ class GenSPPTaskConfig(TaskConfig):
 
     A GenSPP task names a search rather than a model: the model key is the
     search's own, since the two disagreeing about which model was evolved is a
-    result nobody could read. Nothing scores the training split -- no epoch of
-    the winning model is ever trained -- so only validation and test carry
-    metrics.
+    result nobody could read. Nothing scores the training split, because no
+    epoch of the winning model is ever trained, so only validation and test
+    carry metrics.
     """
 
     loader: RegistrationKey[HighlightLoader] = Param(TOY)

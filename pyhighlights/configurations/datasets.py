@@ -28,9 +28,9 @@ class R2AConfig(LoaderConfig):
     splits: Dict[str, str] | None = Param(None)
     url: str = Param(R2A_URL)
     #: The digest the loader defaults to, named again here because a
-    #: registered key is what a run actually builds: leaving it null handed
-    #: every registered run an unverified download while the documentation
-    #: said the opposite. A fixture archive passes ``sha256=None`` explicitly.
+    #: registered key is what a run actually builds, and its download is
+    #: verified against this. A fixture archive passes ``sha256=None``
+    #: explicitly.
     sha256: str | None = Param(R2A_SHA256)
 
 
@@ -105,10 +105,9 @@ class ToyConfig(LoaderConfig):
 
     sizes: Dict[str, int] | None = Param(None)
     #: What each class is: a pattern, or a list of patterns all of which have
-    #: to appear. Tokens are characters here, as they are in every toy corpus
-    #: of this line of work. The default is the cheap smoke-test corpus, one
-    #: pattern per class; a conjunction whose patterns are shared between
-    #: classes is the one no single n-gram can solve.
+    #: to appear. Tokens are characters here. The default is the cheap
+    #: smoke-test corpus, one pattern per class; a conjunction whose patterns
+    #: are shared between classes is the one no single n-gram can solve.
     triggers: List[str | List[str]] = Param(["aa", "bc"])
     length: int = Param(20, ge=1)
     #: Chunks of the patterns scattered through the filler. Without them a
