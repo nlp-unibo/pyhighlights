@@ -85,8 +85,8 @@ class InputData(ModelData):
     #: *and* every special token, since a backbone was pretrained with those
     #: and reads worse without them. Distinct from ``mask``, which says what
     #: may be selected: ``[CLS]`` is not a word and is never a choice, but it
-    #: is always seen. Defaults to every non-padding position when a batch is
-    #: assembled by hand.
+    #: is always seen. A batch assembled by hand may leave it out, and
+    #: :meth:`attention` then derives it.
     attention_mask: th.Tensor | None = None
     #: **Knowledge axis** ``[B, M]``: which entries of the knowledge base
     #: explain each example, one column per entry. ``-1`` on a row the corpus
@@ -105,21 +105,22 @@ class InputData(ModelData):
 
         ``attention_mask`` is the answer where a batch carries one, and
         :class:`~pyhighlights.components.data.HighlightCollator` always writes
-        it. The fallbacks are for a batch assembled by hand, and they are
-        narrower than the field they stand in for: ``word_ids >= 0`` drops
-        every special token along with the padding, because the two are both
-        ``-1`` and nothing here can tell them apart. A batch whose special
-        tokens must reach the encoder carries ``attention_mask``.
+        it. The fallbacks are for a batch assembled by hand. Without
+        ``word_ids`` the batch has one axis, so ``mask`` marks every position
+        that holds a word. With ``word_ids``, ``word_ids >= 0`` drops every
+        special token along with the padding, because the two are both ``-1``
+        and nothing here can tell them apart. A batch whose special tokens must
+        reach the encoder carries ``attention_mask``.
 
         The result is a float mask in the default dtype on every path, since
         it is multiplied into selections and states rather than indexed with.
         """
         dtype = th.get_default_dtype()
         if self.attention_mask is not None:
-            return self.attention_mask
+            return self.attention_mask.to(dtype)
         if self.word_ids is not None:
             return (self.word_ids >= 0).to(dtype)
-        return th.ones_like(self.features, dtype=dtype)
+        return self.mask.to(dtype)
 
 
 @dataclass

@@ -245,13 +245,9 @@ class SPP(Model[SPPOutput]):
     def encoder_mask(self, data: InputData) -> th.Tensor:
         """What the encoder attends over.
 
-        ``attention()`` says so on the subtoken axis, specials included. A
-        batch that carries no word ids has one axis rather than two, as with a
-        vocabulary tokenizer or a batch assembled by hand. There ``mask`` is
-        what the encoder reads, since the fallback cannot tell padding from
-        content.
+        :meth:`~pyhighlights.components.models.data.InputData.attention` says.
         """
-        return data.mask if data.word_ids is None else data.attention()
+        return data.attention()
 
     def selection_truth(self, data: InputData) -> th.Tensor:
         """The annotation on the selection axis, ``-1`` where there is none."""
