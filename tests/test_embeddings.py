@@ -82,9 +82,20 @@ def test_a_backbone_sizes_its_table_to_the_matrix_and_keeps_it_frozen():
     assert th.equal(backbone.embedding.weight, matrix)
     assert backbone.embedding.weight.requires_grad is False
 
-    trainable = GRUBackbone(vocab_size=3, embedding_dim=2, hidden_size=4)
+    trainable = GRUBackbone(
+        vocab_size=3, embedding_dim=2, hidden_size=4, freeze_embeddings=False
+    )
     trainable.load_embeddings(matrix)
     assert trainable.embedding.weight.requires_grad is True
+
+
+def test_loaded_vectors_are_frozen_and_a_random_table_trains_by_default():
+    backbone = GRUBackbone(vocab_size=3, embedding_dim=2, hidden_size=4)
+    assert backbone.embedding.weight.requires_grad is True
+
+    backbone.load_embeddings(th.ones(5, 2))
+
+    assert backbone.embedding.weight.requires_grad is False
 
     # The width the GRU was built for is what a matrix has to match.
     with pytest.raises(ValueError, match="3-dimensional.*expects 2"):

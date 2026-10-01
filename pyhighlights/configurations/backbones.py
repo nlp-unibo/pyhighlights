@@ -20,7 +20,9 @@ class GRUBackboneConfig(Configuration):
     vocab_size: int = Param(10_000, ge=3)
     embedding_dim: int = Param(128, ge=1)
     hidden_size: int = Param(128, ge=1)
-    freeze_embeddings: bool = Param(False)
+    #: ``None`` trains a randomly initialised table and freezes loaded
+    #: vectors. ``True`` freezes either table, and ``False`` trains either.
+    freeze_embeddings: bool | None = Param(None)
     num_layers: int = Param(1, ge=1)
     bidirectional: bool = Param(True)
     dropout_rate: float = Param(0.0, ge=0.0, lt=1.0)
