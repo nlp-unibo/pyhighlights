@@ -319,11 +319,10 @@ def test_a_task_can_embed_its_tokens_with_a_vector_file(tmp_path):
 
 
 def test_a_task_can_take_the_vector_file_s_own_vocabulary(tmp_path):
-    """The released HateXplain collator embeds from all of GloVe, not the corpus.
+    """A task can embed from the whole vector file rather than the corpus.
 
-    ``vocabulary_from="vectors"`` is that: a token the training split never saw
-    keeps its vector, where the default drops it to the unknown id. On the
-    GenSPP splits the difference is 5.4% of validation tokens.
+    Under ``vocabulary_from="vectors"``, a token the training split never saw
+    keeps its vector, where the default drops it to the unknown id.
     """
     build_registry()
     vectors = tmp_path / "vectors.txt"

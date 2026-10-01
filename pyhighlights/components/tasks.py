@@ -411,13 +411,12 @@ class SPPTask(Task):
           unknown at evaluation whatever the file covers.
         - ``"vectors"`` takes the file's vocabulary whole. Nothing is unknown
           that the file covers, which is what a released implementation
-          embedding from a fixed pretrained vocabulary does -- and it is not a
-          leak, because the file is external and says nothing about the splits.
+          embedding from a fixed pretrained vocabulary does. It is not a leak,
+          because the file is external and says nothing about the splits.
 
-        The choice is worth the flag. On the GenSPP HateXplain splits, 5.4% of
-        validation tokens and 5.6% of test tokens are absent from the training
-        vocabulary, so ``"corpus"`` hands the model a zero vector for one
-        evaluation token in eighteen that ``"vectors"`` embeds.
+        The choice changes the inputs. An evaluation token absent from the
+        training split is embedded as zero under ``"corpus"`` and as its
+        vector under ``"vectors"``.
         """
         if self.pretrained_model_card is not None:
             return HuggingFaceTokenizer(
