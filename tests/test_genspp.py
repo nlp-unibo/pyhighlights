@@ -290,11 +290,11 @@ def test_inner_training_changes_only_predictor_and_validation_scores_fitness():
 def test_a_candidate_scores_the_same_wherever_it_is_evaluated():
     """Fitness is a property of the chromosome, not of evaluation order.
 
-    Before this held, the same chromosome scored 2.8246, 2.4722 and 1.0000 as
-    the first, second and fourth candidate of one run: every evaluation built
-    a predictor from the global random state, so each one shifted the next.
-    A search over such a fitness ranks initialisations alongside genes, and
-    parallel evaluation could not reproduce a sequential run at all.
+    An evaluation that built its predictor from the global random state would
+    shift the next one, so the same chromosome would score differently as the
+    first and the fourth candidate. A search over such a fitness ranks
+    initialisations alongside genes, and parallel evaluation could not
+    reproduce a sequential run at all.
     """
     model = register_tiny_genspp()
     search = trainer(model, seed=7)
@@ -400,9 +400,10 @@ def test_every_candidate_trains_on_the_same_batch_order():
     """A shuffling loader must not make fitness depend on evaluation order.
 
     `GenSPPTask` hands the search the training `DataLoader` the task built,
-    which shuffles. Re-iterating it draws a new permutation, so before `_fit`
-    froze one the same chromosome scored differently depending on how many
-    candidates preceded it and, with a pool, on how the workers interleaved.
+    which shuffles. Re-iterating it draws a new permutation, so `_fit` freezes
+    one. Otherwise the same chromosome would score differently depending on
+    how many candidates preceded it and, with a pool, on how the workers
+    interleaved.
     """
     orders: List[List[List[int]]] = []
 
@@ -447,8 +448,9 @@ def test_a_diverged_candidate_is_refused_where_it_diverged():
     """A NaN loss must not be found a generation later by the roulette wheel.
 
     `compute_fitness` compares the loss against its limit, and a NaN compares
-    false, so the candidate came back with a NaN fitness instead of the floor.
-    That survives into the population and fails inside `random.choices` with
+    false, so without a check the candidate would get a NaN fitness instead
+    of the floor. That survives into the population and fails inside
+    `random.choices` with
     `Total of weights must be finite`, which names neither the candidate nor
     the device that trained it.
     """
@@ -558,8 +560,7 @@ def test_a_candidate_refuses_genes_it_cannot_carry(monkeypatch):
     """Both ways a chromosome can fail to describe the searched model.
 
     One build serves the search's two needs, a fresh candidate and a candidate
-    carrying given genes, so the checks that used to guard only the second now
-    run on every build.
+    carrying given genes, so the checks guard both.
     """
     search = trainer(register_tiny_genspp())
 
@@ -576,10 +577,10 @@ def test_a_candidate_refuses_genes_it_cannot_carry(monkeypatch):
 def test_threshold_genes_come_from_the_selector_not_from_position():
     """A selector that declares no threshold has none, whatever sits last.
 
-    The count used to read the last generator parameter and call it the
-    output bias. That holds for `MLPSelector` and for nothing the family
-    promises: any other selector ending in a one-dimensional parameter would
-    have had it mutated as though it were the decision threshold, silently.
+    Reading the last generator parameter as the output bias holds for
+    `MLPSelector` and for nothing the family promises: any other selector
+    ending in a one-dimensional parameter would have it mutated as though it
+    were the decision threshold, silently.
     """
     bias = th.nn.Parameter(th.zeros(2))
     weight = th.nn.Parameter(th.zeros(3, 4))
@@ -647,9 +648,7 @@ def test_a_generation_draws_couples_and_keeps_the_population_whole():
 
     The release computes ``n_couples = int(selection_rate * len(population))``
     and crosses each couple into two, so its default 0.5 adds one child per
-    member: 25 couples and 50 children for a population of 50. This was
-    written as ``population_size // 2``, which is the same number with the
-    rate baked in, and reads as though a generation bred half a population.
+    member: 25 couples and 50 children for a population of 50.
 
     What has to hold whatever the rate is: the population that comes out is
     the population that went in, because survival keeps exactly
@@ -830,7 +829,7 @@ def test_a_candidate_comes_back_as_a_chromosome_and_what_descent_moved():
 
     So it hands back neither: the chromosome it was given, and the weights
     gradient descent left on the predictor. Everything frozen is left out: a
-    GloVe table is megabytes, is the same in every candidate, and is loaded
+    pretrained table is large, is the same in every candidate, and is loaded
     from the search's own copy when the model is built again.
     """
     search = trainer(register_tiny_genspp(), devices=["cpu"])
@@ -872,8 +871,7 @@ def test_a_pool_that_cannot_differentiate_is_not_used(caplog, monkeypatch):
 
     It refuses in the worker rather than at the fork, so a search that asked
     no questions would lose a whole generation to it. This one asks, and a
-    pool that cannot answer is closed and replaced by the threads the search
-    used to use.
+    pool that cannot answer is closed and replaced by threads.
 
     The refusal is forced here rather than provoked: whether torch has started
     autograd's threads depends on what else has run in the process, so a test
@@ -971,9 +969,9 @@ def test_two_unseeded_searches_do_not_draw_the_same_founders():
     """`seed=None` means this run should differ from the last one.
 
     Founders are built from the global generator, and `fit` restores that
-    around the whole search. A search that reseeded only its own
-    generators drew the same population every time, and differed after that
-    only in selection and mutation.
+    around the whole search. A search that reseeded only its own generators
+    would draw the same population every time, and differ after that only in
+    selection and mutation.
     """
     model = register_tiny_genspp()
     train, validation = [batch(labels=(0, 1))], [batch(labels=(0, 1))]

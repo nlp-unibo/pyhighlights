@@ -443,7 +443,7 @@ def test_a_class_weights_task_records_the_preprocessing_it_weighed_after(tmp_pat
 
 
 def test_a_run_can_drop_its_checkpoints_once_they_are_scored(tmp_path):
-    """The weights are hundreds of gigabytes on a grid and nothing reads them.
+    """The weights fill a disk on a grid of runs and nothing reads them.
 
     What a run is read from has to survive: the metrics, the manifest and the
     stored predictions. The checkpoint is written and restored either way,

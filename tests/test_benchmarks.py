@@ -346,9 +346,9 @@ def test_a_selected_subtoken_selects_its_whole_word(tmp_path):
     """Selections are made over subtokens and reported over words.
 
     The two axes are different widths, and the batch says so: ``mask`` is the
-    word axis, ``word_ids`` and a subtoken selection are the encoding's. This
-    fixture used to give ``mask`` the encoding's width, which no run writes,
-    and which hid that combining the two raised rather than folding them.
+    word axis, ``word_ids`` and a subtoken selection are the encoding's. The
+    fixture gives ``mask`` the word axis's width, as every run writes it, so
+    combining the two has to fold the subtokens onto their words.
     """
     Registry.build(directory=Path(pyhighlights.__file__).parent)
     sample_id = int(Registry.from_key(TOY).load()["test"]["sample_id"].iloc[0])

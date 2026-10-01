@@ -313,9 +313,9 @@ def selected_words(
 
     A subtoken selection is folded through ``word_ids`` and deduplicated: a
     word split into three pieces is one word however many of its pieces were
-    selected. Slicing the subtoken mask to the word count instead, which is
-    what this did, dropped or shifted whatever sat past it, silently and
-    without a shape to complain about.
+    selected. Slicing the subtoken mask to the word count instead would drop
+    or shift whatever sat past it, silently and without a shape to complain
+    about.
 
     The word mask is not applied to a folded selection, because it cannot
     narrow one: :class:`~pyhighlights.components.data.HighlightCollator`
@@ -548,8 +548,8 @@ class PredictionAnalyzer(Analyzer):
                     tokens = list(example.tokens)
                     # `valid` is the word axis, so it may only narrow a
                     # selection made on that axis: combining it with a
-                    # subtoken mask compared two different widths, and numpy
-                    # refused to broadcast them.
+                    # subtoken mask compares two different widths, which
+                    # numpy refuses to broadcast.
                     words = selected_words(
                         masks[index] * valid[index]
                         if word_ids is None

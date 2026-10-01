@@ -365,11 +365,10 @@ def test_mgr_refuses_a_generator_set_it_cannot_run(update, condition):
 def test_every_architecture_inherits_the_shared_shape():
     """No architecture declares the shape fields for itself.
 
-    Four of them used to (MCD, MRD, MGR and G-RAT), and the cost was PR
-    #48: `encoder_lr` was added to the base and reached FR, DR, DAR and
-    GenSPP while the other four silently kept training the encoder at the
-    optimizer's rate. Inheritance is the fix, so this asserts the
-    inheritance rather than the field list, which a copy would satisfy.
+    An architecture that declared them would not receive a field added to
+    the base, and would silently train its encoder at the optimizer's rate
+    when ``encoder_lr`` is set. So this asserts the inheritance rather than
+    the field list, which a copy would satisfy.
     """
     from pyhighlights.configurations.base import (
         PhasedSPPModelConfig,

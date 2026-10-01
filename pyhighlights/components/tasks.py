@@ -115,10 +115,10 @@ def summarize(runs: Sequence[Mapping[str, float]]) -> Dict[str, Dict[str, float]
 
     The **sample** standard deviation, ``ddof=1``. The seeds are a sample of
     the runs the configuration could produce rather than the whole of them,
-    which is what a table reporting ``mean +/- std`` claims, and the
-    population form is smaller by ``sqrt(n / (n - 1))``: 12% at five seeds
-    and 41% at two. One seed has no spread to report and gives ``0.0`` rather
-    than a ``nan``.
+    which is what a table reporting ``mean +/- std`` claims. The sample form
+    is larger than the population form by a factor of ``sqrt(n / (n - 1))``:
+    12% at five seeds and 41% at two. One seed has no spread to report and
+    gives ``0.0`` rather than a ``nan``.
     """
     names = sorted({name for run in runs for name in run})
     found = {name: [float(run[name]) for run in runs if name in run] for name in names}
@@ -300,8 +300,8 @@ class SPPTask(Task):
             )
         self.callbacks = list(callbacks) if callbacks is not None else None
         self.store_predictions = store_predictions
-        # A checkpoint holds the whole model. On a transformer grid that is
-        # hundreds of gigabytes of files nothing downstream reads: the task
+        # A checkpoint holds the whole model, and on a transformer grid those
+        # are large files nothing downstream reads: the task
         # restores the best one itself before scoring, and an analyzer reads
         # `results.json` and the stored predictions. Deleted after scoring
         # rather than never written: scoring the weights training happened
@@ -894,9 +894,8 @@ class GenSPPTask(SPPTask):
 
     #: How many candidates a diagnosed search may evaluate. Each one trains a
     #: predictor over the whole training split, and every batch of that is a
-    #: page of the record, so a smoke test is a handful of them and the
-    #: published settings (fifty candidates over a hundred generations)
-    #: are five thousand times that.
+    #: page of the record, so a smoke test is a handful of them. A full
+    #: search evaluates thousands.
     SMOKE_CANDIDATES = 8
 
     @staticmethod

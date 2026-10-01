@@ -307,13 +307,13 @@ def test_no_backbone_lets_a_dropped_word_reach_the_predictor(monkeypatch):
     has to hold for every backbone, or a highlight means one thing over a
     GRU and another over a transformer.
 
-    ``StackedBackbone`` failed this. Masking the transformer's attention is not
+    For ``StackedBackbone``, masking the transformer's attention is not
     enough: a transformer carries every position's own input forward through
     the residual stream whether or not anything attended to it, so a dropped
-    subtoken still had a state, and the recurrent encoder above it is
-    recurrent: that state reached every position after it and then the pooled
-    summary the predictor reads. ``GRUBackbone`` zeroed its dropped embeddings and did
-    not have the problem, which is how the two disagreed.
+    subtoken still has a state. The recurrent encoder above it would carry
+    that state to every position after it and then to the pooled summary the
+    predictor reads. ``GRUBackbone`` zeroes its dropped embeddings, and the
+    stacked backbone has to match it.
     """
     transformers = ModuleType("transformers")
     transformers.AutoModel = FakeAutoModel

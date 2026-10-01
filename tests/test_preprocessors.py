@@ -99,14 +99,14 @@ def test_aggregator_reduces_labels_and_highlights(tmp_path):
 def test_a_tie_is_two_labels_sharing_the_top_count():
     """Not "the top count is one", which is only the same thing at three.
 
-    HateXplain has three annotators, so the two coincide there and the defect
-    stayed invisible. They come apart in both directions:
+    HateXplain has three annotators, so the two coincide there. They come
+    apart in both directions:
 
-    - four annotators splitting 2-2 have a top count of *two*, so no tie was
-      detected and the label was decided by whichever one `Counter` happened
-      to order first, silently, with ``ties="drop"`` not firing
-    - a single annotator has a top count of *one*, so every row of a
-      single-annotator corpus was dropped as a tie
+    - four annotators splitting 2-2 have a top count of *two*, so a rule on
+      the top count would detect no tie and let `Counter` order decide the
+      label, with ``ties="drop"`` not firing
+    - a single annotator has a top count of *one*, so the same rule would
+      drop every row of a single-annotator corpus as a tie
     """
     voter = aggregator()
 
@@ -296,10 +296,10 @@ def test_class_weights_refuse_what_is_not_a_class_index():
 def test_class_weights_refuse_a_count_the_split_contradicts():
     """A class count smaller than the labels is not a count, and said so late.
 
-    `classes=1` over a binary split returned `[2.0]`, one weight with the other
-    class dropped without a word, and a non-positive count returned `[]`.
-    Either one reaches training as a weight vector shorter than the model's
-    output layer, and fails there about a shape.
+    `classes=1` over a binary split would give one weight with the other class
+    dropped without a word, and a non-positive count would give none. Either
+    one reaches training as a weight vector shorter than the model's output
+    layer, and fails there about a shape.
     """
     with pytest.raises(ValueError, match="label 1 is not a class of 1"):
         class_weights([0, 1], classes=1)

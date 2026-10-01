@@ -109,7 +109,7 @@ class Benchmark:
                     }
                 )
             # After every task rather than after the grid: a process that is
-            # killed mid-run (a card that falls over, a walltime, the OOM
+            # killed mid-run (a GPU that fails, a walltime, the OOM
             # killer) otherwise leaves a benchmark directory of finished
             # tasks and no report naming any of them.
             self.serialize(self.report(results))

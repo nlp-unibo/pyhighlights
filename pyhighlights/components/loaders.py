@@ -330,7 +330,7 @@ class ToyLoader(HighlightLoader):
     the corpus is a control: it removes the annotated positions and requires
     that nothing left predicts the label. Run it on a corpus that was read as
     readily as on one that was generated. Being published is no evidence of
-    being sound, and the released GenSPP corpus was audited this way.
+    being sound.
     """
 
     #: Where filler characters come from, minus whatever the triggers use.

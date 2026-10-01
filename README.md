@@ -86,8 +86,8 @@ task.run()
 python quickstart.py
 ```
 
-Each seed trains from scratch, restores the checkpoint that scored best on
-validation, and is scored on validation and test.
+Each seed trains from scratch, restores the checkpoint with the lowest
+validation loss, and is scored on validation and test.
 Seeds are a list rather than a number because one run says very little.
 The selector is trained through a discrete choice, which makes the
 optimization unstable.
@@ -96,14 +96,16 @@ The spread across seeds is therefore part of the result.
 What lands on disk:
 
 ```
-results/toy/2026-09-19T16-41-53/
+results/toy/2026-10-02T01-36-23/
 ├── results.json               # every seed's metrics, and their summary
 ├── manifest.json              # the key, the overrides, the whole
 │                              #   configuration tree, and the versions
 ├── predictions-seed=0.pkl
 ├── predictions-seed=1.pkl
 ├── seed=0/epoch=1-step=16.ckpt
-└── seed=0/lightning_logs/version_0/metrics.csv
+├── seed=0/lightning_logs/version_0/metrics.csv
+├── seed=1/epoch=1-step=16.ckpt
+└── seed=1/lightning_logs/version_0/metrics.csv
 ```
 
 A run never overwrites an earlier one, so two runs of a task are two results to
@@ -121,14 +123,14 @@ MetricsAnalyzer(directory="results", metrics=["accuracy", "highlight_f1"]).run()
 
 ```
 task                 run  seeds          accuracy      highlight_f1
- toy 2026-09-19T16-41-53      2 0.7188 +/- 0.2812 0.3489 +/- 0.3063
+ toy 2026-10-02T01-36-23      2 0.9375 +/- 0.0884 0.3308 +/- 0.1215
 ```
 
 `TOY_TASK` is a smoke test rather than a result.
 It trains FR on a GRU backbone for two epochs on CPU over 64 generated
 documents, which checks that a run holds together and teaches nothing else.
-Still, the spread is worth reading: two seeds of one configuration disagree by
-more than a quarter of the highlight score.
+Still, the spread is worth reading: two seeds of one configuration can
+disagree substantially on the highlight score.
 
 A stored prediction is token ids and masks.
 `PredictionAnalyzer` rebuilds the corpus from the key in the manifest and joins

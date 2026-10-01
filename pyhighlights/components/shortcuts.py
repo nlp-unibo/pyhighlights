@@ -5,13 +5,12 @@ that solves it. If some other feature separates the classes, a model can score
 well on the task and badly on the explanation, and nothing downstream can tell
 the two apart. That is the failure a synthetic corpus exists to rule out.
 
-The toy corpus is the case this was written for. Its released quality check
-scored three hand-picked string-matching baselines by highlight F1, which asks
-whether a selection *matches the annotation* rather than whether it *solves
-the task*: a competing n-gram can score near zero against the annotation and
-still predict the class perfectly, and that is exactly the shortcut the check
-is supposed to exclude. What is asked here is the other question, over every
-n-gram the corpus actually contains.
+The toy corpus is the main case. Scoring string-matching baselines by
+highlight F1 asks whether a selection *matches the annotation* rather than
+whether it *solves the task*: a competing n-gram can score near zero against
+the annotation and still predict the class perfectly, and that is exactly the
+shortcut a control has to exclude. What is asked here is the other question,
+over every n-gram the corpus actually contains.
 
 The same scan answers it of a real corpus. Whether punctuation predicts a
 class is this question, asked of words instead of characters.
@@ -268,8 +267,8 @@ class ShortcutDetector:
         #: Label shuffles the threshold is the best of. The threshold is the
         #: largest score any feature reaches on any shuffle, which makes
         #: :meth:`check` a permutation test on the maximum at a level of about
-        #: ``1 / permutations``. At 10, a clean corpus failed roughly a tenth
-        #: of the time. The n-grams are counted once whatever this is, so more
+        #: ``1 / permutations``, so a small value refuses a clean corpus often.
+        #: The n-grams are counted once whatever this is, so more
         #: shuffles cost little.
         self.permutations = permutations
 

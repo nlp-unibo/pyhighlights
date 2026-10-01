@@ -3,8 +3,7 @@
 The suite elsewhere checks that a model trains, that a key resolves and that a
 number comes out. None of that catches a mask applied to the wrong axis or a
 module handed the wrong tensor: a model with a leaking bottleneck still trains
-and still reports an F1. ``StackedBackbone`` fed dropped words to its recurrent
-encoder for four releases and every test passed.
+and still reports an F1, even when its recurrent encoder reads dropped words.
 
 So these are mechanical. Each one names a single step (what the encoder
 attends over, what the selector scores, what the predictor is handed, which
@@ -151,6 +150,23 @@ def test_the_encoder_attends_over_specials_but_they_are_never_selectable():
     assert spp.encoder_mask(data).tolist() == [[1, 1, 1, 1]]
 
 
+def test_a_batch_without_word_ids_attends_to_its_words_only():
+    """One axis, so ``mask`` is what the encoder reads, padding left out."""
+    from pyhighlights.components.models import InputData
+
+    data = InputData(
+        features=th.tensor([[3, 4, 0]]),
+        mask=th.tensor([[1.0, 1.0, 0.0]]),
+        sample_ids=th.tensor([0]),
+        y_true=th.tensor([0]),
+        highlight_true=th.full((1, 3), -1),
+    )
+
+    assert data.attention().tolist() == [[1.0, 1.0, 0.0]]
+    assert data.attention().dtype == th.get_default_dtype()
+    assert model().encoder_mask(data).tolist() == [[1.0, 1.0, 0.0]]
+
+
 def test_a_special_token_is_unselectable_on_the_subtoken_axis_too():
     """The other half of the guarantee, on the axis where specials exist.
 
@@ -248,9 +264,10 @@ def test_a_dropped_word_cannot_change_what_the_predictor_reads():
     "*shape* of the mask as well as the words it kept. A GRU steps its "
     "recurrence over dropped positions with a zero input, so the number of "
     "them changes the state; a transformer gives a kept word a different "
-    "position embedding when the gap before it changes. Compaction, "
-    "gathering the kept positions instead of zeroing the dropped ones, is "
-    "the candidate fix.",
+    "position embedding when the gap before it changes. Zeroing, the "
+    "default, keeps this channel open; ``compact=True`` closes it, as "
+    "test_a_compact_model_answers_the_same_for_two_gaps_of_one_highlight "
+    "checks.",
 )
 def test_the_gap_between_kept_words_cannot_change_what_the_predictor_reads():
     """The same highlight must mean the same input, wherever its words sat.
@@ -258,8 +275,8 @@ def test_the_gap_between_kept_words_cannot_change_what_the_predictor_reads():
     ``test_a_dropped_word_cannot_change_what_the_predictor_reads`` changes what
     a dropped word *is*. This changes how many there are. Both are outside the
     highlight, so under `the highlight is the predictor's input` neither may
-    move the prediction. Only the first was ever checked, and the second
-    is the channel by which a selector can signal a label through the count.
+    move the prediction. The second is the channel by which a selector can
+    signal a label through the count.
 
     Two rows, identical kept words in the same order, different gaps between
     them. A model whose predictor reads its highlight and nothing else answers

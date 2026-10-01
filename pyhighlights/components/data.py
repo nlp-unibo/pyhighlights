@@ -159,9 +159,9 @@ class HuggingFaceTokenizer:
         A pretrained encoder was trained with them, so dropping them moves its
         token states away from what it would otherwise produce. They carry no word,
         so ``word_ids`` is ``None`` there and a selector never sees them.
-        Removing them from the input was never what kept them unselectable.
+        Removing them from the input is not what keeps them unselectable.
 
-        ``False`` reproduces a run made before this was a choice.
+        ``False`` drops them from the input.
         """
         try:
             from transformers import AutoTokenizer

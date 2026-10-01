@@ -87,9 +87,9 @@ class GeneralizationLossScore(MonitoredScore):
 
     The penalty is Prechelt's **generalization loss** (Prechelt, 1998, *Early
     Stopping -- But When?*), with ``loss_opt`` the lowest validation loss seen
-    so far. A *ratio* rather than a difference, and that matters: a weighted
-    cross entropy at a class weight of 105 is unbounded while an F1 is not, so
-    a difference would make ``coefficient`` a guess about scale. A relative
+    so far. A *ratio* rather than a difference, and that matters: a heavily
+    weighted cross entropy is unbounded while an F1 is not, so a difference
+    would make ``coefficient`` a guess about scale. A relative
     regression is dimensionless, and the coefficient means one thing: how
     much ``quality`` an epoch forfeits per unit of relative loss regression.
 
