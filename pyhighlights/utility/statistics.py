@@ -3,7 +3,7 @@
 Two numbers decide a run's hyperparameters and neither is in the frame: how
 long the documents are, which sets a token budget, and how much of a document
 its annotation marks, which is what a sparsity target aims at. Both are read
-off the **training** split -- an evaluation split's rates are describable
+off the **training** split. An evaluation split's rates are describable
 after the fact, never a target, and the model has not seen them.
 """
 
@@ -46,13 +46,12 @@ def _spread(values: np.ndarray) -> Dict[str, float]:
 def describe(splits: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
     """Report document length and annotation density for each split.
 
-    ``highlight_rate`` is marked tokens over all tokens of the annotated rows
-    -- the same ratio
-    :class:`~pyhighlights.utility.losses.SparsityPenalty` compares its
-    ``threshold`` against, so a training split's rate is where that threshold
-    comes from. ``highlights_mean`` is marked tokens per annotated row, which
-    a rate alone hides: the same rate covers three tokens of thirty and thirty
-    of three hundred.
+    ``highlight_rate`` is marked tokens over all tokens of the annotated rows.
+    It is the same ratio :class:`~pyhighlights.utility.losses.SparsityPenalty`
+    compares its ``threshold`` against, so a training split's rate is where
+    that threshold comes from. ``highlights_mean`` is marked tokens per
+    annotated row, which a rate alone hides: the same rate covers three tokens
+    of thirty and thirty of three hundred.
 
     A split with no annotated row reports ``NaN`` rather than zero. Zero would
     read as an annotation that marks nothing.
