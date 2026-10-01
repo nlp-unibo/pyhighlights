@@ -305,7 +305,7 @@ def test_a_phased_model_says_which_phase_a_line_belongs_to(tmp_path, caplog):
         model.predictor_phase_loss(batch)
         model.generator_phase_loss(batch)
 
-    assert "phase: name = 'classifier'" in caplog.text
+    assert "phase: name = 'predictor'" in caplog.text
     assert "phase: name = 'generator'" in caplog.text
 
 

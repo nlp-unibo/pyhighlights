@@ -25,10 +25,6 @@ class MCD(PhasedSPP):
     selected-input fields.
     """
 
-    #: The paper's name for the phase that trains the predictor, kept so a
-    #: training log reads as the published algorithm does.
-    predictor_phase = "classifier"
-
     def phase_class_logits(
         self, input_data: InputData, highlight_mask: th.Tensor, selection: th.Tensor
     ) -> th.Tensor:
