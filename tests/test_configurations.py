@@ -137,9 +137,9 @@ def test_registered_gru_mcd_alternates_generator_and_predictor_updates():
 
     for loss in model.shared_losses:
         loss.enabled = False
-    classifier_total, classifier_losses, _ = model.predictor_phase_loss(batch)
-    assert set(classifier_losses) == {"classification", "full_classification"}
-    classifier_total.backward()
+    predictor_total, predictor_losses, _ = model.predictor_phase_loss(batch)
+    assert set(predictor_losses) == {"classification", "full_classification"}
+    predictor_total.backward()
     assert all(
         parameter.grad is None for parameter in model.selector_backbone.parameters()
     )
