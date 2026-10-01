@@ -24,7 +24,10 @@ The ids the vocabulary hands out start at ``2``: rows ``0`` and ``1`` are the pa
 Its **length** does not have to be anything: the matrix is handed to the model through
 :meth:`~pyhighlights.components.models.spp.base.SPP.load_embeddings`, which
 sizes the table to it, so ``vocab_size`` is not a number the configuration has to have guessed.
-Whether the table then trains is still the backbone's ``freeze_embeddings``, untouched by the load.
+Loaded vectors are frozen by default, and so is a one-hot table, which reaches the model the same way.
+The backbone's ``freeze_embeddings`` decides.
+``None``, the default, freezes a loaded table and trains a randomly initialised one.
+``True`` freezes either table, and ``False`` trains either.
 
 ``vocabulary_from`` decides which tokens are read, and the two answers are different experiments rather than a tidiness choice.
 

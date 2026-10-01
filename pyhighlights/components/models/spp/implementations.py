@@ -62,6 +62,11 @@ class GRUBackbone(SPPBackbone):
     A pretrained table arrives through :meth:`load_embeddings`. For the
     predictor pass, the embeddings of dropped positions are zeroed before the
     recurrence, so their content reaches no kept state.
+
+    ``freeze_embeddings`` left at ``None`` trains a randomly initialised table
+    and freezes a loaded one, since pretrained vectors are kept fixed unless a
+    run asks otherwise. ``True`` freezes either table, and ``False`` trains
+    either.
     """
 
     def __init__(
@@ -69,14 +74,15 @@ class GRUBackbone(SPPBackbone):
         vocab_size: int,
         embedding_dim: int,
         hidden_size: int,
-        freeze_embeddings: bool = False,
+        freeze_embeddings: bool | None = None,
         num_layers: int = 1,
         bidirectional: bool = True,
         dropout_rate: float = 0.0,
     ):
         super().__init__()
+        self.freeze_embeddings = freeze_embeddings
         self.embedding = th.nn.Embedding(vocab_size, embedding_dim)
-        self.embedding.weight.requires_grad_(not freeze_embeddings)
+        self.embedding.weight.requires_grad_(freeze_embeddings is not True)
 
         self.encoder = th.nn.GRU(
             input_size=embedding_dim,
@@ -94,7 +100,7 @@ class GRUBackbone(SPPBackbone):
         return self._output_size
 
     def load_embeddings(self, matrix: th.Tensor) -> None:
-        """Replace the embedding table with ``matrix``, keeping it frozen or not.
+        """Replace the embedding table with ``matrix``, frozen unless asked not to be.
 
         The table is replaced rather than copied into, because a pretrained
         vocabulary is as wide as the release covers: requiring the
@@ -111,7 +117,7 @@ class GRUBackbone(SPPBackbone):
         # moved to a device would otherwise hold a CPU table.
         self.embedding = th.nn.Embedding.from_pretrained(
             matrix.to(device=weight.device, dtype=weight.dtype),
-            freeze=not weight.requires_grad,
+            freeze=self.freeze_embeddings is not False,
         )
 
     def encode(
