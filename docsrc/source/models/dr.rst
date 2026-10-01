@@ -46,7 +46,7 @@ As the selection settles and becomes informative, the factor rises, so the restr
    \qquad
    \eta_{\text{predictor}} = \eta \cdot \max\!\left( \frac{\sum_{i,t} h^{(i)}_t}{\sum_{i,t} m^{(i)}_t},\; \texttt{scale\_floor} \right)
 
-The floor is the paper's.
+The floor comes from the reference implementation.
 A selection keeping almost nothing would otherwise stop the predictor entirely.
 A predictor that never moves cannot tell the selector which words were worth keeping.
 
@@ -122,7 +122,7 @@ Configuration
 
    Registry.from_key(GRU_DR, scale_floor=0.1)
 
-``scale_floor`` defaults to ``0.05``, the paper's value.
+``scale_floor`` defaults to ``0.05``, the reference implementation's value.
 ``predictor_backbone`` is required, since a shared encoder would take both rates at once.
 The reference implementation shares one embedding table between the two encoders and separates everything above it.
 Here a backbone owns its own table, so the pair is separate throughout.

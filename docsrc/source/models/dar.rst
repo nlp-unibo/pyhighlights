@@ -56,6 +56,7 @@ Training
 Pretraining first, then an ordinary single-optimizer loop.
 
 1. Before the first rationalization epoch, the aligner is trained on the full input for ``pretrain_epochs`` epochs, in a loop the model drives itself.
+   After each epoch, its F1 on the full input of the validation split is computed, and the aligner of the best epoch is kept, as in the reference implementation.
 2. Its parameters are frozen and it is set to evaluation mode. A flag in a buffer records this, so a resumed run finds it trained rather than pretraining a second one.
 3. Every batch afterwards selects, predicts from the highlight, and asks the frozen aligner to predict from the same highlight.
 4. The four terms are summed and one backward pass updates the generator and the predictor, never the aligner.
@@ -119,7 +120,9 @@ Configuration
 
    Registry.from_key(GRU_DAR, pretrain_epochs=50)
 
-``pretrain_epochs`` sets the length of the pretraining, and the aligner of its last epoch is the one kept.
+``pretrain_epochs`` sets the length of the pretraining.
+The aligner of the epoch with the highest validation F1 is kept: the F1 of class ``1`` for two classes, and the macro F1 for more.
+Without a validation loader, or with ``limit_val_batches=0``, the aligner of the last epoch is kept.
 ``aligner_backbone`` is the aligner's own encoder and its head is built from ``predictor``, since the two modules answer the same question about the same labels.
 The alignment term is appended to ``losses`` by the model rather than declared in the list, so a registration cannot forget the term the method is.
 

@@ -8,6 +8,7 @@ than training it again on a model that has already moved.
 """
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import lightning as L
 import pytest
@@ -266,3 +267,65 @@ def test_a_frozen_aligner_stays_in_evaluation_mode(tmp_path):
 def test_every_process_pretrains_the_same_aligner(tmp_path):
     """Each process reads its own shard, and the gradients are averaged."""
     assert processes_agree("GRU_DAR", tmp_path)
+
+
+def test_the_aligner_of_the_best_validation_epoch_is_kept(tmp_path):
+    """The reference implementation reloads the aligner of its best epoch."""
+    model = Registry.from_key(GRU_DAR, pretrain_epochs=3)
+    loader = toy_loader(tmp_path)
+    scores = iter([0.2, 0.9, 0.5])
+    snapshots = []
+
+    def score(validation):
+        snapshots.append(
+            [parameter.detach().clone() for parameter in model.aligner_parameters()]
+        )
+        return next(scores)
+
+    model.aligner_f1 = score
+    L.Trainer(
+        accelerator="cpu",
+        max_epochs=1,
+        limit_train_batches=2,
+        limit_val_batches=1,
+        num_sanity_val_steps=0,
+        logger=False,
+        enable_checkpointing=False,
+        enable_progress_bar=False,
+    ).fit(model, loader, loader)
+
+    assert len(snapshots) == 3
+    assert all(
+        th.equal(kept, now)
+        for kept, now in zip(snapshots[1], model.aligner_parameters(), strict=True)
+    )
+    assert not all(
+        th.equal(last, now)
+        for last, now in zip(snapshots[2], model.aligner_parameters(), strict=True)
+    )
+
+
+@pytest.mark.parametrize(
+    "logits, expected",
+    [
+        # Class 1: two hits, one false alarm, one miss.
+        ([[0, 1], [0, 1], [0, 1], [1, 0], [1, 0]], 2 * 2 / (2 * 2 + 1 + 1)),
+        # Three classes, one of them never predicted: the macro F1.
+        (
+            [[1, 0, 0], [0, 1, 0], [0, 1, 0], [1, 0, 0], [1, 0, 0]],
+            (0.8 + 1.0 + 0.0) / 3,
+        ),
+    ],
+)
+def test_the_aligner_is_scored_by_f1_on_the_full_input(logits, expected):
+    labels = [1, 1, 0, 1, 0] if len(logits[0]) == 2 else [0, 1, 1, 2, 0]
+    model = Registry.from_key(GRU_DAR)
+    model._trainer = SimpleNamespace(
+        num_val_batches=[float("inf")],
+        strategy=SimpleNamespace(reduce=lambda counts, reduce_op: counts),
+    )
+    model.align_full = lambda batch: th.tensor(logits, dtype=th.float)
+    batch = batch_of(size=len(labels))
+    batch.y_true = th.tensor(labels)
+
+    assert model.aligner_f1([batch]) == pytest.approx(expected)
