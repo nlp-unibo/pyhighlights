@@ -93,7 +93,7 @@ class HighlightLoader(abc.ABC):
 
     Frames carry :data:`~pyhighlights.components.data.COLUMNS`, with
     ``highlights`` aligned to ``tokens`` and ``None`` where a split has no
-    annotation. The corpus comes back **as distributed** -- overlapping
+    annotation. The corpus comes back **as distributed**, with overlapping
     splits, per-annotator judgements and all. Repairing or reducing it is
     :mod:`~pyhighlights.components.preprocessors`, and what a study does there
     is its own decision; the loader that fetched the files has no business
@@ -144,7 +144,7 @@ class R2ALoader(HighlightLoader):
 
     ``data/target/<task>.train`` is the only file in the release carrying
     per-token annotation, so it is the default ``test`` split despite its
-    name — that is the file this line of work reports highlight scores on.
+    name. That is the file this line of work reports highlight scores on.
 
     **The distributed splits overlap.** Every one of the 200 annotated rows of
     each Hotel aspect also appears in that aspect's training file, and Beer
@@ -161,7 +161,7 @@ class R2ALoader(HighlightLoader):
     Beer at `10.5281/zenodo.22703544
     <https://doi.org/10.5281/zenodo.22703544>`_ and Hotel at
     `10.5281/zenodo.22711382 <https://doi.org/10.5281/zenodo.22711382>`_. They
-    are a receipt rather than an input -- ``sha256`` pins the upstream archive
+    are a receipt rather than an input: ``sha256`` pins the upstream archive
     and the repair is deterministic, so the splits come out the same without
     fetching either.
     """
@@ -286,7 +286,7 @@ class ToyLoader(HighlightLoader):
         triggers = [["aba", "baa"], ["baa", "abb"]]       # two, both required
 
     The second form is the one worth having. When no pattern belongs to a
-    single class -- ``baa`` sits in both classes above -- no single n-gram
+    single class (``baa`` sits in both classes above), no single n-gram
     identifies a class, and a model that memorises one cannot pass. It also
     makes the gold highlight **several disjoint spans** rather than one run,
     which is the shape a real highlight has.
@@ -329,7 +329,7 @@ class ToyLoader(HighlightLoader):
     :class:`~pyhighlights.components.shortcuts.ShortcutDetector` is what says
     the corpus is a control: it removes the annotated positions and requires
     that nothing left predicts the label. Run it on a corpus that was read as
-    readily as on one that was generated -- being published is no evidence of
+    readily as on one that was generated. Being published is no evidence of
     being sound, and the released GenSPP corpus was audited this way.
     """
 
@@ -422,7 +422,7 @@ class ToyLoader(HighlightLoader):
         self.train_ratio = train_ratio
         self.val_ratio = val_ratio
         self.split_seed = split_seed
-        # A chunk is a *proper* piece of a pattern -- strictly shorter, so it
+        # A chunk is a *proper* piece of a pattern: strictly shorter, so it
         # can never satisfy the class it was cut from. One that spells another
         # class's pattern outright is dropped: every inserted run sits alone
         # between filler characters, so a run that is a pattern *is* that
@@ -454,7 +454,7 @@ class ToyLoader(HighlightLoader):
         """Which classes' conjunctions ``text`` holds, as a set of labels.
 
         A valid sample satisfies exactly its own. Public because it is what the
-        corpus means -- a shortcut scan asks it about texts this never wrote.
+        corpus means: a shortcut scan asks it about texts this never wrote.
         """
         return {
             label
@@ -481,8 +481,8 @@ class ToyLoader(HighlightLoader):
         Placing them afterwards, or keeping only the samples that came out
         valid, conditions the arrangement on the class: reject the draws where
         a chunk completes a second copy of the pattern and the characters
-        *beside* the highlight stop being class-independent -- which survives
-        removing the highlight and is a shortcut. Here nothing is rejected,
+        *beside* the highlight stop being class-independent. That dependence
+        survives removing the highlight and is a shortcut. Here nothing is rejected,
         because a filler character separates every run and no chunk spells a
         pattern, so no arrangement can be invalid.
         """
@@ -548,7 +548,7 @@ class ToyLoader(HighlightLoader):
     def fetch(self) -> Path:
         """The corpus file, downloading and unpacking the artifact if needed.
 
-        ``url`` may be an archive -- published or local -- or a bare corpus
+        ``url`` may be an archive, published or local, or a bare corpus
         file. A record usually holds the archive rather than a loose file,
         because the archive is what carries the manifest, the licence and the
         citation beside the data.
@@ -576,8 +576,8 @@ class ToyLoader(HighlightLoader):
 
         The hook a corpus older than those columns overrides. Everything
         :meth:`save` writes arrives here already in them, so the default only
-        fills in what is derivable and says which column is missing otherwise
-        -- a corpus that has to be guessed at is one nobody can check.
+        fills in what is derivable and says which column is missing otherwise.
+        A corpus that has to be guessed at is one nobody can check.
         """
         frame = frame.copy()
         if "tokens" not in frame:
@@ -596,7 +596,7 @@ class ToyLoader(HighlightLoader):
         """The splits the corpus carries, or the ones the ratios cut into it.
 
         A corpus :meth:`save` wrote carries a ``split`` column, so it comes
-        back divided exactly as it was generated -- regenerating a corpus and
+        back divided exactly as it was generated. Regenerating a corpus and
         re-splitting a corpus are different operations and only one of them is
         reproducible from the file.
 
@@ -645,8 +645,8 @@ class ToyLoader(HighlightLoader):
 
         **A configured source is never fallen back on.** A loader given a
         ``url`` it cannot read raises, where generating instead would hand back
-        a corpus of the right shape and different content -- the one failure a
-        synthetic corpus cannot afford, because nothing downstream can see it.
+        a corpus of the right shape and different content. That is the one
+        failure a synthetic corpus cannot afford, because nothing downstream can see it.
         """
         if self.url is None:
             return {
@@ -677,7 +677,7 @@ class HateXplainLoader(HighlightLoader):
     #: same key would name different rows after an upstream push, and a run
     #: made before it could not be told from a run made after. The benchmark
     #: publishes no digest of its own, so :attr:`SHA256` and
-    #: :attr:`DIVISIONS_SHA256` were computed against this commit -- which is
+    #: :attr:`DIVISIONS_SHA256` were computed against this commit, which is
     #: what ``master`` resolved to as of 2026-09-15, byte for byte.
     COMMIT = "01d742279dac941981f53806154481c0e15ee686"
     URL = (
@@ -767,7 +767,7 @@ class ERASERLoader(HighlightLoader):
     DeYoung et al., 2020, *ERASER: A Benchmark to Evaluate Rationalized NLP
     Models*. A task ships a ``docs`` directory of whitespace-tokenized
     documents and one JSONL file per split whose rows carry a
-    ``classification`` and ``evidences`` — groups of ``[start_token,
+    ``classification`` and ``evidences``, which are groups of ``[start_token,
     end_token)`` spans into the document. Those spans become the highlights.
 
     Only single-document tasks fit the select-then-predict input, which takes

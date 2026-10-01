@@ -93,7 +93,7 @@ def test_the_score_logs_the_epoch_it_belongs_to():
     A `LightningModule` logging with `on_epoch=True` gets an `epoch` column
     for free; a callback reaching the logger directly does not, and `CSVLogger`
     then writes the score on a row whose `epoch` is blank. Grouping
-    `metrics.csv` by epoch -- which is what drawing a curve is -- drops exactly
+    `metrics.csv` by epoch, which is what drawing a curve is, drops exactly
     that row.
     """
     callback = GeneralizationLossScore(coefficient=2.0)

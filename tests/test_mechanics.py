@@ -6,9 +6,9 @@ module handed the wrong tensor: a model with a leaking bottleneck still trains
 and still reports an F1. ``StackedBackbone`` fed dropped words to its recurrent
 encoder for four releases and every test passed.
 
-So these are mechanical. Each one names a single step -- what the encoder
+So these are mechanical. Each one names a single step (what the encoder
 attends over, what the selector scores, what the predictor is handed, which
-axis a fold runs along -- and asserts what that step must be true of, with
+axis a fold runs along) and asserts what that step must be true of, with
 tensors small enough to reason about by hand. They are the tests worth having
 before a run that costs GPU-days, because the failures they catch are silent.
 
@@ -115,7 +115,7 @@ def test_the_word_axis_stops_where_truncation_did():
         [HighlightExample(0, ["a", "b", "c", "d"], 1)], SubwordTokenizer(), max_length=3
     )
 
-    # Three subtokens covers "a" and both pieces of "b" -- two words.
+    # Three subtokens covers "a" and both pieces of "b": two words.
     assert data.features.shape == (1, 3)
     assert data.mask.tolist() == [[1, 1]]
 
@@ -154,7 +154,7 @@ def test_the_encoder_attends_over_specials_but_they_are_never_selectable():
 def test_a_special_token_is_unselectable_on_the_subtoken_axis_too():
     """The other half of the guarantee, on the axis where specials exist.
 
-    Selecting over words makes this structural -- a special token belongs to no
+    Selecting over words makes this structural: a special token belongs to no
     word, so it is not on the axis at all. Selecting over subtokens puts it on
     the axis, and ``selection_valid`` is then the only thing keeping it out. A
     model that could mark ``[CLS]`` would report a highlight containing no word.
@@ -248,8 +248,8 @@ def test_a_dropped_word_cannot_change_what_the_predictor_reads():
     "*shape* of the mask as well as the words it kept. A GRU steps its "
     "recurrence over dropped positions with a zero input, so the number of "
     "them changes the state; a transformer gives a kept word a different "
-    "position embedding when the gap before it changes. Compaction -- "
-    "gathering the kept positions instead of zeroing the dropped ones -- is "
+    "position embedding when the gap before it changes. Compaction, "
+    "gathering the kept positions instead of zeroing the dropped ones, is "
     "the candidate fix.",
 )
 def test_the_gap_between_kept_words_cannot_change_what_the_predictor_reads():
@@ -258,7 +258,7 @@ def test_the_gap_between_kept_words_cannot_change_what_the_predictor_reads():
     ``test_a_dropped_word_cannot_change_what_the_predictor_reads`` changes what
     a dropped word *is*. This changes how many there are. Both are outside the
     highlight, so under `the highlight is the predictor's input` neither may
-    move the prediction -- but only the first was ever checked, and the second
+    move the prediction. Only the first was ever checked, and the second
     is the channel by which a selector can signal a label through the count.
 
     Two rows, identical kept words in the same order, different gaps between
@@ -389,8 +389,8 @@ def test_a_compact_model_still_trains_its_selector():
         grads[flag] = sum(float(p.grad.abs().sum()) for p in selector)
 
     assert grads[True] > 0
-    # Not a claim that the two are equal -- they are different computations --
-    # only that compaction has not collapsed the signal by an order of
+    # Not a claim that the two are equal, since they are different
+    # computations: only that compaction has not collapsed the signal by an order of
     # magnitude, which is what a severed path would look like.
     assert grads[True] > grads[False] / 10
 
@@ -542,7 +542,7 @@ def test_the_selector_never_marks_a_padded_position():
 def test_an_empty_selection_is_repaired_to_exactly_one_position():
     """A predictor handed nothing learns a constant, so one token is kept.
 
-    Exactly one, and the highest-scoring one -- a repair that kept two would
+    Exactly one, and the highest-scoring one: a repair that kept two would
     be a sparsity floor nobody configured.
     """
     spp = model()
@@ -626,7 +626,7 @@ def test_only_backbone_parameters_train_at_the_encoder_rate():
     encoders = spp.encoder_ids()
     for group in optimizer.param_groups:
         inside = {id(p) in encoders for p in group["params"]}
-        # A group is all encoder or all head, never mixed -- a mixed group
+        # A group is all encoder or all head, never mixed: a mixed group
         # would train half its parameters at the wrong rate.
         assert len(inside) == 1
         assert group["lr"] == (3e-5 if inside.pop() else pytest.approx(1e-3))

@@ -113,7 +113,7 @@ def test_the_union_the_predictor_reads_is_not_gated():
     Gating the union would leave an example that instantiates nothing with an
     empty highlight, which the token-level repair rescues to exactly one word.
     Every negative example would then carry a one-word highlight and the
-    predictor would learn that one word means negative -- the label decided by
+    predictor would learn that one word means negative: the label decided by
     the size of the selection. Ungated, a negative example carries a full-size
     highlight that can be read beside a positive one.
     """
@@ -327,7 +327,7 @@ def test_a_grounded_model_trains_through_a_real_loop(tmp_path):
     A task builds the base, the model is moved to its device with the base
     following, Lightning steps it, the metrics read a grounded output through
     `reported`, and a run is written down. The toy corpus annotates no
-    links, so the knowledge term contributes nothing here -- what this proves
+    links, so the knowledge term contributes nothing here. What this proves
     is the plumbing, and the term itself is scored above.
     """
     from pyhighlights.components.tasks import SPPTask
@@ -511,8 +511,8 @@ def test_knowledge_weights_are_read_off_the_split_not_typed():
     """One positive weight per entry, and a refusal where there is none.
 
     An entry no example links to has no frequency to invert, and both a zero
-    and an infinity would train something the corpus never showed -- the same
-    refusal `class_weights` already makes.
+    and an infinity would train something the corpus never showed. This is
+    the same refusal `class_weights` already makes.
     """
     import pandas as pd
 

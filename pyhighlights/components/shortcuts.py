@@ -3,7 +3,7 @@
 A corpus is a control only while the evidence it annotates is the only thing
 that solves it. If some other feature separates the classes, a model can score
 well on the task and badly on the explanation, and nothing downstream can tell
-the two apart -- which is the failure a synthetic corpus exists to rule out.
+the two apart. That is the failure a synthetic corpus exists to rule out.
 
 The toy corpus is the case this was written for. Its released quality check
 scored three hand-picked string-matching baselines by highlight F1, which asks
@@ -18,7 +18,7 @@ class is this question, asked of words instead of characters.
 
 **What a clean report does and does not say.** No scan proves the annotated
 evidence is the *only* solution: any feature fine enough to index the sample
-separates it. The claim is bounded, and the bound is the feature family --
+separates it. The claim is bounded, and the bound is the feature family:
 single n-grams up to ``max_length``, and sequence length. A conjunction of two
 n-grams that neither one predicts alone is outside it, and is what
 :func:`ablated` is for: remove the evidence and re-run, and nothing expressible
@@ -55,7 +55,7 @@ def incidence(
     A document counts once for an n-gram it repeats: the question is whether
     the n-gram is *there*, and a count is a different feature.
 
-    ``separator`` joins the tokens for display -- empty for a character corpus
+    ``separator`` joins the tokens for display: empty for a character corpus
     like the toy one, a space for a corpus of words.
 
     An n-gram is the *token sequence*, never the string it joins to. With an
@@ -109,8 +109,8 @@ def scan(
     """Score every feature by the best rule over it, against a permuted control.
 
     ``features`` maps a name to the document indices that hold it. Returns one
-    row per feature -- ``support``, ``accuracy``, ``permuted``,
-    ``mutual_information`` -- sorted by accuracy, with ``baseline`` (the
+    row per feature (``support``, ``accuracy``, ``permuted``,
+    ``mutual_information``) sorted by accuracy, with ``baseline`` (the
     majority class) carried on every row so a number is readable on its own.
     """
     labels = np.asarray(labels)
@@ -215,14 +215,14 @@ def ablated(
 
     Removing the evidence is the decisive test: whatever is left cannot be the
     thing the corpus is about, so a scan that finds anything here has found a
-    shortcut -- and unlike a scan of the corpus itself, this one is not bounded
-    by a feature family, because there is nothing left for any family to find.
+    shortcut. Unlike a scan of the corpus itself, this one is not bounded by a
+    feature family, because there is nothing left for any family to find.
 
     The replacement is a token the alphabet does not contain, so the hole
     cannot spell anything; its *width* is preserved, which keeps the document's
     length out of the comparison.
 
-    ``separator`` rejoins ``text`` the way the corpus spells it -- empty for a
+    ``separator`` rejoins ``text`` the way the corpus spells it: empty for a
     character corpus, a space for words. The scan reads ``tokens`` and never
     ``text``, so this only decides whether the returned frame is legible, but
     an ablated word corpus that reads ``the\u25aebrownfox`` is a frame nobody can
@@ -268,7 +268,7 @@ class ShortcutDetector:
         #: Label shuffles the threshold is the best of. The threshold is the
         #: largest score any feature reaches on any shuffle, which makes
         #: :meth:`check` a permutation test on the maximum at a level of about
-        #: ``1 / permutations`` -- at 10 a clean corpus failed roughly a tenth
+        #: ``1 / permutations``. At 10, a clean corpus failed roughly a tenth
         #: of the time. The n-grams are counted once whatever this is, so more
         #: shuffles cost little.
         self.permutations = permutations
@@ -301,7 +301,7 @@ class ShortcutDetector:
         itself cannot be a gate: the annotated patterns are meant to predict,
         and so is anything that co-occurs with them, so the ranking is full of
         features that are supposed to be there. Worse, a pattern shared by two
-        of three classes still separates the third by its *absence* -- being
+        of three classes still separates the third by its *absence*. Being
         shared makes a pattern insufficient, not uninformative.
 
         What the corpus has to guarantee is the other direction: with the

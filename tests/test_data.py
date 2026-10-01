@@ -187,7 +187,7 @@ def test_a_word_is_selected_whole_or_not_at_all():
     """The property the word axis exists for.
 
     Selecting over subtokens lets a model keep ``un`` and drop ``##fair``,
-    which the export then reports as the word ``unfair`` -- a highlight that
+    which the export then reports as the word ``unfair``: a highlight that
     is not what the predictor read. Over words the two cannot disagree: the
     mask the predictor is given is the selection, spread over every piece of
     each word it kept.

@@ -90,7 +90,7 @@ class GeneralizationLossScore(MonitoredScore):
     so far. A *ratio* rather than a difference, and that matters: a weighted
     cross entropy at a class weight of 105 is unbounded while an F1 is not, so
     a difference would make ``coefficient`` a guess about scale. A relative
-    regression is dimensionless, and the coefficient means one thing -- how
+    regression is dimensionless, and the coefficient means one thing: how
     much ``quality`` an epoch forfeits per unit of relative loss regression.
 
     Monitoring a rare class's F1 alone can accept a large relative loss
@@ -179,8 +179,8 @@ class GeneralizationLossScore(MonitoredScore):
         score = quality - self.coefficient * regression
 
         # `self.log` is refused on this hook, so the value is put where the
-        # callbacks that read it look -- `trainer.callback_metrics` is what
-        # both `EarlyStopping` and `ModelCheckpoint` consult -- and handed to
+        # callbacks that read it look: `trainer.callback_metrics`, which both
+        # `EarlyStopping` and `ModelCheckpoint` consult. It is also handed to
         # the logger separately so that it also lands in `metrics.csv` and a
         # learning curve can be drawn from it afterwards.
         trainer.callback_metrics[self.name] = th.tensor(score)
@@ -189,8 +189,8 @@ class GeneralizationLossScore(MonitoredScore):
             # `LightningModule` logging with `on_epoch=True` adds that column
             # itself; a callback reaching the logger directly does not, and
             # `CSVLogger` then writes the score on a row whose `epoch` is
-            # blank. Anything grouping `metrics.csv` by epoch -- which is what
-            # drawing a learning curve is -- drops that row, so the quantity
+            # blank. Anything grouping `metrics.csv` by epoch, which is what
+            # drawing a learning curve is, drops that row, so the quantity
             # the run was stopped and scored on is the one quantity missing
             # from its own curves.
             trainer.logger.log_metrics(

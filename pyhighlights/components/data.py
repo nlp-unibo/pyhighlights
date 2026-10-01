@@ -83,7 +83,7 @@ class HighlightTokenizer(Protocol):
     and a method, and any object carrying both satisfies it as far as a type
     checker is concerned. :class:`VocabularyTokenizer` and
     :class:`HuggingFaceTokenizer` inherit nothing and both pass, and so would a
-    tokenizer written outside this package -- which is the point, since one of
+    tokenizer written outside this package. That is the point, since one of
     the two wraps an object this library does not own.
     """
 
@@ -158,8 +158,8 @@ class HuggingFaceTokenizer:
 
         A pretrained encoder was trained with them, so dropping them moves its
         token states away from what it would otherwise produce. They carry no word,
-        so ``word_ids`` is ``None`` there and a selector never sees them --
-        removing them from the input was never what kept them unselectable.
+        so ``word_ids`` is ``None`` there and a selector never sees them.
+        Removing them from the input was never what kept them unselectable.
 
         ``False`` reproduces a run made before this was a choice.
         """
@@ -253,8 +253,8 @@ class HighlightCollator:
         """The links as a multi-hot ``[B, M]``, or ``None`` without a base.
 
         ``B`` is the batch and ``M`` is ``knowledge_size``, one column per
-        knowledge base entry -- the same two axes every knowledge-side tensor
-        in this library carries, against ``T`` for the token axis.
+        knowledge base entry. These are the same two axes every knowledge-side
+        tensor in this library carries, against ``T`` for the token axis.
 
 
         A row is ``-1`` where the example carries no annotation and ``0``/``1``
@@ -314,7 +314,7 @@ class HighlightCollator:
             # Every encoded position, special tokens included: they carry no
             # word, but the encoder was pretrained reading them.
             attention.append([True] * len(input_ids) + [False] * padding)
-            # `-1` where a position carries no word -- a special token, or
+            # `-1` where a position carries no word: a special token, or
             # padding. Distinct from `0`, which is the *first* word: collapsing
             # the two would make every special token look like a selection of
             # the opening word.

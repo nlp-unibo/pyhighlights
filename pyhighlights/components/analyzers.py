@@ -1,10 +1,10 @@
 """Analyzers: what to make of a directory full of results.
 
 A run leaves ``results.json`` files and pickled predictions behind. An analyzer
-reads them back and answers one question about them -- what the numbers are,
-where the selector looked -- and returns a :class:`pandas.DataFrame` rather
-than printing, so the same analyzer serves a notebook, a test and a LaTeX
-table.
+reads them back and answers one question about them, such as what the
+numbers are or where the selector looked. It returns a
+:class:`pandas.DataFrame` rather than printing, so the same analyzer serves a
+notebook, a test and a LaTeX table.
 
 Nothing here is interactive and nothing plots. An analyzer that asks which
 folder you meant cannot run unattended, and a figure is a choice about
@@ -106,7 +106,7 @@ def latest_runs(items: Iterable[Tuple[str, str, T]], latest: bool = True) -> Lis
     run reported rather than by its directory: the stamp is a path component,
     and a task that has been renamed or moved is still the task its own record
     says it is. Recency is the **stamp** rather than the order the walk
-    produced, because those two disagree in exactly that case -- a run under
+    produced, because those two disagree in exactly that case. A run under
     ``new-name/2026-09-02`` is walked before one under
     ``old-name/2026-09-01``, and taking the last walked would report the older
     one as current.
@@ -162,8 +162,8 @@ def latex_table(
 ) -> str:
     r"""The rows of a table body, ``&``-separated and ``\\``-terminated.
 
-    A ``(mean, std)`` pair -- what ``MetricsAnalyzer(pairs=True)`` reports --
-    becomes ``$12.34_{\pm 0.56}$``. Anything else is escaped and written as it
+    A ``(mean, std)`` pair, which is what ``MetricsAnalyzer(pairs=True)``
+    reports, becomes ``$12.34_{\pm 0.56}$``. Anything else is escaped and written as it
     is: metric names carry underscores, and LaTeX reads those as subscripts.
 
     The header row is included; the ``tabular`` wrapper is not, since its
@@ -313,8 +313,8 @@ def selected_words(
 
     A subtoken selection is folded through ``word_ids`` and deduplicated: a
     word split into three pieces is one word however many of its pieces were
-    selected. Slicing the subtoken mask to the word count instead -- which is
-    what this did -- dropped or shifted whatever sat past it, silently and
+    selected. Slicing the subtoken mask to the word count instead, which is
+    what this did, dropped or shifted whatever sat past it, silently and
     without a shape to complain about.
 
     The word mask is not applied to a folded selection, because it cannot
@@ -341,8 +341,8 @@ class HighlightPositionAnalyzer(Analyzer):
 
     ``selection_rate`` is the **mean of the per-document rates**, which is what
     :class:`pyhighlights.utility.metrics.SelectionRate` reports and what a
-    study's tables are built from. Pooling instead -- all kept words over all
-    words -- gives a different number on documents of different lengths, since
+    study's tables are built from. Pooling instead (all kept words over all
+    words) gives a different number on documents of different lengths, since
     it weights a long document more than a short one, and two quantities under
     one column name is how a table stops being comparable to itself.
 
@@ -427,8 +427,8 @@ class PredictionAnalyzer(Analyzer):
     its own. This joins it back to the corpus it came from, so a row says which
     words the selector kept and what the predictor made of them.
 
-    The corpus is not stored beside the predictions -- it would be stored once
-    per run and per seed -- so it is reloaded. The run's ``manifest.json`` names
+    The corpus is not stored beside the predictions, where it would be stored
+    once per run and per seed, so it is reloaded. The run's ``manifest.json`` names
     the loader and the preprocessor that produced it, and those keys are what
     get built here: a corpus loaded from anywhere else is a different corpus.
 
@@ -436,20 +436,20 @@ class PredictionAnalyzer(Analyzer):
     reads: a row lists word positions and the words at them. A run that
     selected over subtokens instead is folded back through the ``word_ids``
     the batch carries, and a word counts as selected when any of its subtokens
-    was -- which is why that setting cannot say what the predictor actually
-    read, and why it is not the default.
+    was. That is why that setting cannot say what the predictor actually read,
+    and why it is not the default.
 
     A task builds its loader and its preprocessor from their keys alone, with
     no overrides, so rebuilding those keys rebuilds exactly the corpus the run
-    trained against -- an override changes *which* key a task holds, and that
+    trained against. An override changes *which* key a task holds, and that
     key is the one the manifest wrote down.
 
     The registry has to be built before this runs, since it resolves the keys
     the manifest names. Inside a cinnamon script it already is.
 
     A sample the corpus no longer holds, or one whose words it places
-    differently, is left out rather than refused -- the rest of the split is
-    still worth reading. :attr:`skipped` counts both per predictions file, and
+    differently, is left out rather than refused, because the rest of the
+    split is still worth reading. :attr:`skipped` counts both per predictions file, and
     a file that lost anything says so through the module's logger.
     """
 
@@ -623,9 +623,9 @@ def readability(frame: pd.DataFrame, by: str = "label") -> pd.DataFrame:
     selection is already in words and beside the document it came from.
 
     **Two columns nothing else reports.** A span count, because a rate cannot
-    tell two readable phrases from eight scattered fragments -- twenty per cent
-    of a document in two spans is something a person can read, and the same share
-    in eight is not. And the split by class, because domain experts asked
+    tell two readable phrases from eight scattered fragments. Twenty per cent
+    of a document in two spans is something a person can read, and the same
+    share in eight is not. And the split by class, because domain experts asked
     whether the highlights of negative examples differ from those of positive
     ones, and a pooled average over a split that is 97.7% negative reports the
     negative examples' number and calls it the model's.
@@ -655,7 +655,7 @@ def separator_of(tokens: Sequence[str], text: str | None) -> str:
     """What joins this corpus's tokens, read off the text it wrote.
 
     A corpus of words joins with a space and a corpus of characters joins with
-    nothing -- ``ToyLoader`` writes ``"".join(tokens)`` -- so assuming one of
+    nothing (``ToyLoader`` writes ``"".join(tokens)``), so assuming one of
     them spells the other's documents wrongly.
     """
     return "" if text is not None and "".join(tokens) == text else " "
@@ -694,8 +694,8 @@ def label_studio(
 ) -> List[Dict[str, Any]]:
     """Predicted highlights as Label Studio pre-annotations.
 
-    Reads the columns :class:`PredictionAnalyzer` reports -- ``tokens``,
-    ``selected``, ``label``, ``predicted`` and ``text`` -- so it converts any
+    Reads the columns :class:`PredictionAnalyzer` reports (``tokens``,
+    ``selected``, ``label``, ``predicted`` and ``text``), so it converts any
     frame carrying them, whatever produced it. A frame without ``text`` falls
     back to joining the tokens with a space.
 
@@ -762,7 +762,7 @@ class LabelStudioExporter(PredictionAnalyzer):
     questions. ``"label"`` selects the samples that carry the class, and asks
     whether the model found the right words in them. ``"predicted"`` selects
     the samples the model *called* that class, and asks whether the words it
-    kept justify the call -- which is the only one of the two available on a
+    kept justify the call. It is the only one of the two available on a
     corpus with no annotation to select by, and the one that surfaces a
     confident mistake. Any column
     :class:`PredictionAnalyzer` reports may be named.

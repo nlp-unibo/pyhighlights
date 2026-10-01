@@ -315,7 +315,7 @@ def write_run(
     """A run directory holding one seed's predictions and its manifest.
 
     The manifest names the loader under ``key`` rather than ``@key``, which is
-    what releases up to 0.7.1 wrote -- so these fixtures also pin that an older
+    what releases up to 0.7.1 wrote, so these fixtures also pin that an older
     results tree still reads.
     """
     run = directory / stamp
@@ -347,7 +347,7 @@ def test_a_selected_subtoken_selects_its_whole_word(tmp_path):
 
     The two axes are different widths, and the batch says so: ``mask`` is the
     word axis, ``word_ids`` and a subtoken selection are the encoding's. This
-    fixture used to give ``mask`` the encoding's width, which no run writes --
+    fixture used to give ``mask`` the encoding's width, which no run writes,
     and which hid that combining the two raised rather than folding them.
     """
     Registry.build(directory=Path(pyhighlights.__file__).parent)
@@ -606,7 +606,7 @@ def test_the_exporter_can_narrow_to_what_the_model_predicted(tmp_path):
 
     Narrowing by ``label`` asks whether the model found the right words in the
     examples that carry the class. Narrowing by ``predicted`` asks whether the
-    words it kept justify the call it made -- which is what is left when there
+    words it kept justify the call it made. That is what is left when there
     is no annotation to select by, and what surfaces a confident mistake.
     """
     Registry.build(directory=Path(pyhighlights.__file__).parent)

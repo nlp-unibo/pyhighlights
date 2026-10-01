@@ -174,7 +174,7 @@ def test_evaluation_does_not_move_a_rate():
 def test_the_rate_is_written_inside_a_real_training_loop(tmp_path):
     """The hook has to fire while Lightning owns the step, not only when called.
 
-    Under accumulation too, where Lightning runs several batches per step --
+    Under accumulation too, where Lightning runs several batches per step:
     the case a hand-driven call cannot show.
     """
     task = SPPTask(

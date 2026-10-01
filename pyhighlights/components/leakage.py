@@ -1,8 +1,8 @@
 """Leakage analysis: what the splits of a corpus share with each other.
 
-Published splits overlap more often than their papers admit -- every
-annotated row of an R2A Hotel aspect also sits in that aspect's training
-file -- and nothing downstream can detect it: a model reports highlight
+Published splits overlap more often than their papers admit. Every annotated
+row of an R2A Hotel aspect also sits in that aspect's training file, and
+nothing downstream can detect it: a model reports highlight
 scores on rows it was trained on and the numbers look ordinary. Detection
 lives here; repair is a preprocessing step, in
 :mod:`pyhighlights.components.preprocessors`.
@@ -116,7 +116,7 @@ class LeakageDetector:
         was trained on, and every number downstream is quietly wrong.
 
         There is no tolerance to set. A shared row is leakage at any rate, and
-        a corpus distributed with one -- R2A is -- is read with
+        a corpus distributed with one, as R2A is, is read with
         :meth:`report`, which says how much it shares without refusing it.
 
         **Between splits only.** A split that holds the same row twice passes

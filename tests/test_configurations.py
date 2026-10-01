@@ -30,7 +30,7 @@ def test_every_registration_in_the_library_resolves():
     never registered, is a whole experiment silently missing from a grid rather
     than an error. Five components are built with a run-time argument, since
     their input size is measured from a backbone and their parameters from a
-    built model -- neither is knowable before the run, so neither is a
+    built model. Neither is knowable before the run, so neither is a
     parameter.
     """
     valid, invalid = Registry.build(directory=Path(pyhighlights.__file__).parent)
@@ -365,7 +365,7 @@ def test_mgr_refuses_a_generator_set_it_cannot_run(update, condition):
 def test_every_architecture_inherits_the_shared_shape():
     """No architecture declares the shape fields for itself.
 
-    Four of them used to -- MCD, MRD, MGR and G-RAT -- and the cost was PR
+    Four of them used to (MCD, MRD, MGR and G-RAT), and the cost was PR
     #48: `encoder_lr` was added to the base and reached FR, DR, DAR and
     GenSPP while the other four silently kept training the encoder at the
     optimizer's rate. Inheritance is the fix, so this asserts the

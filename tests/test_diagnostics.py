@@ -288,8 +288,8 @@ def test_a_phased_model_says_which_phase_a_line_belongs_to(tmp_path, caplog):
 
     A phased model passes each batch through every stage twice, on two
     different selections scored by two different criteria, and it drives its
-    own optimizers -- so it never reaches `Model._step` and has to mark the
-    split itself. A marker that goes missing does not fail: the lines simply
+    own optimizers. It therefore never reaches `Model._step` and has to mark
+    the split itself. A marker that goes missing does not fail: the lines simply
     read as belonging to whatever ran before them.
     """
     from pyhighlights.configurations.keys import GRU_MCD
@@ -351,7 +351,7 @@ def test_the_repaired_rows_are_reported_under_the_selection_they_repaired(caplog
 
     The repair reports from inside `repair_empty`, so a selector that
     described itself afterwards put its own four lines below the count of
-    rows they explain -- reading as the repair of the batch before.
+    rows they explain, which read as the repair of the batch before.
     """
     from pyhighlights.configurations.keys import GRU_FR
 

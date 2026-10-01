@@ -104,7 +104,7 @@ def test_a_tie_is_two_labels_sharing_the_top_count():
 
     - four annotators splitting 2-2 have a top count of *two*, so no tie was
       detected and the label was decided by whichever one `Counter` happened
-      to order first -- silently, with ``ties="drop"`` not firing
+      to order first, silently, with ``ties="drop"`` not firing
     - a single annotator has a top count of *one*, so every row of a
       single-annotator corpus was dropped as a tie
     """
@@ -296,8 +296,8 @@ def test_class_weights_refuse_what_is_not_a_class_index():
 def test_class_weights_refuse_a_count_the_split_contradicts():
     """A class count smaller than the labels is not a count, and said so late.
 
-    `classes=1` over a binary split returned `[2.0]` -- one weight, the other
-    class dropped without a word -- and a non-positive count returned `[]`.
+    `classes=1` over a binary split returned `[2.0]`, one weight with the other
+    class dropped without a word, and a non-positive count returned `[]`.
     Either one reaches training as a weight vector shorter than the model's
     output layer, and fails there about a shape.
     """

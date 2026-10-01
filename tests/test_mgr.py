@@ -2,7 +2,7 @@
 
 Training scores every head, because the generators are there to disagree.
 Inference and every reported metric read one of them, and which one is
-``inference_head`` -- the two paths nothing exercised before this file.
+``inference_head``. These are the two paths this file exercises.
 """
 
 from pathlib import Path

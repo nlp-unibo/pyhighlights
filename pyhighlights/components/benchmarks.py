@@ -1,6 +1,6 @@
 """Benchmarks: several tasks, one report.
 
-A paper's table is not one experiment but a grid of them -- every model over
+A paper's table is not one experiment but a grid of them: every model over
 every corpus, each with its own seeds. A benchmark is that grid: a list of task
 keys, run in order, and one report collecting what each of them found.
 
@@ -109,8 +109,8 @@ class Benchmark:
                     }
                 )
             # After every task rather than after the grid: a process that is
-            # killed mid-run -- a card that falls over, a walltime, the OOM
-            # killer -- otherwise leaves a benchmark directory of finished
+            # killed mid-run (a card that falls over, a walltime, the OOM
+            # killer) otherwise leaves a benchmark directory of finished
             # tasks and no report naming any of them.
             self.serialize(self.report(results))
 

@@ -144,7 +144,7 @@ def test_a_task_tokenizes_the_base_once_with_the_corpus_tokenizer(tmp_path):
 
     It is shared by every example of a run, so it is encoded once. Tokenizing
     it with the collator the corpus uses is what makes its ids comparable to an
-    input's -- a base read by a second tokenizer would put the two texts in
+    input's. A base read by a second tokenizer would put the two texts in
     different vocabularies.
     """
     build_registry()

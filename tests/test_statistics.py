@@ -33,7 +33,7 @@ def test_describe_reports_lengths_and_annotation_density():
     assert report.loc["train", "tokens_max"] == 6.0
 
     # Three marked tokens over the ten the annotated rows hold, and 1.5 marked
-    # tokens per row -- the number the rate alone hides.
+    # tokens per row: the number the rate alone hides.
     assert report.loc["train", "highlight_rate"] == pytest.approx(0.3)
     assert report.loc["train", "highlights_mean"] == pytest.approx(1.5)
 
