@@ -1,5 +1,6 @@
 """What a run wrote down about itself."""
 
+import importlib.metadata
 import json
 from datetime import datetime
 from pathlib import Path
@@ -34,9 +35,22 @@ def test_versions_reports_the_interpreter_and_what_is_installed():
     assert found["python"].count(".") == 2
     # Everything a run needs to compute is installed by the dev extra; an
     # optional package that is absent is left out rather than reported as None.
-    assert {"pyhighlights", "cinnamon-core", "torch", "lightning"} <= set(found)
+    required = {"pyhighlights", "cinnamon-core", "torch", "lightning", "torchmetrics"}
+    assert required <= set(found)
     assert set(found) <= {"python", *PACKAGES}
     assert None not in found.values()
+
+
+def test_an_installed_optional_package_is_recorded(monkeypatch):
+    """transformers is optional, and recorded whenever it is installed."""
+    real = importlib.metadata.version
+    monkeypatch.setattr(
+        importlib.metadata,
+        "version",
+        lambda name: "9.9.9" if name == "transformers" else real(name),
+    )
+
+    assert versions()["transformers"] == "9.9.9"
 
 
 def test_resolve_replaces_a_key_with_the_values_behind_it():

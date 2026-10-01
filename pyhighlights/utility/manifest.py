@@ -2,7 +2,7 @@
 
 A results directory is worth what can be rebuilt from it. Metrics say what
 happened; they do not say what produced them, and a task's own attributes are
-not enough either -- a task holds *keys*, so ``model`` reads
+not enough either. A task holds *keys*, so ``model`` reads
 ``name=model--tags=['fr','gru']`` and the hidden size, the sparsity threshold
 and the learning rate behind that key are nowhere in the record.
 
@@ -16,8 +16,8 @@ or nothing at all.
 The record also names the key that built the component and the arguments the
 caller overrode, which is what makes a run replayable rather than merely
 readable: the key alone rebuilds the registered defaults, not the run that was
-launched. Both come from cinnamon 2.0.3, which annotates every component it
-builds; a component built by hand has neither, and says so with ``null``.
+launched. Both come from cinnamon, which annotates every component it builds;
+a component built by hand has neither, and says so with ``null``.
 """
 
 from __future__ import annotations
@@ -39,7 +39,14 @@ __all__ = [
 
 #: The packages whose version can change a number. Anything else installed
 #: alongside them is noise in a file somebody has to read.
-PACKAGES = ("pyhighlights", "cinnamon-core", "torch", "lightning")
+PACKAGES = (
+    "pyhighlights",
+    "cinnamon-core",
+    "torch",
+    "lightning",
+    "torchmetrics",
+    "transformers",
+)
 
 #: What cinnamon puts on a component it builds. Reported as a record of its
 #: own rather than left among the settings, where it would read as something
@@ -66,14 +73,11 @@ def versions() -> Dict[str, str]:
 #: Where a resolved entry records the registration key it came from.
 #:
 #: Not ``"key"``. A resolved entry is the registration key beside the
-#: configuration's own parameters, flattened into one object, so any name a
-#: parameter can take is a name the key can lose -- and
-#: :class:`~pyhighlights.components.preprocessors.LeakageRemover` takes exactly
-#: this one, to name the column it deduplicates on. Its entry used to read
-#: ``"key": "text"`` with the registration key gone, which
-#: :meth:`~pyhighlights.components.analyzers.PredictionAnalyzer.corpus` then
-#: tried to parse as a key. ``@key`` is not a Python identifier, so no
-#: parameter can ever be called it.
+#: configuration's own parameters, flattened into one object, so a parameter
+#: of the same name would replace the key.
+#: :class:`~pyhighlights.components.preprocessors.LeakageRemover` has a ``key``
+#: parameter, naming the column it deduplicates on. ``@key`` is not a Python
+#: identifier, so no parameter can be called it.
 KEY_FIELD = "@key"
 
 
@@ -92,9 +96,9 @@ def resolve(value: Any) -> Any:
     """Replace every registration key with the values behind it.
 
     Containers keep their shape, so a list of metric keys becomes a list of
-    metric settings in the same order. A key that appears twice -- the same
-    backbone under a selector and a predictor -- is written out twice, which
-    reads better than a file of cross-references.
+    metric settings in the same order. A key that appears twice, such as the
+    same backbone under a selector and a predictor, is written out twice,
+    which reads better than a file of cross-references.
 
     The key itself is recorded under :data:`KEY_FIELD` rather than ``key``, so
     that a configuration with a parameter of that name keeps both.
@@ -118,8 +122,8 @@ def describe(component: Any) -> Dict[str, Any]:
     """The manifest for one built component.
 
     Private attributes are what the run *built* rather than what it was asked
-    for -- an embedding matrix fitted against the training split is among them
-    -- and they are no more a setting than the trained weights are.
+    for, such as an embedding matrix fitted against the training split. They
+    are no more a setting than the trained weights are.
 
     ``key`` and ``build_args`` are what cinnamon wrote on the component when it
     built it, and are ``null`` for a component nobody built through a registry.
