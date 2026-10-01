@@ -268,9 +268,10 @@ class GenSPPTrainer:
         self.n_generations = n_generations
         self.population_size = population_size
         #: How many couples a generation draws, as a share of the population.
-        #: Each couple crosses into two children, so the release's 0.5 adds one
-        #: child per member: ``int(0.5 * 50) = 25`` couples and 50 children,
-        #: which then compete with their 50 parents for 50 places.
+        #: Each couple crosses into two children, so 0.5, the reference
+        #: implementation's value, adds one child per member:
+        #: ``int(0.5 * 50) = 25`` couples and 50 children, which then compete
+        #: with their 50 parents for 50 places.
         self.selection_rate = selection_rate
         self.mutation_probability = mutation_probability
         self.mutation_std = mutation_std
@@ -325,8 +326,8 @@ class GenSPPTrainer:
         ``task_loss_limit`` is the cross entropy above which a candidate is not
         competing at all: it gets the floor of 1.0 whatever it selected, so the
         search cannot buy a sparse selection with a model that has stopped
-        classifying. The paper sets it per corpus: 0.1 on the toy corpus,
-        which is nearly solved, and 0.6 on HateXplain, which is not.
+        classifying. Set it per corpus: a corpus the predictor nearly solves
+        supports a lower limit than one it does not.
 
         Below the limit the objective is
         ``1 - sqrt((1 - selection_rate) * (1 - task_loss))``, and the fitness

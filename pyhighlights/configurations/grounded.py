@@ -57,9 +57,8 @@ class GRUGroundedConfig(SPPModelConfig):
 
     The knowledge sparsity term is registered and left out of the default
     list: its target is the mean share of a base that one example
-    instantiates, which differs per corpus by a factor of four, so a study
-    that wants it states its own threshold rather than inheriting a number
-    that fits nothing.
+    instantiates, which differs per corpus. A study that wants it states its
+    own threshold rather than inheriting a number that fits nothing.
     """
 
     name: str = Param("grounded")

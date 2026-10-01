@@ -101,7 +101,8 @@ class GRUGenSPPTrainerConfig(Configuration):
     n_generations: int = Param(100, ge=0)
     population_size: int = Param(50, ge=2)
     #: Couples per generation as a share of the population. Each crosses into
-    #: two children, so the release's 0.5 adds one child per member.
+    #: two children, so 0.5, the reference implementation's value, adds one
+    #: child per member.
     selection_rate: float = Param(0.5, gt=0.0, le=1.0)
     mutation_probability: float = Param(1.0, gt=0.0, le=1.0)
     mutation_std: float = Param(0.05, gt=0.0)
@@ -111,9 +112,9 @@ class GRUGenSPPTrainerConfig(Configuration):
     seed: int | None = Param(None)
     devices: List[str] = Param(["cpu"])
     """One worker per device. ``["cpu"] * 8`` is eight candidates at once on
-    eight cores; ``["cuda:0", "cuda:1"]`` is a node's cards. A candidate is
+    eight cores; ``["cuda:0", "cuda:1"]`` is a node's two GPUs. A candidate is
     small enough that a device runs a whole one. CPU workers are processes and
-    CUDA workers are threads -- see ``GenSPPTrainer._score`` for why."""
+    CUDA workers are threads, and ``GenSPPTrainer._score`` explains why."""
 
 
 @register_class(
@@ -135,8 +136,8 @@ class TransformerGenSPPTrainerConfig(GRUGenSPPTrainerConfig):
 class ToyGenSPPTrainerConfig(GRUGenSPPTrainerConfig):
     """A search small enough to finish: two candidates, one generation.
 
-    Nothing here is a sensible experiment. It exists so the wiring -- corpus,
-    search, scoring, serialization -- can be exercised in seconds.
+    Nothing here is a sensible experiment. It exists so the wiring of corpus,
+    search, scoring and serialization can be exercised in seconds.
     """
 
     n_generations: int = Param(1, ge=0)
