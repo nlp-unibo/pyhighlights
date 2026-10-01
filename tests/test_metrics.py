@@ -30,6 +30,8 @@ from pyhighlights.utility.metrics import (
     BinaryHighlightRecall,
     BoundMetric,
     ClassF1Score,
+    EmptySetAccuracy,
+    ExactSetMatch,
     SelectionRate,
     SelectionSize,
     SelectionSpans,
@@ -484,3 +486,21 @@ def test_a_logged_name_is_refused_when_two_values_would_share_it():
     ]:
         with pytest.raises(ValueError, match="more than one value"):
             check_names(losses, metrics)
+
+
+@pytest.mark.parametrize("metric", [SelectionRate, SelectionSize, SelectionSpans])
+def test_a_selection_metric_with_no_document_reports_nan(metric):
+    """Zero would report a model that kept nothing."""
+    selection = metric()
+    selection.update(th.ones((2, 3)), th.zeros((2, 3)))
+
+    assert th.isnan(selection.compute())
+
+
+@pytest.mark.parametrize("metric", [ExactSetMatch, EmptySetAccuracy])
+def test_a_set_metric_with_no_annotated_example_reports_nan(metric):
+    """Zero would report every set as wrong."""
+    sets = metric()
+    sets.update(th.ones((2, 3)), th.full((2, 3), -1))
+
+    assert th.isnan(sets.compute())

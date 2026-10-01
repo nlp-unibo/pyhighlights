@@ -49,10 +49,10 @@ class ClassF1Score(MulticlassF1Score):
     """F1 of one class rather than an average over all of them.
 
     Macro F1 over two classes is half the majority class, and on a corpus
-    where one class is 99.5% of the rows that half carries the score: a model
-    that answers "negative" to everything reports 0.50 while finding nothing.
-    Averaging is the wrong summary there -- what the run is about is the rare
-    class, so this reports it alone.
+    where one class is nearly every row that half carries the score: a model
+    that answers "negative" to everything reports about 0.50 while finding
+    nothing. Averaging is the wrong summary there. What the run is about is
+    the rare class, so this reports it alone.
 
     ``pos_label`` names that class. The predictor emits one logit per class,
     which is why this is a multiclass metric restricted to one class rather
@@ -97,7 +97,7 @@ class HighlightMetric(Metric):
         expected = (target == self.pos_label) & valid
 
         self.tp += (predicted & expected).sum()
-        self.fp += (predicted & ~expected & valid).sum()
+        self.fp += (predicted & ~expected).sum()
         self.fn += (~predicted & expected).sum()
 
 
@@ -106,18 +106,16 @@ class BinaryHighlightF1Score(HighlightMetric):
 
     The denominator is zero when no annotated position was marked, either by
     the corpus or by the model. Two ways to reach it: the metric was never
-    updated, or every position it saw was a true negative -- a split with no
+    updated, or every position it saw was a true negative: a split with no
     annotations, or one whose rows annotate that nothing is a highlight and a
     model that selected nothing on them.
 
-    Both are the same statement -- no highlight was asked for and none was
-    offered -- and ``nan`` is what says it. Returning 0.0, which is what
+    Both are the same statement, that no highlight was asked for and none was
+    offered, and ``nan`` is what says it. Returning 0.0, which is what
     torchmetrics' own ``zero_division`` default does, would be a *score*, and a
     score of zero says the model got everything wrong. Returning 1.0 would say
     it got everything right for selecting nothing. Neither happened.
 
-    An earlier comment here claimed an unannotated row still counts a false
-    positive, so that only an unused metric could divide by zero. It does not:
     :meth:`HighlightMetric.update` masks predictions by ``valid``, so a row the
     corpus does not annotate contributes to no counter at all.
     """
@@ -164,7 +162,7 @@ class BinaryHighlightRecall(HighlightMetric):
 class SelectionMetric(Metric):
     """Per-sample selection statistic over the tokens a document actually has.
 
-    ``target`` is the **padding mask** -- 1 for a real token, 0 for padding --
+    ``target`` is the **padding mask**, 1 for a real token and 0 for padding,
     and not an annotation. A selection statistic is about the document, so it
     is defined whether or not the corpus annotated anything, which is why the
     registered binding names ``mask`` rather than ``highlight_true``.
@@ -172,8 +170,12 @@ class SelectionMetric(Metric):
     The distinction is the whole metric. Counting padding makes a rate depend
     on the widest row in the batch rather than on the document: a 6-token
     selection out of a 34-token document is 18%, and reads as 6% once 67
-    columns of padding join the denominator. Sizes survive that -- padding adds zero to
-    a sum -- and rates do not.
+    columns of padding join the denominator. Sizes are unaffected, since
+    padding adds zero to a sum, and rates are not.
+
+    ``nan`` where no document had a token, as for
+    :class:`BinaryHighlightF1Score`: zero would report a model that kept
+    nothing.
     """
 
     is_differentiable = False
@@ -195,34 +197,30 @@ class SelectionMetric(Metric):
 
         ``selected`` is ``[B, T]`` with every padded position already zeroed,
         and ``length`` is ``[B]``; both cover only the documents that have a
-        token. A subclass sums, divides, or reads the positions themselves --
-        a count of spans is not recoverable from a total, which is why this
+        token. A subclass sums, divides, or reads the positions themselves. A
+        count of spans is not recoverable from a total, which is why this
         takes the row rather than its sum.
         """
         raise NotImplementedError
 
     def update(self, preds: th.Tensor, target: th.Tensor) -> None:
-        # Over the batch rather than a row at a time. The loop this replaces
-        # cost 2.36 ms per batch of 64 against a 54 ms training step, all of it
-        # Python: the arithmetic is two masked sums.
         valid = target > 0
         length = valid.sum(dim=-1)
-        # A row of pure padding has no selection rate. Excluded rather than
-        # counted as zero, which is what the loop did by skipping it.
+        # A row of pure padding has no selection rate, so it is excluded
+        # rather than counted as zero.
         counted = length > 0
         if not counted.any():
             return
         # `where` rather than a multiply: a padded position is dropped whatever
-        # it holds, and `0 * nan` is `nan`. The loop this replaces never looked
-        # at those positions, so neither does this.
+        # it holds, and `0 * nan` is `nan`.
         selected = th.where(valid, preds, th.zeros_like(preds))
         self.value += self.reduce(selected[counted], length[counted]).sum().detach()
         # On the device, like the states themselves: `int()` here would force a
-        # host synchronisation on every batch, which the loop never did.
+        # host synchronisation on every batch.
         self.samples += counted.sum()
 
     def compute(self) -> th.Tensor:
-        return self.value / self.samples if self.samples > 0 else self.value
+        return self.value / self.samples
 
 
 class SelectionRate(SelectionMetric):
@@ -283,6 +281,9 @@ class KnowledgeSetMetric(Metric):
     marks it, and it is skipped rather than counted as an empty set. That
     distinction is the whole point of the knowledge axis carrying ``-1`` and
     ``0`` as different values.
+
+    ``nan`` where no example was annotated, as for
+    :class:`BinaryHighlightF1Score`: zero would report every set as wrong.
     """
 
     is_differentiable = False
@@ -312,7 +313,7 @@ class KnowledgeSetMetric(Metric):
         raise NotImplementedError
 
     def compute(self) -> th.Tensor:
-        return self.hits / self.examples if self.examples > 0 else self.hits
+        return self.hits / self.examples
 
 
 class ExactSetMatch(KnowledgeSetMetric):
