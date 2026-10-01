@@ -55,7 +55,8 @@ class DR(SPP):
             raise ValueError("scale_floor must be in (0, 1]")
         # A selection that keeps almost nothing would otherwise stop the
         # predictor entirely, and a predictor that never moves cannot tell the
-        # selector which tokens were worth keeping. The paper's floor.
+        # selector which tokens were worth keeping. The reference
+        # implementation's floor.
         self.scale_floor = scale_floor
         self.predictor_rates: Dict[int, float] = {}
         #: ``[kept, valid]`` token counts of each training batch since the
