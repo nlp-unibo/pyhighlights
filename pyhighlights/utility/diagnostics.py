@@ -62,12 +62,12 @@ def describe(value: Any) -> str:
     """One line for one thing the pipeline held.
 
     A tensor reports the shape, the dtype, the device, how many entries are
-    not finite and the range they cover. A mask, meaning a batch and one axis
-    of nothing but zeros and ones, also reports how many are on, since every
-    mask covers zero to one and the count is what separates two of them. That
-    is enough to see a mask that is neither zero nor one, a selection the
-    predictor's axis did not keep, a selection rate of 1.0 at the first batch,
-    or a ``nan`` inside a pooled state, none of which a metric shows. A
+    not finite and the range they cover. A mask is a batch and one axis of
+    nothing but zeros and ones. A mask also reports how many entries are on,
+    because every mask covers zero to one and only the count separates two
+    masks. These fields show a mask that is neither zero nor one, a selection
+    the predictor's axis did not keep, a selection rate of 1.0 at the first
+    batch, or a ``nan`` inside a pooled state. No metric shows these. A
     frame reports its rows, its columns and how many rows carry an annotation.
     Anything else reports itself, shortened, since a stage is free to name a
     number or a string beside its tensors.
