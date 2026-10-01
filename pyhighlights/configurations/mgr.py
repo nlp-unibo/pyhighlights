@@ -26,8 +26,8 @@ MGR_COMPONENT = "pyhighlights.components.models.spp.mgr.MGR"
 class GRUMGRConfig(SPPModelConfig):
     name: str = Param("mgr")
     #: One backbone and one selector *per generator*, where every other
-    #: architecture has one of each -- which is the whole of MGR. The base
-    #: class cannot carry these as defaults for that reason.
+    #: architecture has one of each. That is the whole of MGR, so the base
+    #: class cannot carry these as defaults.
     selector_backbones: List[RegistrationKey[SPPBackbone]] = Param(
         [GRU_BACKBONE, GRU_BACKBONE, GRU_BACKBONE]
     )
@@ -38,6 +38,9 @@ class GRUMGRConfig(SPPModelConfig):
     #: backbone, so this is required rather than optional.
     predictor_backbone: RegistrationKey[SPPBackbone] = Param(GRU_BACKBONE)
     inference_head: int = Param(0, ge=0)
+    #: How the heads' losses combine. ``"mean"`` divides them by the number of
+    #: heads, which rescales the logged loss. Under Adam it barely changes
+    #: training, since an Adam update does not depend on the loss scale.
     loss_reduction: Literal["sum", "mean"] = Param("sum")
 
     @classmethod

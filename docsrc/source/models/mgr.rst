@@ -8,15 +8,18 @@ Problem
 -------
 
 A single generator is a single point of failure.
-Whatever subset it settles on early becomes the only text the predictor ever reads, so the predictor adapts to that subset and reports it as correct, which is the interlocking loop of :doc:`../concepts/select-then-predict` in its simplest form.
-The paper puts a second failure beside it: a generator can collapse onto a subset the predictor happens to handle well, and once it has, nothing in the objective asks for anything else.
+Whatever subset it settles on early becomes the only text the predictor ever reads.
+The predictor adapts to that subset and reports it as correct, which is the interlocking loop of :doc:`../concepts/select-then-predict` in its simplest form.
+The paper adds a second failure: a generator can collapse onto a subset the predictor happens to handle well.
+Once it has, nothing in the objective asks for anything else.
 
 Method
 ------
 
 MGR runs several generators against one shared predictor.
 Each generator holds its own encoder and its own selection head, each proposes its own highlight of the same document, and the shared predictor is trained on all of them, so a degenerate generator is one voice among several rather than the only one.
-Since the predictor has to classify from every proposal, it cannot specialise on the private subset of any single generator, and a generator proposing something uninformative is corrected by a predictor the others keep honest.
+Since the predictor has to classify from every proposal, it cannot specialise on the private subset of any single generator.
+A generator proposing something uninformative is corrected by a predictor the others keep honest.
 
 .. mermaid::
 
@@ -39,17 +42,24 @@ Since the predictor has to classify from every proposal, it cannot specialise on
        class X,H1,H2,H3,Y value
 
 The learning rates are part of the method rather than a detail of it.
-Generator :math:`i` trains at :math:`i \cdot \eta` and the predictor at :math:`\eta / n` for :math:`n` generators, so the generators move at rates that differ by design while the predictor moves slower than any of them, and a predictor that cannot chase a generator's proposal is a predictor that cannot interlock with it.
+Generator :math:`i` trains at :math:`i \cdot \eta` and the predictor at :math:`\eta / n` for :math:`n` generators, as the paper sets them.
+The generators move at rates that differ by design, while the predictor moves slower than any of them.
+A predictor that cannot chase a generator's proposal cannot interlock with it.
 
 .. math::
 
    \mathcal{L} = \sum_{i=1}^{n} \Big[ \mathcal{L}_{\text{cls}}\big(p_\phi(y \mid h_i \odot x),\, y\big) + \lambda_s \Omega_s(h_i) + \lambda_c \Omega_c(h_i) \Big]
 
 Here :math:`h_i` is the highlight of generator :math:`i`, and :math:`\Omega_s` and :math:`\Omega_c` are the sparsity and contiguity penalties written out on the :doc:`fr` page.
-Every head is scored by the same three criteria, and what the sum over heads does is what ``loss_reduction`` controls: ``"sum"`` is the default and the reference implementation's, while ``"mean"`` divides by the number of heads so the total does not grow with it.
+Every head is scored by the same three criteria, and ``loss_reduction`` sets how the heads combine.
+``"sum"`` is the default and the reference implementation's.
+``"mean"`` divides the total and every term by the number of heads, so the logged loss does not grow with them.
+Under Adam, the default optimizer, this barely changes training, because an Adam update does not depend on the scale of the loss.
+Under an optimizer such as SGD, it also divides every gradient by the number of heads, the generators' included.
 
 Evaluation reports one head.
-The generators converge on the same selection, so reporting all of them would report one highlight several times, and ``inference_head`` names the generator that selects at validation and test time.
+The generators converge on the same selection, so reporting all of them would report one highlight several times.
+``inference_head`` names the generator that selects at validation and test time.
 
 Training
 --------
@@ -76,15 +86,29 @@ Implementation
    * - One head at evaluation
      - ``MGR.forward_one_head``, ``validation_forward``, ``test_forward``
    * - Metrics scored on one head
-     - ``MGR.update_metrics``
+     - ``SPP.update_metrics``, which scores ``inference_head``
    * - Sum or mean over heads
      - ``MGR.compute_loss``
    * - Every head selected and predicted
      - ``SPP.forward``, which loops over the selectors
 
-The rates are handed to ``build_optimizer`` as scales rather than written into the groups, so a model that also sets ``encoder_lr`` splits each group in two and keeps its own scale on both halves.
-Three conditions are declared on the configuration rather than checked in the model: one backbone per generator, at least two generators, and an ``inference_head`` that exists.
+The rates are handed to ``build_optimizer`` as scales rather than written into the groups.
+A model that also sets ``encoder_lr`` therefore splits each group in two and keeps its own scale on both halves.
+Three conditions are declared on the configuration: one backbone per generator, at least two generators, and an ``inference_head`` that exists.
 Since the registry validates conditions while it expands keys, a grid over the generator count drops the impossible combinations before anything trains.
+
+Differences from the reference implementation
+---------------------------------------------
+
+The reference implementation differs from the paper in two places, and this library follows the paper in both.
+
+First, the script its README runs, ``norm_beer.py``, trains generator :math:`k`, counted from zero, at :math:`\eta (1 + k \lambda)`, with ``--lr_lambda`` :math:`\lambda` defaulting to 3.
+The paper sets generator :math:`i`, counted from one, to :math:`i \cdot \eta`, and so does ``MGR.configure_optimizers``.
+
+Second, the reference implementation's default test path, ``--average_test 1``, averages the generators' selection probabilities and samples a mask from that average.
+The test selection is therefore random.
+This library reports the selection of ``inference_head`` alone, as the paper does when it keeps only the first generator.
+The reference implementation does the same under ``--average_test 0``.
 
 Configuration
 -------------

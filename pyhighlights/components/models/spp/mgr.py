@@ -16,8 +16,10 @@ class MGR(SPP):
     equilibrium. Inference reports one head, since the generators converge on
     the same selection.
 
-    Generator ``i`` uses learning rate ``i * eta``; the predictor uses
-    ``eta / n`` for ``n`` generators, following the original training policy.
+    Generator ``i`` uses learning rate ``i * eta``, and the predictor uses
+    ``eta / n`` for ``n`` generators. These are the paper's rates.
+    ``docsrc/source/models/mgr.rst`` lists where the reference implementation
+    differs from the paper.
 
     Liu, Wang, Wang, Li, Li, Zhang and Qiu, 2023, *MGR: Multi-Generator Based
     Rationalization*, ACL 2023, 12771-12787.
@@ -27,7 +29,7 @@ class MGR(SPP):
 
     def __init__(
         self,
-        predictor_backbone: RegistrationKey[SPPBackbone] | None = None,
+        predictor_backbone: RegistrationKey[SPPBackbone] | None,
         inference_head: int = 0,
         loss_reduction: Literal["sum", "mean"] = "sum",
         **kwargs,
