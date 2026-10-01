@@ -37,9 +37,9 @@ __all__ = ["active", "describe", "logger", "record", "writing"]
 #: rather than in a file adds a handler to this and sets its level.
 logger = logging.getLogger("pyhighlights.diagnostics")
 # Explicitly, rather than inheriting: a level of NOTSET is answered by the root
-# logger, so `logging.basicConfig(level=DEBUG)` -- which a caller writes to see
-# this library's own progress messages -- would otherwise turn every stage on
-# for a full run, describing every tensor of every batch and bypassing the
+# logger. A caller writes `logging.basicConfig(level=DEBUG)` to see this
+# library's own progress messages, and that call would otherwise turn every
+# stage on for a full run, describing every tensor of every batch and bypassing the
 # bound `SPPTask` refuses a run without. Turning the record on is a decision
 # about this logger, taken here or by `writing`.
 logger.setLevel(logging.WARNING)
@@ -62,12 +62,12 @@ def describe(value: Any) -> str:
     """One line for one thing the pipeline held.
 
     A tensor reports the shape, the dtype, the device, how many entries are
-    not finite and the range they cover; a mask -- a batch and one axis of
-    nothing but zeros and ones -- also reports how many are on, since every
-    mask covers zero to one and the count is what separates two of them. That
-    is enough to see a mask that is neither zero nor one, a selection the
-    predictor's axis did not keep, a selection rate of 1.0 at the first batch,
-    or a ``nan`` inside a pooled state -- none of which a metric shows. A
+    not finite and the range they cover. A mask is a batch and one axis of
+    nothing but zeros and ones. A mask also reports how many entries are on,
+    because every mask covers zero to one and only the count separates two
+    masks. These fields show a mask that is neither zero nor one, a selection
+    the predictor's axis did not keep, a selection rate of 1.0 at the first
+    batch, or a ``nan`` inside a pooled state. No metric shows these. A
     frame reports its rows, its columns and how many rows carry an annotation.
     Anything else reports itself, shortened, since a stage is free to name a
     number or a string beside its tensors.
@@ -77,8 +77,8 @@ def describe(value: Any) -> str:
         if value.numel():
             unfinite = int((~th.isfinite(value)).sum())
             # Not indexing unless something is not finite: a boolean index
-            # over a transformer's states copies fifty megabytes to find two
-            # numbers, and almost every tensor here is finite throughout.
+            # copies every kept entry, and almost every tensor here is finite
+            # throughout.
             kept = value if not unfinite else value[th.isfinite(value)]
             if kept.numel():
                 low, high = kept.min(), kept.max()
@@ -119,14 +119,13 @@ def record(stage: str, /, **values: Any) -> None:
     """Report what one stage held, under the name that stage goes by.
 
     Formatting happens only when something is listening: every value here is
-    a tensor the forward pass is holding anyway, and describing one costs a
-    reduction over it -- measured at 0.2 microseconds per call while nothing
-    listens against 0.1 millisecond per tensor while something does, which is
-    the whole reason a diagnosed run has to be a bounded one.
+    a tensor the forward pass is holding anyway. Describing one costs a
+    reduction over it, so a diagnosed run has to be a bounded one.
 
     ``stage`` is positional-only because the values are named by whatever the
     caller is reporting: a corpus whose splits include one called ``stage``
-    would otherwise crash the run inside the call meant to explain it."""
+    would otherwise crash the run inside the call meant to explain it.
+    """
     if not active():
         return
     for name, value in values.items():
