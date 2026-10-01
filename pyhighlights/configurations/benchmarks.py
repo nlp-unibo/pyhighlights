@@ -18,9 +18,9 @@ class BenchmarkConfig(Configuration):
     save_path: str | None = Param(None)
     strict: bool = Param(False)
     #: Passed to every task this benchmark builds, so a registered grid can be
-    #: run differently without registering a second one -- one batch and one
+    #: run differently without registering a second one: one batch and one
     #: seed to check that every cell holds together, or a smaller batch for a
-    #: card that cannot fit the registered one. Each task's manifest records
+    #: GPU that cannot fit the registered one. Each task's manifest records
     #: what it was built with, so an overridden run says so.
     task_args: Dict[str, Any] = Param({})
 
