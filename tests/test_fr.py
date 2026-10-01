@@ -14,6 +14,7 @@ from pyhighlights.components.models.spp import (
     SPPSelector,
 )
 from pyhighlights.configurations.keys import GRU_BACKBONE, GRU_FR, MLP_SELECTOR
+from tests.data_parallel import processes_agree
 
 NAMESPACE = "tests"
 
@@ -134,3 +135,8 @@ def test_fr_refuses_more_than_one_selector():
             selector_backbones=[GRU_BACKBONE, GRU_BACKBONE],
             selectors=[MLP_SELECTOR, MLP_SELECTOR],
         )
+
+
+def test_every_process_logs_the_loss_of_the_whole_split(tmp_path):
+    """Each process validates its own shard, and the logged loss covers both."""
+    assert processes_agree("GRU_FR", tmp_path)

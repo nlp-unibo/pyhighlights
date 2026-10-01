@@ -2,7 +2,8 @@
 
 Lightning's ``ddp`` launcher starts the second process by running the script
 again, so the fit runs as this script rather than inside pytest. Each process
-saves its parameters, and :func:`processes_agree` compares them.
+saves its parameters and the validation loss it logged, and
+:func:`processes_agree` compares them.
 """
 
 import json
@@ -15,7 +16,8 @@ import torch as th
 
 
 def processes_agree(key_name: str, directory: Path, **overrides) -> bool:
-    """Whether both processes of a two-process fit hold the same parameters.
+    """Whether both processes of a two-process fit hold the same parameters
+    and log the same validation loss.
 
     ``key_name`` names a model key in :mod:`pyhighlights.configurations.keys`,
     and ``overrides`` are passed to the model's ``Registry.from_key``. The fit
@@ -32,7 +34,10 @@ def processes_agree(key_name: str, directory: Path, **overrides) -> bool:
     )
     first = th.load(directory / "rank0.pt")
     second = th.load(directory / "rank1.pt")
-    return all(th.equal(a, b) for a, b in zip(first, second, strict=True))
+    return th.equal(first["val_loss"], second["val_loss"]) and all(
+        th.equal(a, b)
+        for a, b in zip(first["parameters"], second["parameters"], strict=True)
+    )
 
 
 if __name__ == "__main__":
@@ -43,10 +48,13 @@ if __name__ == "__main__":
     from pyhighlights.components.tasks import SPPTask
     from pyhighlights.configurations import keys
 
-    class SaveParameters(L.Callback):
+    class SaveState(L.Callback):
         def on_train_end(self, trainer, model):
-            parameters = [parameter.detach() for parameter in model.parameters()]
-            th.save(parameters, directory / f"rank{trainer.global_rank}.pt")
+            state = {
+                "parameters": [parameter.detach() for parameter in model.parameters()],
+                "val_loss": trainer.callback_metrics["val_loss"],
+            }
+            th.save(state, directory / f"rank{trainer.global_rank}.pt")
 
     key = getattr(keys, sys.argv[1])
     directory = Path(sys.argv[2])
@@ -59,15 +67,17 @@ if __name__ == "__main__":
         batch_size=8,
         trainer_args={"accelerator": "cpu", "max_epochs": 1},
     )
+    loaders = task.loaders(task.splits())
     L.Trainer(
         accelerator="cpu",
         devices=2,
         strategy="ddp",
         max_epochs=2,
         limit_train_batches=2,
-        limit_val_batches=0,
+        limit_val_batches=2,
+        num_sanity_val_steps=0,
         logger=False,
         enable_checkpointing=False,
         enable_progress_bar=False,
-        callbacks=[SaveParameters()],
-    ).fit(Registry.from_key(key, **overrides), task.loaders(task.splits())["train"])
+        callbacks=[SaveState()],
+    ).fit(Registry.from_key(key, **overrides), loaders["train"], loaders["val"])
