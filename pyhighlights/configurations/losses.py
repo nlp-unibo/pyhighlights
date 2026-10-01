@@ -283,7 +283,7 @@ class RemainingDiscrepancyLossConfig(DiscrepancyLossConfig):
     """MRD's criterion: the complement should stop looking like the whole input.
 
     Scored between the complement and the full input rather than between the
-    highlight and the full input, and **maximized** -- the one term in the
+    highlight and the full input, and **maximized**. It is the one term in the
     library a model wants large, which is what the negative coefficient says.
     A coefficient is otherwise non-negative, since a loss is otherwise
     something to minimize.
