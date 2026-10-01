@@ -48,31 +48,12 @@ class Benchmark:
         self.name = name
         self.save_path = Path(save_path) if save_path is not None else Path("results")
         self.strict = strict
-        # Given to every task the benchmark builds. What it is for is running
-        # a grid differently without registering a second one: one batch and
-        # one seed to check that every cell holds together, or a smaller batch
-        # for a card that cannot fit the registered one. Each task's manifest
-        # records what it was built with, so a run overridden this way says so
-        # rather than looking like the registered configuration.
+
         self.task_args = dict(task_args or {})
 
     @property
     def directory(self) -> Path:
         return self.save_path / self.name
-
-    def build(self, key: RegistrationKey[Task]) -> Task:
-        """The task, told to save inside the benchmark's own directory.
-
-        ``save_path`` is the benchmark's own, whatever ``task_args`` says.
-        The report is written here and names these tasks, so a task writing
-        somewhere else would leave ``benchmark.json`` pointing at results no
-        analyzer reading this directory can find.
-        """
-        return Registry.from_key(
-            key,
-            expected_type=Task,
-            **{**self.task_args, "save_path": str(self.directory)},
-        )
 
     def report(self, results: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
         """The grid so far, and the settings it was run with.
@@ -96,7 +77,13 @@ class Benchmark:
     def run(self) -> Dict[str, Any]:
         results: List[Dict[str, Any]] = []
         for key in self.tasks:
-            task = self.build(key)
+            # The benchmark's directory wins over `task_args`: the report names
+            # these tasks, and analyzers read their results from this directory.
+            task = Registry.from_key(
+                key,
+                expected_type=Task,
+                **{**self.task_args, "save_path": str(self.directory)},
+            )
             logger.info("%s: running %s", self.name, task.name)
             try:
                 # Nested rather than spread: what a task reports is its own,
