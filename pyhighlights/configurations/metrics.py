@@ -7,10 +7,10 @@ depending on what it is handed.
 
 Classification metrics are registered per class count, because
 ``torchmetrics`` needs to know: Beer, Hotel, Movies and Toy have two classes,
-HateXplain has three. Both use ``task="multiclass"`` -- a predictor emits one
+HateXplain has three. Both use ``task="multiclass"``: a predictor emits one
 logit per class, including when there are two, and the ``"binary"`` task wants
 a single score per sample instead. Highlight and selection metrics are
-class-agnostic -- a token is selected or it is not -- so they are registered
+class-agnostic, since a token is selected or it is not, so they are registered
 once and used by every corpus.
 """
 
@@ -100,7 +100,7 @@ class MulticlassF1Config(F1Config):
 class ClassF1Config(Configuration):
     """F1 of one class, for a corpus an average would flatter.
 
-    ``pos_label`` is the class the run is about -- the rare one, on a corpus
+    ``pos_label`` is the class the run is about: the rare one, on a corpus
     skewed enough for macro F1 to be mostly the majority class.
     """
 
@@ -397,7 +397,7 @@ class LinkF1Config(Configuration):
     """Per-link F1, micro-averaged: every (example, entry) link counts once.
 
     The comparable headline number. Recall is the one to watch inside it: an
-    example can instantiate a dozen entries, so a model that names one correct
+    example can instantiate many entries, so a model that names one correct
     entry and stops looks precise and has missed the case.
     """
 
@@ -417,7 +417,7 @@ class LinkMacroF1Config(LinkF1Config):
 
     Reported beside the micro average rather than instead of it, and it is the
     one that can see a rare entry. Micro weights every link equally, so the
-    entries that fire often carry it -- and the entry that decides a case is
+    entries that fire often carry it. The entry that decides a case is
     frequently the one that fires on a handful of examples.
     """
 

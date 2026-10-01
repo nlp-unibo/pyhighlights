@@ -30,10 +30,10 @@ LOSS_COMPONENT = "pyhighlights.utility.losses.Loss"
 class CrossEntropyConfig(Configuration):
     """Cross entropy, weighted per class where a corpus needs it."""
 
-    #: One weight per class, or nothing for an unweighted loss. A corpus with
-    #: 106 positives in 20,417 sentences is answered correctly by a model that
-    #: never predicts one, so the numbers a class-imbalanced corpus needs are
-    #: part of its configuration rather than a detail of its training.
+    #: One weight per class, or nothing for an unweighted loss. A heavily
+    #: imbalanced corpus is answered correctly by a model that never predicts
+    #: the rare class, so the numbers such a corpus needs are part of its
+    #: configuration rather than a detail of its training.
     weight: List[float] | None = Param(None)
 
 
@@ -62,6 +62,10 @@ class KnowledgeBCEConfig(Configuration):
     """A binary criterion carrying one positive weight per knowledge entry."""
 
     ignore_index: int = Param(-1)
+    #: One factor per knowledge entry, multiplying the cost of missing a
+    #: positive there. ``ClassWeightsTask`` with ``KNOWLEDGE_WEIGHTS`` computes
+    #: them from a split and writes them to its results, and a study copies
+    #: them here.
     pos_weight: List[float] | None = Param(None)
 
 
@@ -76,7 +80,7 @@ class MaskedBCEConfig(Configuration):
 
     ignore_index: int = Param(-1)
     #: One factor per position, multiplying the cost of missing a positive
-    #: there. Read off the corpus by ``KnowledgeWeights`` rather than typed.
+    #: there.
     pos_weight: List[float] | None = Param(None)
 
 
@@ -199,8 +203,8 @@ class KnowledgeSupervisionLossConfig(LossConfig):
     is frequently the rare one, and a shared weight cannot tell it from the
     entry that fires on half the corpus.
 
-    It scores ``knowledge_score``, the difference of the comparer's two logits
-    -- the same quantity the gate is taken from, so the term and the gate
+    It scores ``knowledge_score``, the difference of the comparer's two
+    logits. The gate is taken from the same quantity, so the term and the gate
     cannot disagree.
     """
 

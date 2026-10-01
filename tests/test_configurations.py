@@ -306,15 +306,35 @@ def test_a_task_refuses_two_embedding_sources_before_it_is_built():
     The registry validates conditions while it expands keys, so a grid that
     varies the embedding source drops the impossible combination up front.
     """
-    config = ToyTaskConfig.default()
-    assert config.validate_conditions(strict=False).passed
+    assert ToyTaskConfig.default().validate_conditions(strict=False).passed
 
-    config.pretrained_model_card = "prajjwal1/bert-tiny"
-    config.embeddings = "vectors.txt"
-    result = config.validate_conditions(strict=False)
+    pairs = [
+        {"pretrained_model_card": "prajjwal1/bert-tiny", "embeddings": "vectors.txt"},
+        {"pretrained_model_card": "prajjwal1/bert-tiny", "one_hot_embeddings": 8},
+        {"embeddings": "vectors.txt", "one_hot_embeddings": 8},
+    ]
+    for pair in pairs:
+        config = ToyTaskConfig.default()
+        for name, value in pair.items():
+            setattr(config, name, value)
+        result = config.validate_conditions(strict=False)
 
-    assert not result.passed
-    assert "one_embedding_source" in result.error_message
+        assert not result.passed, pair
+        assert "one_embedding_source" in result.error_message
+
+
+def test_a_task_configuration_declares_every_task_parameter():
+    """A parameter a key cannot carry is one no registered run can record."""
+    import inspect
+
+    from pyhighlights.components.tasks import SPPTask
+
+    parameters = set(inspect.signature(SPPTask.__init__).parameters) - {
+        "self",
+        "kwargs",
+    }
+
+    assert parameters - set(ToyTaskConfig.model_fields) == set()
 
 
 @pytest.mark.parametrize(
