@@ -49,19 +49,16 @@ class TransformerBackboneConfig(Configuration):
 class FrozenTransformerBackboneConfig(TransformerBackboneConfig):
     """The same encoder with its weights held, as a key rather than an argument.
 
-    ``freeze_transformer`` has always been a parameter, but a parameter behind
-    a key cannot be reached from the outside: a model names a backbone key, and
-    build arguments reach the component a caller builds, not the ones built
-    underneath it. Freezing therefore meant registering a configuration of your
-    own, which every study that wanted a cheap run did separately.
+    A model names a backbone key, and build arguments reach the component a
+    caller builds, not the ones built underneath it. ``freeze_transformer``
+    is therefore set by this key rather than passed from the outside.
 
     A frozen encoder is a different experiment, not a cheaper approximation of
-    the same one -- the selector reads representations nothing adapted to its
+    the same one: the selector reads representations nothing adapted to its
     task. Two places it is the right one: an ablation, where a fine-tuned
     encoder would absorb the difference being measured, and a run whose size
-    is bounded by memory rather than by patience, since no gradient, no
-    gradient buffer and no optimizer state for 110M parameters is most of what
-    a transformer arm costs.
+    is bounded by memory rather than by patience. A frozen encoder holds no
+    gradient, no gradient buffer and no optimizer state for its parameters.
     """
 
     freeze_transformer: bool = Param(True)
@@ -76,9 +73,11 @@ class FrozenTransformerBackboneConfig(TransformerBackboneConfig):
 class StackedBackboneConfig(Configuration):
     """A frozen transformer read by a GRU trained from scratch.
 
-    The shape every select-then-predict paper uses -- a bidirectional GRU over
-    a frozen pretrained table -- with the table replaced by a transformer. One
+    The reference implementations of FR, MCD, MRD, DR, MGR and DAR use a
+    bidirectional GRU over a frozen pretrained table. This backbone replaces
+    the table with a transformer. While ``freeze_transformer`` holds, one
     learning rate serves it, because everything trainable starts from scratch.
+    Fine-tuning the transformer needs ``encoder_lr``.
 
     ``hidden_size`` is the library's GRU default rather than the transformer's
     width: the GRU is the encoder here, and 768 units of it is a large layer to
