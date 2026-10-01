@@ -12,7 +12,7 @@ class DR(SPP):
     """Rationalizer whose predictor learns at the rate of what it is given.
 
     Degeneration is the predictor overfitting the uninformative text a
-    not-yet-trained selector hands it, and the paper bridges that to the
+    not-yet-trained selector hands it. The paper relates that to the
     predictor's Lipschitz constant: restrain the constant and the predictor
     stops memorizing a bad selection. DR restrains it by decoupling the two
     rates. The selector trains at the optimizer's own rate; the predictor
@@ -30,14 +30,14 @@ class DR(SPP):
 
     The reference implementation shares one embedding table between the two
     encoders and separates everything above it. Here a backbone owns its own
-    table, so the pair is separate throughout -- the arrangement MCD uses, and
-    the reason ``predictor_backbone`` is required rather than optional.
+    table, so the pair is separate throughout, as in MCD. That is why
+    ``predictor_backbone`` is required rather than optional.
 
-    Two limits worth knowing. DR owns the predictor's rate, so a learning-rate
-    scheduler over that group would be overwritten at the next step -- nothing
-    in the library configures one. And under data parallelism each process
-    scales by the selection rate of its own batch, which is what a single-GPU
-    reference implementation cannot say anything about.
+    The rate of a step counts the tokens of every batch that feeds it, on every
+    process. Under data parallelism each process therefore applies the
+    averaged gradient at the same rate. DR owns the predictor's rate, so a
+    learning-rate scheduler over that group would be overwritten at the next
+    step. Nothing in the library configures one.
     """
 
     def __init__(
@@ -58,19 +58,21 @@ class DR(SPP):
         # selector which tokens were worth keeping. The paper's floor.
         self.scale_floor = scale_floor
         self.predictor_rates: Dict[int, float] = {}
-        self.batch_rates: List[float] = []
+        #: ``[kept, valid]`` token counts of each training batch since the
+        #: last optimizer step.
+        self.pending_counts: List[th.Tensor] = []
 
     def configure_optimizers(self):
         generator = self.generator_parameters()
         predictor = self.predictor_parameters()
-        # One optimizer, two groups, both at the optimizer's own rate: the
-        # asymmetry is written per batch rather than declared here, since it
-        # is the selection rate and nobody knows that before the batch.
+        # One optimizer, two groups, both at the optimizer's own rate. The
+        # asymmetry is the selection rate, which is known only once a step's
+        # batches are selected, so it is written per step.
         optimizer = self.build_optimizer([(generator, 1.0), (predictor, 1.0)])
         # `build_optimizer` splits a group in two when `encoder_lr` is set, so
         # the predictor can hold more than one group. Each is remembered with
         # the rate it was built at, and every rescale is written from that
-        # base -- scaling the current value instead would compound the factor
+        # base. Scaling the current value instead would compound the factor
         # batch after batch until the predictor stopped.
         #
         # By index rather than by reference: `Optimizer.load_state_dict`
@@ -87,34 +89,36 @@ class DR(SPP):
         }
         return optimizer
 
-    def selection_rate(self, data: InputData, output_data: SPPOutput) -> th.Tensor:
-        """What fraction of the selectable input this batch's selection kept.
+    def selection_counts(self, data: InputData, output_data: SPPOutput) -> th.Tensor:
+        """``[kept, valid]``: the selectable tokens of a batch and those kept.
 
-        A rate, not a term: it sets an optimizer's rate and never reaches a
-        loss, so it is read outside the graph.
+        Counts, not a term: they set an optimizer's rate and never reach a
+        loss, so they are read outside the graph.
         """
         with th.no_grad():
             head = self.reported(output_data)
             valid = self.selection_valid(data).to(head.highlight_mask.dtype)
-            return (head.highlight_mask * valid).sum() / valid.sum().clamp_min(1)
+            return th.stack([(head.highlight_mask * valid).sum(), valid.sum()])
 
     def on_before_optimizer_step(self, optimizer: th.optim.Optimizer) -> None:
         """Write the predictor's rate for the step about to be taken.
 
-        Here rather than beside the forward pass because this fires once per
-        *step*: under gradient accumulation several batches are selected
-        before one update, and the rate that update is taken at is the mean of
-        what they kept rather than whichever batch happened to be last.
+        The rate is the kept tokens over the valid tokens of every batch since
+        the last step, summed over every process. This fires once per step, so
+        under gradient accumulation one update is taken at the rate of all
+        the batches it accumulates.
         """
         if not self.predictor_rates:
             raise RuntimeError("DR needs configure_optimizers before it can train")
-        if not self.batch_rates:
+        if not self.pending_counts:
             return
-        scale = max(
-            sum(self.batch_rates) / len(self.batch_rates),
-            self.scale_floor,
-        )
-        self.batch_rates.clear()
+        kept, valid = th.stack(self.pending_counts).sum(dim=0)
+        self.pending_counts.clear()
+        counts = th.stack([kept, valid])
+        if th.distributed.is_available() and th.distributed.is_initialized():
+            th.distributed.all_reduce(counts)
+        kept, valid = counts.tolist()
+        scale = max(kept / max(valid, 1.0), self.scale_floor)
         for index, base in self.predictor_rates.items():
             optimizer.param_groups[index]["lr"] = base * scale
 
@@ -130,7 +134,7 @@ class DR(SPP):
         # waits for `on_before_optimizer_step`, since a batch and a step are
         # not the same thing. Training only: an evaluation pass sets no rate.
         if split == "train":
-            self.batch_rates.append(self.selection_rate(batch, output_data).item())
+            self.pending_counts.append(self.selection_counts(batch, output_data))
         super().record(
             split=split,
             batch=batch,

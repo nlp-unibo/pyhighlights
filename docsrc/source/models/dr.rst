@@ -8,15 +8,19 @@ Problem
 -------
 
 Early in training the selector has learned nothing, so the text it hands the predictor is close to arbitrary.
-The predictor is a capable model and it fits that text, which is degeneration: the predictor memorises an uninformative selection, reports a low loss on it, and tells the selector that the selection was good.
-What the paper adds is a quantity behind the failure, since a predictor that memorises a bad selection is a predictor with a large Lipschitz constant, and restraining the constant stops the memorisation.
+The predictor is a capable model and it fits that text, which is degeneration.
+The predictor memorises an uninformative selection, reports a low loss on it, and tells the selector that the selection was good.
+The paper relates the failure to a quantity: a predictor that memorises a bad selection has a large Lipschitz constant.
+Restraining the constant stops the memorisation.
 
 Method
 ------
 
 DR restrains it by decoupling the two learning rates, and the restraint is written from the selection itself.
-The selector trains at the optimizer's own rate, while the predictor trains at that rate multiplied by the fraction of the input the selection kept, recomputed from the mask every step.
-A selector keeping a tenth of the text therefore trains its predictor ten times slower, and as the selection settles and becomes informative the factor rises on its own, so the restraint relaxes without a schedule anybody had to write.
+The selector trains at the optimizer's own rate.
+The predictor trains at that rate multiplied by the fraction of the input the selection kept, recomputed from the mask every step.
+A selector keeping a tenth of the text therefore trains its predictor ten times slower.
+As the selection settles and becomes informative, the factor rises, so the restraint relaxes without a schedule.
 
 .. mermaid::
 
@@ -42,11 +46,12 @@ A selector keeping a tenth of the text therefore trains its predictor ten times 
    \qquad
    \eta_{\text{predictor}} = \eta \cdot \max\!\left( \frac{\sum_{i,t} h^{(i)}_t}{\sum_{i,t} m^{(i)}_t},\; \texttt{scale\_floor} \right)
 
-The floor is the paper's and it matters more than it looks.
-A selection keeping almost nothing would otherwise stop the predictor entirely, and a predictor that never moves cannot tell the selector which words were worth keeping.
+The floor is the paper's.
+A selection keeping almost nothing would otherwise stop the predictor entirely.
+A predictor that never moves cannot tell the selector which words were worth keeping.
 
 The objective is unchanged from the base architecture, with one classification term and the two penalties on the mask.
-Indeed, DR is the one architecture here that changes no loss at all: the whole method is in the optimizer.
+DR is the one architecture here that changes no loss, since the whole method is in the optimizer.
 
 Training
 --------
@@ -55,11 +60,12 @@ One optimizer with two parameter groups, and the predictor's rate rewritten befo
 
 1. The selector emits the highlight and the predictor classifies from it.
 2. The classification, sparsity and contiguity terms are summed and backpropagated, as in FR.
-3. The batch's selection rate is recorded outside the graph, since it sets a rate and never reaches a loss.
-4. Before the optimizer steps, the predictor's groups are rescaled to the mean of the rates recorded since the last step.
+3. The batch's kept and valid token counts are recorded outside the graph, since they set a rate and never reach a loss.
+4. Before the optimizer steps, the counts since the last step are summed over every process, and the predictor's groups are rescaled to their ratio.
 5. The step is taken, with the selector at the optimizer's own rate and the predictor at the scaled one.
 
-The mean rather than the last batch's rate is what makes gradient accumulation behave: several batches are selected before one update, and the rate that update is taken at is the mean of what they kept.
+Counting every batch since the last step makes gradient accumulation behave: one update is taken at the rate of all the batches it accumulates.
+Summing over processes makes data parallelism behave: every process applies the averaged gradient at the same rate.
 
 Implementation
 --------------
@@ -74,19 +80,20 @@ Implementation
      - ``DR.configure_optimizers``
    * - The base rate remembered per group
      - ``DR.predictor_rates``, keyed by group index
-   * - The batch's selection rate
-     - ``DR.selection_rate``, under ``no_grad``
+   * - The batch's token counts
+     - ``DR.selection_counts``, under ``no_grad``
    * - The rescale
      - ``DR.on_before_optimizer_step``
    * - Where the rate is recorded
      - ``DR.record``, training split only
 
-Every rescale is written from the remembered base rather than from the current value, since scaling the current value would compound the factor batch after batch until the predictor stopped.
-The groups are remembered by index rather than by reference, because ``Optimizer.load_state_dict`` replaces ``param_groups`` with fresh dictionaries and a resumed run would otherwise rescale objects the optimizer no longer owns.
+Every rescale is written from the remembered base rather than from the current value.
+Scaling the current value would compound the factor batch after batch until the predictor stopped.
+The groups are remembered by index rather than by reference, because ``Optimizer.load_state_dict`` replaces ``param_groups`` with fresh dictionaries.
+A resumed run would otherwise rescale objects the optimizer no longer owns.
 
-Two limits worth knowing before reporting numbers.
-DR owns the predictor's rate, so a learning-rate scheduler over that group would be overwritten at the next step, and nothing in the library configures one.
-Under data parallelism each process scales by the selection rate of its own batch, which is a question a single-GPU reference implementation cannot answer.
+DR owns the predictor's rate, so a learning-rate scheduler over that group would be overwritten at the next step.
+Nothing in the library configures one.
 
 Configuration
 -------------
@@ -110,8 +117,10 @@ Configuration
 
    Registry.from_key(GRU_DR, scale_floor=0.1)
 
-``scale_floor`` defaults to ``0.05``, the paper's value, and ``predictor_backbone`` is required since a shared encoder would take both rates at once.
-The reference implementation shares one embedding table between the two encoders and separates everything above it, whereas here a backbone owns its own table and the pair is separate throughout.
+``scale_floor`` defaults to ``0.05``, the paper's value.
+``predictor_backbone`` is required, since a shared encoder would take both rates at once.
+The reference implementation shares one embedding table between the two encoders and separates everything above it.
+Here a backbone owns its own table, so the pair is separate throughout.
 
 API
 ---

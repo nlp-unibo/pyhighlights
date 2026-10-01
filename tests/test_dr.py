@@ -20,6 +20,7 @@ from pyhighlights.components.models import InputData
 from pyhighlights.components.models.spp import SPPOutput
 from pyhighlights.components.tasks import SPPTask
 from pyhighlights.configurations.keys import GRU_DR, TOY
+from tests.data_parallel import processes_agree
 
 BASE_LR = 1e-3
 
@@ -102,14 +103,14 @@ def test_a_selection_that_keeps_almost_nothing_hits_the_floor():
 
 
 def test_accumulated_batches_are_one_rate_for_one_step():
-    """A step is the unit, not a batch: four batches, one rate, their mean."""
+    """A step is the unit, not a batch: four batches, one rate over their tokens."""
     model = Registry.from_key(GRU_DR)
     optimizer = model.configure_optimizers()
 
     step_after(model, optimizer, 1, 1, 3, 3)
     predictor, _ = rates(model, optimizer)
     assert predictor == [pytest.approx(BASE_LR * 0.5)]
-    assert model.batch_rates == []
+    assert model.pending_counts == []
 
 
 def test_both_halves_of_a_split_predictor_group_are_scaled():
@@ -166,7 +167,7 @@ def test_evaluation_does_not_move_a_rate():
             losses={},
         )
 
-    assert model.batch_rates == []
+    assert model.pending_counts == []
     assert [group["lr"] for group in optimizer.param_groups] == before
 
 
@@ -203,4 +204,9 @@ def test_the_rate_is_written_inside_a_real_training_loop(tmp_path):
     assert predictor[0] < BASE_LR
     assert predictor[0] >= BASE_LR * model.scale_floor
     # Consumed by the steps, not piling up across the epoch.
-    assert model.batch_rates == []
+    assert model.pending_counts == []
+
+
+def test_every_process_trains_the_same_model(tmp_path):
+    """Each process used to scale by its own batch, after averaged gradients."""
+    assert processes_agree("GRU_DR", tmp_path)
