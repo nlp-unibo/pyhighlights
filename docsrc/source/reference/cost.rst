@@ -12,9 +12,11 @@ A table of F1 says which model is better and nothing about what it takes to get 
    that has stopped training. The batch figure is the forward passes alone;
    the epoch figure is what a caller waits for, batch loading included.
 ``cost_memory_mib``
-   The high-water mark, in **mebibytes**, what ``nvidia-smi`` and every
-   process monitor print. On CUDA it is the run's own, since the counter is
-   reset when the seed starts. On CPU it is the **process**'s, which only ever
+   The high-water mark, in **mebibytes**, the unit ``nvidia-smi`` and every
+   process monitor print. On CUDA it is the run's own peak on its busiest
+   device, since the counters are reset when the seed starts. It counts the
+   memory handed to tensors, without the allocator's cache or the CUDA
+   context, so it reads lower than ``nvidia-smi``. On CPU it is the **process**'s, which only ever
    rises, a second seed in the same process inherits the first's peak.
 ``cost_parameters``, ``cost_trainable_parameters``, ``cost_frozen_parameters``
    Every parameter of the scored model, and the two halves of it. A frozen
@@ -39,12 +41,14 @@ A table of F1 says which model is better and nothing about what it takes to get 
    candidate exists, so dividing the peak by the workers reports less memory
    per model than a run holds doing nothing.
 
-   ``cost_memory_mib`` is one process's ceiling: the largest of a search's
-   workers, which is the figure comparable to a baseline, itself one process.
-   A node running the search needs that much again per worker, less whatever
-   fork left shared -- ``cost_concurrency`` says how many there were. The
-   operating system offers no honest total, since pages shared by fork are
-   counted once per process holding them.
+   ``cost_memory_mib`` is one worker's ceiling: the largest of a search's
+   workers, which is the figure comparable to a baseline, itself one worker.
+   A search on CPU runs its workers as processes, and a search on CUDA runs
+   them as threads, one per device. A node running the search needs that
+   much again per worker, less whatever fork left shared between processes.
+   ``cost_concurrency`` says how many workers there were. The operating
+   system offers no exact total, since pages shared by fork are counted once
+   per process holding them.
 
 :class:`~pyhighlights.components.analyzers.MetricsAnalyzer` reads them like any
 other column, so the computational table is the same call with a different prefix::
