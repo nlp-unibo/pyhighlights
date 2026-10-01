@@ -738,9 +738,9 @@ def test_a_rerun_is_not_more_samples(tmp_path):
     """The newest run of a task, not every run it has ever done.
 
     A task keeps one timestamped directory per run, so reading all of them
-    reports a re-run or a requeued job as extra samples -- duplicate rows here,
-    and duplicate files out of the exporter, which a reviewer would annotate
-    twice. `MetricsAnalyzer` has taken the newest since PR #35; this is the
+    reports a re-run or a requeued job as extra samples. That means duplicate
+    rows here, and duplicate files out of the exporter, which a reviewer would
+    annotate twice. `MetricsAnalyzer` takes the newest run, and this is the
     same rule for predictions.
     """
     Registry.build(directory=Path(pyhighlights.__file__).parent)
@@ -849,7 +849,7 @@ def test_the_position_analyzer_reads_the_newest_run_like_the_others(tmp_path):
 
 
 def test_a_corpus_that_changed_says_how_many_rows_it_cost(tmp_path, caplog):
-    """Both drops used to be silent, so an empty frame explained nothing."""
+    """Both drops are counted, so an empty frame explains itself."""
     Registry.build(directory=Path(pyhighlights.__file__).parent)
     batch = {
         "highlight_mask": [[1.0, 0.0], [1.0, 0.0]],

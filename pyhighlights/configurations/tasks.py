@@ -89,8 +89,7 @@ class TaskConfig(Configuration):
     #: ``vocabulary_from="vectors"``.
     requires_embeddings: bool = Param(False)
     #: What monitors the run: early stopping, checkpointing, and any criterion
-    #: they read. The pair here is what the task used to build for itself, so
-    #: a run that names nothing behaves as before.
+    #: they read. The default pair stops and checkpoints on ``val_loss``.
     #:
     #: **The stopping callback and the checkpoint callback have to monitor the
     #: same quantity.** Mix two and a run reports a model its own stopping rule

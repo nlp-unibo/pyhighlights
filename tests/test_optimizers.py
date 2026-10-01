@@ -1,11 +1,10 @@
 """Two learning rates: the encoders, and everything initialized from scratch.
 
-Left unset, a model trains as every published implementation of these
-architectures does -- one optimizer at one rate over the whole thing, because
-they encode with a GRU over a frozen table and nothing pretrained is ever
-fine-tuned. ``encoder_lr`` is for the case those papers never had: a
-transformer being fine-tuned underneath a selector that started from random
-weights, where one rate is wrong for one of the two.
+Left unset, a model trains with one optimizer at one rate over the whole
+thing, which suits a GRU over a frozen table, where nothing pretrained is
+fine-tuned. ``encoder_lr`` is for a transformer being fine-tuned underneath a
+selector that started from random weights, where one rate is wrong for one of
+the two.
 """
 
 from pathlib import Path
@@ -128,12 +127,11 @@ def test_a_rate_that_cannot_train_anything_is_refused():
 def test_every_architecture_accepts_an_encoder_rate(key):
     """A parameter added to the shared base has to reach every architecture.
 
-    It did not, once: ``encoder_lr`` was added to ``SPPModelConfig`` while
-    MCD, MRD, MGR and G-RAT declared the field set instead of inheriting it,
-    so a fine-tuned transformer would have trained at the optimizer's own
-    rate (PR #48). They inherit now -- ``SPPShapeConfig`` for the shape,
-    ``SPPModelConfig`` or ``PhasedSPPModelConfig`` for the criteria -- and this
-    test is what says so from the outside.
+    Every architecture inherits ``SPPShapeConfig`` for the shape and
+    ``SPPModelConfig`` or ``PhasedSPPModelConfig`` for the criteria. An
+    architecture that declared the field set instead would train a fine-tuned
+    transformer at the optimizer's own rate, and this test checks the
+    inheritance from the outside.
     """
     model = Registry.from_key(key, encoder_lr=ENCODER_LR)
     optimizer = model.configure_optimizers()
