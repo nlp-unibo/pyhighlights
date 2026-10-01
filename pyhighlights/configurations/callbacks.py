@@ -32,9 +32,9 @@ class GeneralizationLossScoreConfig(Configuration):
     quality: str = Param("val_f1")
     loss: str = Param("val_loss")
     #: How much ``quality`` an epoch forfeits per unit of relative loss
-    #: regression. Per architecture rather than per library: the loss curves
-    #: differ, and 0 monitors the metric alone while a large value monitors
-    #: the loss alone, so both are special cases of this.
+    #: regression. Set it per architecture, because the loss curves differ.
+    #: 0 monitors the metric alone and a large value monitors the loss alone,
+    #: so both are special cases of this.
     coefficient: float = Param(2.0, ge=0.0)
     name: str = Param("val_score")
 
