@@ -267,8 +267,8 @@ class AnnotationAggregator(Preprocessor):
 
             # A corpus may carry more than COLUMNS, such as the `knowledge`
             # column this library reads, and a reduction of the annotators is
-            # no reason to lose it. Rebuilding the frame from COLUMNS alone
-            # dropped it silently, and the split then weighted no links.
+            # no reason to lose it. A frame rebuilt from COLUMNS alone would
+            # drop it silently, and the split would then weight no links.
             carried = [
                 column
                 for column in frame.columns
@@ -331,9 +331,8 @@ class Pipeline(Preprocessor):
 class LengthFilter(Preprocessor):
     """Drops rows longer than ``max_length`` tokens.
 
-    Nothing here is any one corpus's. The *policy* (thirty tokens, because
-    that is how the GenSPP release bounds its compute) is a configuration and
-    lives in the benchmark that adopts it.
+    Nothing here is any one corpus's. The *policy*, how many tokens and why,
+    is a configuration and lives in the benchmark that adopts it.
 
     Truncating would keep the row and lose the tokens, which for a corpus
     scored on highlights means scoring against an annotation whose tail was
@@ -360,8 +359,8 @@ class LengthFilter(Preprocessor):
 class LabelMapper(Preprocessor):
     """Rewrites label values through a mapping.
 
-    Collapsing classes is an editorial choice like any other: the GenSPP
-    paper folds HateXplain's ``offensive`` into ``normal`` and trains on two
+    Collapsing classes is an editorial choice like any other: a study may
+    fold HateXplain's ``offensive`` into ``normal`` and train on two
     classes. It has to happen before the votes are counted, not after:
     a post two annotators call ``hatespeech`` and one calls ``offensive`` has
     a majority either way, but one where the votes are ``hatespeech``,

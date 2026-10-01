@@ -417,8 +417,8 @@ def test_a_corpus_older_than_these_columns_is_converted_by_parse(tmp_path):
 
     The released GenSPP corpus stores `structure_indexes`, the positions that
     are marked, where this library stores a `highlights` vector. That is a
-    difference in serialisation, not in what the corpus is, so it is fifteen
-    lines of conversion rather than a second class.
+    difference in serialisation, not in what the corpus is, so it is a
+    conversion in ``parse`` rather than a second class.
     """
     path = tmp_path / "legacy.pkl"
     pd.DataFrame(

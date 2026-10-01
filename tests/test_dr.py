@@ -208,5 +208,5 @@ def test_the_rate_is_written_inside_a_real_training_loop(tmp_path):
 
 
 def test_every_process_trains_the_same_model(tmp_path):
-    """Each process used to scale by its own batch, after averaged gradients."""
+    """Every process scales by the counts summed over all of them."""
     assert processes_agree("GRU_DR", tmp_path)

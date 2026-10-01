@@ -164,10 +164,9 @@ def test_selection_metrics_average_over_samples():
 def test_a_selection_metric_reduces_the_batch_at_once(monkeypatch):
     """The batch is one pair of masked sums, not a Python loop over rows.
 
-    Two updates cost 2.36 ms against a 54 ms training step before this, all of
-    it interpreter overhead. What has to survive vectorising is the treatment
-    of a row with no token at all: it has no rate, so it is left out of the
-    denominator rather than counted as a zero.
+    A loop over rows is interpreter overhead on every step. What has to hold
+    once vectorised is the treatment of a row with no token at all: it has no
+    rate, so it is left out of the denominator rather than counted as a zero.
     """
     preds = th.tensor([[1.0, 1.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 1.0]])
     # The third row is pure padding: nothing there could have been kept.

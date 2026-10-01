@@ -350,8 +350,8 @@ def test_the_repaired_rows_are_reported_under_the_selection_they_repaired(caplog
     """Order is what attributes a line here, and there is no other marker.
 
     The repair reports from inside `repair_empty`, so a selector that
-    described itself afterwards put its own four lines below the count of
-    rows they explain, which read as the repair of the batch before.
+    described itself afterwards would put its own lines below the count of
+    rows they explain, which would read as the repair of the batch before.
     """
     from pyhighlights.configurations.keys import GRU_FR
 
