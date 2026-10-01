@@ -11,6 +11,7 @@ from pyhighlights.utility.losses import (
     ContiguityPenalty,
     CrossEntropy,
     JSDiv,
+    KLDiv,
     Loss,
     MaskedCrossEntropy,
     compute_losses,
@@ -46,6 +47,17 @@ def test_contiguity_penalty_ignores_padding_boundaries():
     mask = th.tensor([[1.0, 1.0, 0.0, 0.0]])
 
     assert penalty(selection, mask) == 0
+
+
+def test_kl_divergence_takes_its_reference_second():
+    """``KLDiv(p, q)`` is ``KL(q || p)``, the direction MCD and MRD rely on."""
+    p = th.tensor([[0.0, 0.0]])
+    q = th.log(th.tensor([[0.9, 0.1]]))
+    reference, scored = th.tensor([0.9, 0.1]), th.tensor([0.5, 0.5])
+    expected = (reference * (reference / scored).log()).sum()
+
+    assert th.allclose(KLDiv()(p, q), expected)
+    assert not th.allclose(KLDiv()(q, p), expected)
 
 
 def test_js_divergence_is_symmetric():
