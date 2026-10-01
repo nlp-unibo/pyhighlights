@@ -36,7 +36,7 @@ Given a highlight that d-separates the label from the rest of the input, the ful
        class D term
 
 Training alternates two phases, which is what makes the disagreement usable.
-While the predictor phase trains the predictor on a selection it is handed and may not move, the generator phase trains the generator with the predictor frozen, so neither module can reduce the divergence by adapting to the other.
+While the predictor phase trains the predictor on a selection it is handed and may not move, the generator phase trains the generator while the predictor stays fixed, so neither module can reduce the divergence by adapting to the other.
 
 .. math::
 
@@ -54,7 +54,7 @@ Two optimizers and two forward passes per batch, driven by the model rather than
 
 1. The predictor phase selects, detaches the selection, and scores the classification terms over the highlight and over the full input.
 2. Both optimizers step, since the penalties on the mask are shared and reach the generator here as well.
-3. The generator phase selects again, freezes the predictor's parameters, and scores the discrepancy term.
+3. The generator phase selects again and scores the discrepancy term.
 4. The generator's optimizer steps alone.
 
 Two properties read oddly until they are checked against the reference implementation, and both are deliberate.
@@ -79,8 +79,8 @@ What MCD adds is two methods naming the passes its criteria bind to.
      - Where
    * - The alternation itself
      - ``PhasedSPP.training_step``
-   * - Predictor frozen for the generator phase
-     - ``PhasedSPP.generator_phase_loss``
+   * - Generator stepped alone in the generator phase
+     - ``PhasedSPP.training_step``
    * - Detached selection for the predictor phase
      - ``PhasedSPP.phase_forward``
    * - The highlight pass

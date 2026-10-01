@@ -24,6 +24,7 @@ from pyhighlights.configurations.keys import (
     REMAINING_DISCREPANCY_LOSS,
     TOY,
 )
+from tests.data_parallel import processes_agree
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -110,22 +111,36 @@ def test_the_predictor_phase_leaves_the_generator_to_its_own_terms():
     assert selector_gradient is not None
 
 
-def test_the_generator_phase_freezes_the_predictor_and_restores_it():
+def test_the_generator_phase_reaches_the_generator():
     model = Registry.from_key(GRU_MRD)
-    batch = batch_of()
 
-    total, _, _ = model.generator_phase_loss(batch)
+    total, _, _ = model.generator_phase_loss(batch_of())
     total.backward()
 
-    assert all(
-        parameter.requires_grad
-        for parameter in (
-            *model.predictor.parameters(),
-            *model.predictor_backbone.parameters(),
-        )
-    )
-    assert model.predictor.predictor[-1].weight.grad is None
     assert model.selectors[0].selector[-1].weight.grad is not None
+
+
+def test_the_generator_phase_leaves_the_predictor_where_it_was():
+    """The predictor receives gradients there, and only its own phase steps it."""
+    model = Registry.from_key(GRU_MRD)
+    generator_optimizer, predictor_optimizer = model.configure_optimizers()
+    batch = batch_of()
+    model.predictor_phase_loss(batch)[0].backward()
+    predictor_optimizer.step()
+    before = [parameter.detach().clone() for parameter in model.predictor_parameters()]
+
+    generator_optimizer.zero_grad()
+    model.generator_phase_loss(batch)[0].backward()
+    generator_optimizer.step()
+
+    assert all(
+        th.equal(was, now) for was, now in zip(before, model.predictor_parameters())
+    )
+
+
+def test_every_process_trains_the_same_model(tmp_path):
+    """A frozen predictor in the generator phase made ``ddp`` raise."""
+    assert processes_agree("GRU_MRD", tmp_path)
 
 
 def test_supervision_has_to_name_a_phase():

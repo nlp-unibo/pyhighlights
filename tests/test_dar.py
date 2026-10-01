@@ -7,8 +7,6 @@ generator and nothing else, and that a resumed run finds it trained rather
 than training it again on a model that has already moved.
 """
 
-import subprocess
-import sys
 from pathlib import Path
 
 import lightning as L
@@ -26,6 +24,7 @@ from pyhighlights.configurations.keys import (
     HIGHLIGHT_LOSS,
     TOY,
 )
+from tests.data_parallel import processes_agree
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -265,14 +264,5 @@ def test_a_frozen_aligner_stays_in_evaluation_mode(tmp_path):
 
 
 def test_every_process_pretrains_the_same_aligner(tmp_path):
-    """Each process reads its own shard, and the gradients are averaged.
-
-    Run as a script, because Lightning's ``ddp`` launcher starts the other
-    process by running the script again.
-    """
-    script = Path(__file__).with_name("data_parallel.py")
-    subprocess.run(
-        [sys.executable, str(script), str(tmp_path)], check=True, timeout=300
-    )
-
-    assert th.equal(th.load(tmp_path / "rank0.pt"), th.load(tmp_path / "rank1.pt"))
+    """Each process reads its own shard, and the gradients are averaged."""
+    assert processes_agree("GRU_DAR", tmp_path)
