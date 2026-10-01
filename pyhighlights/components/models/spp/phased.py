@@ -63,11 +63,6 @@ class PhasedSPP(SPP):
     ``strategy="ddp_find_unused_parameters_true"``.
     """
 
-    #: What this model's paper calls the phase that trains the predictor. It
-    #: prefixes that phase's terms in the training log, so a model keeps the
-    #: names its own results were written under.
-    predictor_phase: str = "predictor"
-
     def __init__(
         self,
         selector_backbones: RegistrationKey[SPPBackbone],
@@ -117,7 +112,7 @@ class PhasedSPP(SPP):
         # evaluation logs the flat list.
         shared = [loss.name for loss in self.shared_losses]
         phases = {
-            self.predictor_phase: [loss.name for loss in self.predictor_losses],
+            "predictor": [loss.name for loss in self.predictor_losses],
             "generator": [loss.name for loss in self.generator_losses],
         }
         return [
@@ -176,7 +171,7 @@ class PhasedSPP(SPP):
         # Which phase the stages below belong to. A batch passes through them
         # twice here, and the two passes are different selections scored by
         # different criteria.
-        diagnostics.record("phase", name=self.predictor_phase)
+        diagnostics.record("phase", name="predictor")
         output, values = self.phase_forward(input_data, detach_selection=True)
         total, losses = compute_losses(
             [*self.shared_losses, *self.predictor_losses], values
@@ -248,7 +243,7 @@ class PhasedSPP(SPP):
             total_loss=total,
             losses={
                 **{
-                    f"{self.predictor_phase}_{name}": value
+                    f"predictor_{name}": value
                     for name, value in predictor_losses.items()
                 },
                 **{

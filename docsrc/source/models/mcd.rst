@@ -9,13 +9,16 @@ Problem
 
 Asking the highlight to predict the label rewards any subset that carries the label, and a spurious feature carries it as well as a causal one.
 The usual answer is a penalty per known spurious pattern, which is a list somebody has to write and a corpus is free to fall outside of.
-MCD asks for a property of the whole document instead: if the highlight really carries what determines the label, then knowing the rest of the document adds nothing once the highlight is known, which is conditional independence between the label and the remainder given the highlight.
+MCD asks for a property of the whole document instead.
+If the highlight carries what determines the label, the rest of the document adds nothing once the highlight is known.
+That is conditional independence between the label and the remainder, given the highlight.
 
 Method
 ------
 
 A second prediction is made from the full input, and the highlight is asked to make the two predictions agree.
-Given a highlight that d-separates the label from the rest of the input, the full-input prediction and the highlight prediction are distributions over the same label with the same information behind them, so the divergence between them is the signal the generator is trained on and no list of spurious patterns is needed.
+Given a highlight that d-separates the label from the rest of the input, the two predictions have the same information behind them.
+The divergence between them is therefore the signal the generator is trained on, and no list of spurious patterns is needed.
 
 .. mermaid::
 
@@ -35,8 +38,9 @@ Given a highlight that d-separates the label from the rest of the input, the ful
        class X,H value
        class D term
 
-Training alternates two phases, which is what makes the disagreement usable.
-While the predictor phase trains the predictor on a selection it is handed and may not move, the generator phase trains the generator while the predictor stays fixed, so neither module can reduce the divergence by adapting to the other.
+Training alternates two phases.
+The predictor phase trains the predictor on a selection it is handed and may not move.
+The generator phase trains the generator while the predictor stays fixed, so neither module can reduce the divergence by adapting to the other.
 
 .. math::
 
@@ -57,9 +61,11 @@ Two optimizers and two forward passes per batch, driven by the model rather than
 3. The generator phase selects again and scores the discrepancy term.
 4. The generator's optimizer steps alone.
 
-Two properties read oddly until they are checked against the reference implementation, and both are deliberate.
-The shared criteria bind to the selection the generator produced rather than to the detached copy, so the generator takes two steps per batch on them and one on its own term, which is what ``train_util.train_decouple_causal2`` does upstream.
-And each phase draws its own selection, since ``phase_forward`` selects once per phase, so the two phases of a batch optimise different masks of it.
+Two properties follow the reference implementation.
+The shared criteria bind to the selection the generator produced rather than to the detached copy.
+The generator therefore takes two steps per batch on them and one on its own term, as ``train_util.train_decouple_causal2`` does upstream.
+Each phase also draws its own selection, since ``phase_forward`` selects once per phase.
+The two phases of a batch therefore optimise different masks of it.
 
 Implementation
 --------------
@@ -88,8 +94,8 @@ What MCD adds is two methods naming the passes its criteria bind to.
    * - The full-input pass
      - ``MCD.extra_logits``, which exposes ``full_class_logits``
 
-``predictor_phase`` is set to ``"classifier"``, which is the paper's name for that phase, so a training log reads as the published algorithm does.
-Highlight supervision is refused rather than ignored: a supervision loss appended to the flat list would be dropped before the first batch, so it has to name the phase it belongs to and go in ``shared_losses``.
+Highlight supervision is refused rather than ignored, since a supervision loss appended to the flat list would be dropped before the first batch.
+It has to name the phase it belongs to and go in ``shared_losses``.
 
 Configuration
 -------------
