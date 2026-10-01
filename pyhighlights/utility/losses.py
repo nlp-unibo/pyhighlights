@@ -48,7 +48,7 @@ def build_losses(keys: List[RegistrationKey[Loss]]) -> List[Loss]:
 def compute_losses(
     losses: Iterable[Loss],
     values: Mapping[str, th.Tensor],
-    scales: Mapping[str, float] | None = None,
+    scales: Mapping[str, float | th.Tensor] | None = None,
 ) -> Tuple[th.Tensor, Dict[str, th.Tensor]]:
     """Sum enabled losses over ``values``, reporting each term unscaled.
 
@@ -94,9 +94,8 @@ class CrossEntropy(th.nn.Module):
     """Cross entropy over class logits, with per-class weights.
 
     ``th.nn.CrossEntropyLoss`` takes its weights as a tensor, and no
-    configuration should carry a tensor. A list of per-class weights is not a
-    tensor's worth of data -- one number per class -- so that is what gets
-    declared, and the tensor is built here.
+    configuration should carry a tensor. A list of per-class weights, one
+    number per class, is what gets declared, and the tensor is built here.
 
     The weights are a buffer rather than an attribute, so they follow the model
     onto whatever device it moves to. A weight tensor left on the CPU is a
@@ -104,8 +103,8 @@ class CrossEntropy(th.nn.Module):
 
     Weights are declared rather than computed. A corpus whose split is fixed
     has fixed class frequencies, so the numbers a run needs are known before it
-    starts -- and writing them down puts them in the manifest, where a
-    balanced weighting computed inside the run would leave nothing.
+    starts. Writing them down puts them in the manifest, where a balanced
+    weighting computed inside the run would leave nothing.
     """
 
     def __init__(self, weight: Sequence[float] | None = None, ignore_index: int = -100):
@@ -190,19 +189,16 @@ class MaskedBinaryCrossEntropy(th.nn.Module):
         One factor per position of the axis being scored, broadcast over
         everything in front of it, multiplying the cost of missing a positive
         there. Two classes under :class:`MaskedCrossEntropy` carry one global
-        weight; this carries a different weight per knowledge base entry, and
-        that is the difference that matters -- the decisive entry is often the
-        rare one, and a single positive weight cannot tell it apart from the
-        entry that fires on half the corpus.
+        weight; this carries a different weight per knowledge base entry. The
+        decisive entry is often the rare one, and a single positive weight
+        cannot tell it apart from the entry that fires on half the corpus.
 
         Read it off the corpus rather than typing it:
         :class:`~pyhighlights.components.preprocessors.KnowledgeWeights`.
 
-        ``ignore_index`` marks a position carrying no annotation. It was not
-        skipped before this, which was safe only because nothing bound this
-        criterion to a field that uses the marker -- a ``-1`` reaching a
-        binary target is not a label, it is a number the loss would happily
-        descend on.
+        ``ignore_index`` marks a position carrying no annotation, which the
+        loss skips. A ``-1`` reaching a binary target is not a label, and the
+        loss would otherwise train on it as one.
         """
         super().__init__()
         # Not persistent, like every other configured weight here.
@@ -237,7 +233,7 @@ class MaskedBinaryCrossEntropy(th.nn.Module):
 class SparsityPenalty(th.nn.Module):
     """Distance between the selection rate and a target rate, over the batch.
 
-    One rate for the whole batch -- every kept token over every real token --
+    One rate for the whole batch, every kept token over every real token,
     rather than a mean of per-document rates. A short document and a long one
     pull on it in proportion to their length, so a batch can meet the target
     with the long documents while the short ones keep everything.
@@ -267,6 +263,12 @@ class ContiguityPenalty(th.nn.Module):
 
 
 class KLDiv(th.nn.Module):
+    """``KL(q || p)`` between the class distributions of two logit tensors.
+
+    ``q`` is the reference distribution and ``p`` the one scored against it,
+    so a binding lists the reference second. Averaged over the batch.
+    """
+
     def forward(self, p: th.Tensor, q: th.Tensor) -> th.Tensor:
         return th.nn.functional.kl_div(
             th.nn.functional.log_softmax(p, dim=-1),
@@ -276,6 +278,11 @@ class KLDiv(th.nn.Module):
 
 
 class JSDiv(th.nn.Module):
+    """Jensen-Shannon divergence between two logit tensors, averaged over the batch.
+
+    Symmetric, so the order of a binding's inputs does not matter.
+    """
+
     def forward(self, p: th.Tensor, q: th.Tensor) -> th.Tensor:
         log_p = th.nn.functional.log_softmax(p, dim=-1)
         log_q = th.nn.functional.log_softmax(q, dim=-1)
