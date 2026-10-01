@@ -7,6 +7,8 @@ own wall clock through the same columns.
 """
 
 import resource
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -188,13 +190,13 @@ def test_a_pool_wider_than_the_population_is_not_the_concurrency(tmp_path):
     assert run["cost_runtime_per_run_s"] <= run["cost_runtime_s"]
 
 
-def test_memory_is_reported_in_mebibytes():
+def test_memory_is_reported_in_mebibytes(monkeypatch):
     """The unit `nvidia-smi` and every process monitor print.
 
-    CUDA counts bytes and `getrusage` counts kibibytes, so a run used to
-    report decimal megabytes on one device and mebibytes on the other -- a
-    five percent difference nothing in the table would have explained.
+    CUDA counts bytes and `getrusage` counts kibibytes, so both are converted
+    to mebibytes. This checks the CPU conversion on any machine.
     """
+    monkeypatch.setattr(th.cuda, "device_count", lambda: 0)
     peak = cost.peak_memory()
     # Children included: a search scores its candidates in processes of their
     # own, and this process alone would report the parent waiting on them.
@@ -203,19 +205,44 @@ def test_memory_is_reported_in_mebibytes():
         resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss,
     )
 
-    if not th.cuda.is_available():
-        assert peak == pytest.approx(resident / 1024, rel=1e-6)
+    assert peak == pytest.approx(resident / 1024, rel=1e-6)
     assert cost.MIB == 1048576
+
+
+def test_the_busiest_device_is_the_peak(monkeypatch):
+    """A search on CUDA scores its candidates in threads, one per device.
+
+    The current device is only one of them, so the peak is read on each.
+    """
+    peaks = [10 * cost.MIB, 30 * cost.MIB, 0]
+    reset = []
+    monkeypatch.setattr(th.cuda, "device_count", lambda: len(peaks))
+    monkeypatch.setattr(th.cuda, "max_memory_allocated", lambda index: peaks[index])
+    monkeypatch.setattr(th.cuda, "reset_peak_memory_stats", reset.append)
+
+    assert cost.peak_memory() == 30.0
+    cost.Meter().start()
+    # An untouched device is left alone, since resetting it initialises CUDA.
+    assert reset == [0, 1]
+
+
+def test_a_meter_does_not_initialise_cuda():
+    """A run on CPU holds no CUDA context because it was timed."""
+    probe = (
+        "import torch as th; from pyhighlights.utility import cost; "
+        "cost.Meter().start().stop(); assert not th.cuda.is_initialized()"
+    )
+    subprocess.run([sys.executable, "-c", probe], check=True)
 
 
 def test_the_peak_is_not_divided_among_the_workers():
     """Most of it is resident before the first candidate exists.
 
-    The interpreter, torch and the corpus, measured at 521 MiB with nothing
-    training, so a per-model share would report less memory than a run holds
-    doing nothing -- whether the candidates are threads or processes. The
-    column is one process's ceiling, and `cost_concurrency` is what says how
-    many such processes a search ran at once.
+    The interpreter, torch and the corpus are resident with nothing training,
+    so a per-model share would report less memory than a run holds doing
+    nothing, whether the candidates are threads or processes. The column is
+    one worker's ceiling, and `cost_concurrency` says how many such workers a
+    search ran at once.
     """
     meter = cost.Meter(concurrency=8, models=5050)
     meter.runtime, meter.peak = 3600.0, 8000.0

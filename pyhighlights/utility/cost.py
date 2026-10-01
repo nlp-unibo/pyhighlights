@@ -4,7 +4,7 @@ A table of F1 says which model is better and nothing about what it takes to
 get there. These are the other half: how long a seed ran, how long one
 inference batch and one inference pass take, how much memory the run reached
 (in mebibytes), how many parameters the model carries and how many of them
-gradient descent moves, and -- for a genetic search -- how many models were
+gradient descent moves, and, for a genetic search, how many models were
 trained at once to produce the one that got scored.
 
 Every column is prefixed ``cost_``, so
@@ -29,19 +29,24 @@ scoring a population of four runs four at a time.
 
 **There is no per-model memory column**, deliberately. Most of what a run
 holds is the interpreter, torch and the corpus, resident before the first
-candidate exists -- measured at 521 MiB with nothing training. Dividing the
-peak by the workers would report less than that, which is not what any one
-model costs. ``cost_memory_mib`` is the ceiling a run needs, which is the
-question a machine is sized by.
+candidate exists. Dividing the peak by the workers would report less than
+that, which is not what any one model costs. ``cost_memory_mib`` is the
+ceiling a run needs, which is the question a machine is sized by.
 
-**It is one process's ceiling, not a node's.** A search scores its candidates
-in processes of their own, and this reports the largest of them -- which is
-the figure comparable to a baseline, itself one process. What a node needs to
-run the search is that much again for each worker, less whatever fork left
-shared between them; ``cost_concurrency`` says how many workers there were.
-The operating system offers no honest total: resident pages shared by fork
-are counted once per process that holds them, and ``ru_maxrss`` over children
-is the largest single child rather than their sum.
+**It is one worker's ceiling, not a node's.** On CUDA the figure is the
+memory the caching allocator handed to tensors on the busiest device. It
+excludes the allocator's reserved cache, the CUDA context and host memory, so
+it reads lower than ``nvidia-smi``. On CPU the figure is the resident memory
+of the largest process. A search on CPU scores its candidates in processes of
+their own, and a search on CUDA scores them in threads, one per device. In
+both cases the figure is comparable to a baseline, which is one worker.
+
+A node running a search needs that much again for each worker, less whatever
+fork left shared between processes. ``cost_concurrency`` says how many workers
+there were. The operating system offers no exact total for processes.
+Resident pages shared by fork are counted once per process that holds them.
+Additionally, ``ru_maxrss`` over children is the largest single child rather
+than their sum.
 """
 
 from __future__ import annotations
@@ -57,9 +62,9 @@ import torch as th
 __all__ = ["InferenceTimer", "Meter", "parameters", "peak_memory"]
 
 
-#: Bytes in a mebibyte. Every memory column is in ``MiB`` -- what ``nvidia-smi``
-#: and every process monitor print -- rather than in decimal megabytes, which
-#: would read five percent larger for the same allocation.
+#: Bytes in a mebibyte. Every memory column is in ``MiB``, the unit
+#: ``nvidia-smi`` and every process monitor print. Decimal megabytes would read
+#: five percent larger for the same allocation.
 MIB = 1024**2
 
 
@@ -68,7 +73,7 @@ def parameters(model: th.nn.Module, trainable: bool | None = None) -> int:
 
     ``trainable`` selects: ``True`` counts what gradient descent moves,
     ``False`` what it does not, and left out counts both. All three are worth
-    reporting -- a frozen encoder is memory and compute at inference however
+    reporting. A frozen encoder is memory and compute at inference however
     little it learns, and a model that freezes most of itself is a different
     proposition to train than one that does not.
 
@@ -86,26 +91,31 @@ def parameters(model: th.nn.Module, trainable: bool | None = None) -> int:
 
 
 def peak_memory() -> float:
-    """Mebibytes at the high-water mark of the largest process a run used.
+    """Mebibytes at the high-water mark of the busiest worker a run used.
 
-    CUDA reports the run's own peak, since :class:`Meter` resets the counter
-    when it starts. The CPU figure is the **process**'s high-water mark, which
-    only ever rises: a second seed in the same process inherits the first's
-    peak rather than measuring its own. That is what the operating system
-    offers, and it is still the honest ceiling for a run of one seed.
+    CUDA reports the run's own peak on its busiest device, since
+    :class:`Meter` resets the counters when it starts. The CPU figure is the
+    **process**'s high-water mark, which only ever rises: a second seed in
+    the same process inherits the first's peak rather than measuring its own.
+    That is what the operating system offers, and it is still the honest
+    ceiling for a run of one seed.
     """
-    if th.cuda.is_available() and th.cuda.max_memory_allocated():
-        return th.cuda.max_memory_allocated() / MIB
+    # Every device rather than the current one: a search on CUDA scores its
+    # candidates in threads, one per device. Reading an unused device returns
+    # zero without initialising CUDA.
+    devices = range(th.cuda.device_count())
+    device = max((th.cuda.max_memory_allocated(i) for i in devices), default=0)
+    if device:
+        return device / MIB
     # Children as well as this process: a genetic search scores its candidates
     # in processes of their own, and `RUSAGE_SELF` alone would report the
     # parent waiting on them.
     #
     # The larger of the two rather than their sum, and the column says so.
     # `ru_maxrss` over children is the largest any single child reached, not
-    # what the children reached together -- four processes holding 400 MiB
-    # each report 412 -- and adding it to this process would double-count
-    # every page fork left shared. Neither number, nor any arithmetic on the
-    # two, is the footprint of the whole run.
+    # what the children reached together. Adding it to this process would
+    # double-count every page fork left shared. Neither number, nor any
+    # arithmetic on the two, is the footprint of the whole run.
     #
     # It is also zero until a child has been reaped, which is why this is read
     # after a search has closed its pool rather than during one.
@@ -120,9 +130,9 @@ def peak_memory() -> float:
 class Meter:
     """Times a seed and reads what it peaked at.
 
-    ``models`` is how many models the seed trained -- one for a baseline, a
-    search's whole population for GenSPP -- and ``concurrency`` how many of
-    them ran at once. Both are settable after construction, because a search
+    ``models`` is how many models the seed trained: one for a baseline, and a
+    search's whole population for GenSPP. ``concurrency`` is how many of them
+    ran at once. Both are settable after construction, because a search
     only knows how many generations it ran once it has stopped.
     """
 
@@ -136,8 +146,11 @@ class Meter:
         self._started = 0.0
 
     def start(self) -> "Meter":
-        if th.cuda.is_available():
-            th.cuda.reset_peak_memory_stats()
+        # Only devices that hold a peak: resetting a device nothing touched
+        # would initialise CUDA, and a process starts every peak at zero.
+        for index in range(th.cuda.device_count()):
+            if th.cuda.max_memory_allocated(index):
+                th.cuda.reset_peak_memory_stats(index)
         self._started = time.perf_counter()
         return self
 
@@ -157,7 +170,7 @@ class Meter:
         """What the seed cost, as columns of ``results.json``.
 
         A count stays an integer: a parameter count written as ``1234.0``
-        reads as a measurement of something, and these four are counts of
+        reads as a measurement of something, and these five are counts of
         things rather than quantities that were measured.
         """
         return {
