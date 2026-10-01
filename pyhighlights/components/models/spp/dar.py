@@ -43,8 +43,9 @@ class DAR(SPP):
     The aligner is pretrained here rather than by the task: it is part of the
     model, is checkpointed with it, and a resumed run finds it trained. The
     pretraining runs its own loop over the training loader before the first
-    epoch. Under data parallelism every process averages its gradients with
-    the others', so all processes hold the same aligner. An ``EarlyStopping``
+    epoch, and keeps the aligner of its best validation epoch. Under data
+    parallelism every process averages its gradients with the others', so all
+    processes hold the same aligner. An ``EarlyStopping``
     callback counts epochs of the *rationalizer* only, so a long pretraining
     stays off the patience counter.
 
@@ -151,6 +152,39 @@ class DAR(SPP):
             self.aligner.eval()
         return self
 
+    def aligner_f1(self, loader) -> float:
+        """The aligner's F1 on the full input of ``loader``.
+
+        Two classes score the F1 of class ``1``, as the reference
+        implementation does, and more classes score the macro F1. The counts
+        are summed across processes, so every process reads the same score.
+        A class with no predictions and no examples scores zero.
+        """
+        limit = self.trainer.num_val_batches[0]
+        batches = loader if limit == float("inf") else islice(loader, int(limit))
+        counts = None
+        with th.no_grad():
+            for batch in batches:
+                batch = self.transfer_batch_to_device(batch, self.device, 0)
+                logits = self.align_full(batch)
+                classes = logits.shape[-1]
+                predicted = th.nn.functional.one_hot(logits.argmax(-1), classes)
+                actual = th.nn.functional.one_hot(batch.y_true.long(), classes)
+                found = th.stack(
+                    [
+                        (predicted * actual).sum(0),
+                        (predicted * (1 - actual)).sum(0),
+                        ((1 - predicted) * actual).sum(0),
+                    ]
+                )
+                counts = found if counts is None else counts + found
+        if counts is None:
+            raise RuntimeError("DAR scores its aligner on at least one batch")
+        counts = self.trainer.strategy.reduce(counts, reduce_op="sum")
+        hits, false_alarms, misses = counts.double()
+        f1 = 2 * hits / (2 * hits + false_alarms + misses).clamp(min=1)
+        return float(f1[1] if len(f1) == 2 else f1.mean())
+
     def pretrain_aligner(self) -> None:
         """Train the aligner on the full input, then freeze it.
 
@@ -158,10 +192,19 @@ class DAR(SPP):
         batch is scored against the same module. An aligner that kept moving
         could co-adapt to the highlight, which is the thing it exists not to
         do.
+
+        With a validation loader, the aligner of the epoch with the highest
+        :meth:`aligner_f1` on it is the one kept, as in the reference
+        implementation. The first such epoch wins a tie. Without one, or with
+        ``limit_val_batches=0``, the aligner of the last epoch is kept.
         """
         loader = self.trainer.train_dataloader
         if loader is None:
             raise RuntimeError("DAR pretrains its aligner on the training loader")
+        validation = self.trainer.val_dataloaders
+        if validation is not None and not self.trainer.num_val_batches[0]:
+            validation = None
+        best_f1, best = -1.0, None
         for parameter in self._aligner_trainable:
             parameter.requires_grad_(True)
         optimizer = self.build_optimizer([(self._aligner_trainable, 1.0)])
@@ -202,13 +245,32 @@ class DAR(SPP):
                 optimizer.step()
                 total += loss.item()
                 batches += 1
+            f1 = float("nan")
+            if validation is not None:
+                mode = self.aligner.training
+                self.aligner_backbone.eval()
+                self.aligner.eval()
+                f1 = self.aligner_f1(validation)
+                self.aligner_backbone.train(mode)
+                self.aligner.train(mode)
+                if f1 > best_f1:
+                    best_f1 = f1
+                    best = [
+                        parameter.detach().clone()
+                        for parameter in self._aligner_trainable
+                    ]
             logger.info(
-                "%s: aligner pretraining epoch %s/%s, loss %.4f",
+                "%s: aligner pretraining epoch %s/%s, loss %.4f, validation F1 %.4f",
                 self.name,
                 epoch + 1,
                 self.pretrain_epochs,
                 total / max(batches, 1),
+                f1,
             )
+        if best is not None:
+            with th.no_grad():
+                for parameter, kept in zip(self._aligner_trainable, best, strict=True):
+                    parameter.copy_(kept)
         optimizer.zero_grad()
         for parameter in self._aligner_trainable:
             parameter.requires_grad_(False)
