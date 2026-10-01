@@ -1,8 +1,9 @@
 """Pretrained token vectors, read off disk into a vocabulary and a matrix.
 
-A backbone learns its embedding table by default. Reproducing a published
-result usually means not learning it: the vectors are fixed, frozen, and the
-vocabulary is whatever the release covers. That is a corpus-and-file question
+A backbone freezes a loaded embedding table by default and trains a randomly
+initialised one. Reproducing a published result usually means a loaded table:
+the vectors are fixed, frozen, and the vocabulary is whatever the release
+covers. That is a corpus-and-file question
 rather than a model one, so it lives here and reaches the model as a tensor.
 """
 
@@ -13,7 +14,7 @@ from typing import Dict, Iterable, Tuple
 
 import torch as th
 
-__all__ = ["load_vectors"]
+__all__ = ["load_vectors", "one_hot_table"]
 
 
 def one_hot_table(rows: int, width: int) -> th.Tensor:
@@ -22,7 +23,7 @@ def one_hot_table(rows: int, width: int) -> th.Tensor:
     What a corpus small enough to have no vector file wants, when its tokens
     are symbols rather than words: every token is orthonormal to every other
     and nothing about them is learned or guessed. A frozen *random* table is
-    not the same thing -- its rows are neither unit-length nor orthogonal, so
+    not the same thing. Its rows are neither unit-length nor orthogonal, so
     the symbols arrive already entangled.
 
     Row ``0`` is padding and row ``1`` is the unknown id, matching
@@ -56,21 +57,21 @@ def load_vectors(
     """Read a GloVe-style text file into a vocabulary and its embedding matrix.
 
     The file is one line per token: the token, then its vector, whitespace
-    separated -- the format GloVe, fastText and word2vec's text export share.
+    separated. GloVe, fastText and word2vec's text export share this format.
 
     ``tokens`` restricts the result to a corpus, and is usually the training
     vocabulary: reading every row of a released file costs memory, and a token
     the training split never saw is one the run has no reason to embed.
 
     ``None`` reads the file whole, which is what a reproduction of a run
-    embedding from a fixed pretrained vocabulary needs -- see
+    embedding from a fixed pretrained vocabulary needs. See
     :meth:`~pyhighlights.components.tasks.SPPTask.tokenizer` and its
     ``vocabulary_from``. It leaks nothing: which words a released vector file
     holds says nothing about which split uses them.
 
     ``pretrained_only`` decides what happens to a corpus token the file has no
     vector for. ``True`` drops it, so every row is a released vector and the
-    unknown id absorbs the rest -- what a reproduction usually wants, since a
+    unknown id absorbs the rest. A reproduction usually wants this, since a
     randomly initialised row inside a frozen table is noise nothing can learn
     away. ``False`` keeps the token and gives it a random row.
 
