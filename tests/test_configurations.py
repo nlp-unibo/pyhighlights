@@ -154,10 +154,6 @@ def test_registered_gru_mcd_alternates_generator_and_predictor_updates():
     assert any(
         parameter.grad is not None for parameter in model.selector_backbone.parameters()
     )
-    assert all(
-        parameter.grad is None for parameter in model.predictor_backbone.parameters()
-    )
-    assert all(parameter.grad is None for parameter in model.predictor.parameters())
 
     model = Registry.from_key(GRU_MCD)
     generator_parameters = [

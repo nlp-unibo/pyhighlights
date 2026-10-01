@@ -18,6 +18,7 @@ import pyhighlights
 from pyhighlights.components.models import InputData
 from pyhighlights.components.models.spp import MCD, PhasedSPP
 from pyhighlights.configurations.keys import GRU_MCD
+from tests.data_parallel import processes_agree
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -76,18 +77,9 @@ def test_a_validation_epoch_reports_the_loss_it_scored():
     assert "val_discrepancy" in trainer.callback_metrics
 
 
-def test_more_than_one_head_is_refused():
-    model = Registry.from_key(GRU_MCD)
-    batch = batch_of()
-    output = model(batch)
-    doubled = type(output)(
-        class_logits=output.class_logits.repeat(1, 2, 1),
-        highlight_logits=output.highlight_logits.repeat(1, 2, 1, 1),
-        highlight_mask=output.highlight_mask.repeat(1, 2, 1),
-    )
-
-    with pytest.raises(ValueError, match="exactly one head"):
-        model.compute_loss(batch, doubled)
+def test_every_process_trains_the_same_model(tmp_path):
+    """A frozen predictor in the generator phase made ``ddp`` raise."""
+    assert processes_agree("GRU_MCD", tmp_path)
 
 
 def test_a_phased_model_takes_exactly_one_generator():

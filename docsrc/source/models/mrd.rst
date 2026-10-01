@@ -55,7 +55,7 @@ The phases are MCD's, and only what each phase reads differs.
 
 1. The predictor phase selects, detaches the selection, and trains the predictor on the complement and on the full input.
 2. Both optimizers step, since the penalties on the mask are shared.
-3. The generator phase selects again, freezes the predictor, and scores the remaining-discrepancy term.
+3. The generator phase selects again and scores the remaining-discrepancy term.
 4. The generator's optimizer steps alone.
 5. The highlight pass runs under ``no_grad``, since nothing trains on it and it exists to be measured.
 

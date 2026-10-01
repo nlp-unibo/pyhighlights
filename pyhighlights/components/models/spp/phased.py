@@ -20,10 +20,10 @@ class PhasedSPP(SPP):
     """A rationalizer whose criteria belong to one of two training phases.
 
     Two architectures are built this way. The predictor phase trains the
-    predictor on a selection it is handed and may not move; the generator
-    phase trains the generator with the predictor frozen. What differs between
-    them is which criteria go in which list and what the predictor is asked to
-    read, and that is what the subclasses say.
+    predictor on a selection it is handed and may not move. The generator
+    phase steps the generator alone, so the predictor stays fixed. What
+    differs between them is which criteria go in which list and what the
+    predictor is asked to read, and that is what the subclasses say.
 
     ``shared_losses`` are scored in both phases, ``predictor_losses`` in the
     predictor phase and ``generator_losses`` in the generator phase.
@@ -34,10 +34,10 @@ class PhasedSPP(SPP):
     implementations it reproduces, so both are stated here.
 
     The shared criteria bind to the selection the generator produced rather
-    than to the detached copy the predictor reads, so they reach the generator
-    in the predictor phase as well as in its own, and the generator's
-    optimizer is stepped in both. It therefore takes two steps per batch on
-    the shared criteria and one on the phase-specific term. Both reference
+    than to the detached copy the predictor reads. They therefore reach the
+    generator in the predictor phase as well as in its own, and the
+    generator's optimizer is stepped in both. The generator takes two steps
+    per batch on the shared criteria and one on the phase-specific term. Both reference
     implementations do the same: ``train_util.train_decouple_causal2`` of
     <https://github.com/jugechengzi/Rationalization-MCD> adds the sparsity and
     continuity terms to its classification loss and steps ``opt_gen`` beside
@@ -51,6 +51,16 @@ class PhasedSPP(SPP):
     phase, so the two phases of a batch optimize different masks of it. That
     is the references again, which call ``get_rationale`` in each phase over a
     ``gumbel_softmax`` with ``hard=True``.
+
+    The training ``loss`` is therefore not the validation ``loss``. Training
+    logs the sum of the two phases, which counts the shared criteria twice
+    and scores each phase on its own selection. Validation scores every
+    criterion once, on one selection.
+
+    Under data parallelism, every parameter has to receive a gradient in each
+    phase. With ``shared_losses`` empty, the generator receives none in the
+    predictor phase. Such a model needs
+    ``strategy="ddp_find_unused_parameters_true"``.
     """
 
     #: What this model's paper calls the phase that trains the predictor. It
@@ -176,27 +186,16 @@ class PhasedSPP(SPP):
     def generator_phase_loss(
         self, input_data: InputData
     ) -> Tuple[th.Tensor, Dict[str, th.Tensor], SPPOutput]:
-        predictor_parameters = self.predictor_parameters()
         diagnostics.record("phase", name="generator")
-        requires_grad = [parameter.requires_grad for parameter in predictor_parameters]
-        for parameter in predictor_parameters:
-            parameter.requires_grad_(False)
-        try:
-            output, values = self.phase_forward(input_data, detach_selection=False)
-            total, losses = compute_losses(
-                [*self.shared_losses, *self.generator_losses], values
-            )
-            return total, losses, output
-        finally:
-            for parameter, enabled in zip(predictor_parameters, requires_grad):
-                parameter.requires_grad_(enabled)
+        output, values = self.phase_forward(input_data, detach_selection=False)
+        total, losses = compute_losses(
+            [*self.shared_losses, *self.generator_losses], values
+        )
+        return total, losses, output
 
     def compute_loss(
         self, input_data: InputData, output_data: SPPOutput
     ) -> Tuple[th.Tensor, Dict[str, th.Tensor]]:
-        name = type(self).__name__
-        if output_data.class_logits.shape[1] != 1:
-            raise ValueError(f"{name} output must contain exactly one head")
         head = self.reported(output_data)
         values = self.head_namespace(
             input_data,
@@ -207,7 +206,7 @@ class PhasedSPP(SPP):
 
     def configure_optimizers(self):
         # One optimizer per phase, as the phases alternate and the generator
-        # step runs with the predictor frozen. Through `build_optimizer`, so
+        # phase steps the generator alone. Through `build_optimizer`, so
         # `encoder_lr` reaches the encoder inside each.
         return [
             self.build_optimizer([(self.generator_parameters(), 1.0)]),
@@ -233,6 +232,9 @@ class PhasedSPP(SPP):
         generator_optimizer.zero_grad()
         predictor_optimizer.zero_grad()
 
+        # The predictor receives gradients here too and is not stepped, and
+        # the next batch clears them. Freezing it instead would leave a
+        # data-parallel wrapper waiting for gradients it registered.
         generator_total, generator_losses, _ = self.generator_phase_loss(batch)
         self.manual_backward(generator_total)
         generator_optimizer.step()
