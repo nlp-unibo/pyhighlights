@@ -23,8 +23,9 @@ class GRUDRConfig(SPPModelConfig):
     #: would take both of them.
     predictor_backbone: RegistrationKey[SPPBackbone] = Param(GRU_BACKBONE)
     #: The floor under the predictor's rate, as a fraction of the selector's.
-    #: The paper's value. Below it a sparse selection stops the predictor
-    #: outright, and a predictor that never moves teaches the selector nothing.
+    #: The reference implementation's value. Below it a sparse selection stops
+    #: the predictor outright, and a predictor that never moves teaches the
+    #: selector nothing.
     scale_floor: float = Param(0.05, gt=0.0, le=1.0)
 
 

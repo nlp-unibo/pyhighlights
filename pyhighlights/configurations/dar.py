@@ -32,7 +32,8 @@ class GRUDARConfig(SPPModelConfig):
     #: registration cannot forget the term the method is.
     aligner_loss: RegistrationKey[Loss] = Param(ALIGNMENT_CLASSIFICATION_LOSS)
     #: Epochs the aligner spends on the full input before the first
-    #: rationalization epoch. The aligner of the last epoch is the one kept.
+    #: rationalization epoch. The aligner of the epoch with the highest
+    #: validation F1 is kept, or that of the last epoch without validation.
     pretrain_epochs: int = Param(20, ge=1)
 
 
