@@ -1,7 +1,8 @@
 import abc
+import contextlib
 import math
 from dataclasses import dataclass
-from typing import Dict, List, Set, Tuple
+from typing import Dict, Iterable, List, Set, Tuple
 
 import torch as th
 from cinnamon.registry import RegistrationKey, Registry
@@ -263,6 +264,25 @@ class GRAT(SPP):
             self.build_optimizer([(model_parameters, 1.0)]),
         ]
 
+    def backward_and_average(
+        self, loss: th.Tensor, parameters: Iterable[th.nn.Parameter]
+    ) -> None:
+        """Backpropagate ``loss`` and average the gradients of ``parameters``.
+
+        Each of G-RAT's two backward passes reaches one half of the model, so
+        a data-parallel wrapper, which expects every registered parameter in
+        every pass, would raise. The wrapper's synchronisation is blocked for
+        the pass, and the half that pass trains is averaged across processes
+        here instead. On one process the average is the identity.
+        """
+        strategy = self.trainer.strategy
+        blocked = getattr(strategy, "block_backward_sync", contextlib.nullcontext)
+        with blocked():
+            self.manual_backward(loss)
+        for parameter in parameters:
+            if parameter.grad is not None:
+                parameter.grad = strategy.reduce(parameter.grad, reduce_op="mean")
+
     def training_step(self, batch: InputData, batch_idx: int):
         # As in `PhasedSPP`: a manual step marks its own split.
         diagnostics.record("step", split="train", batch=batch_idx)
@@ -270,7 +290,7 @@ class GRAT(SPP):
         guider_optimizer.zero_grad()
         guider_output = self.guider(batch, self.encoder_mask(batch))
         guider_total, guider_losses = self.guider_loss(batch, guider_output)
-        self.manual_backward(guider_total)
+        self.backward_and_average(guider_total, self.guider.parameters())
         guider_optimizer.step()
         guider_optimizer.zero_grad()
 
@@ -284,7 +304,10 @@ class GRAT(SPP):
 
         if self.current_epoch >= self.pretrain_epochs:
             model_optimizer.zero_grad()
-            self.manual_backward(model_total)
+            self.backward_and_average(
+                model_total,
+                [*self.generator_parameters(), *self.predictor_parameters()],
+            )
             model_optimizer.step()
             model_optimizer.zero_grad()
             self._model_steps.add_(1)

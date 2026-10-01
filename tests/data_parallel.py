@@ -5,6 +5,7 @@ again, so the fit runs as this script rather than inside pytest. Each process
 saves its parameters, and :func:`processes_agree` compares them.
 """
 
+import json
 import os
 import subprocess
 import sys
@@ -13,17 +14,18 @@ from pathlib import Path
 import torch as th
 
 
-def processes_agree(key_name: str, directory: Path) -> bool:
+def processes_agree(key_name: str, directory: Path, **overrides) -> bool:
     """Whether both processes of a two-process fit hold the same parameters.
 
-    ``key_name`` names a model key in :mod:`pyhighlights.configurations.keys`.
-    The fit raises when the model does not run under ``ddp``.
+    ``key_name`` names a model key in :mod:`pyhighlights.configurations.keys`,
+    and ``overrides`` are passed to the model's ``Registry.from_key``. The fit
+    raises when the model does not run under ``ddp``.
     """
     # One thread per process: pytest already runs one worker per core, and
     # two processes each claiming every core make this test slow.
     environment = {**os.environ, "OMP_NUM_THREADS": "1"}
     subprocess.run(
-        [sys.executable, __file__, key_name, str(directory)],
+        [sys.executable, __file__, key_name, str(directory), json.dumps(overrides)],
         check=True,
         timeout=300,
         env=environment,
@@ -48,6 +50,7 @@ if __name__ == "__main__":
 
     key = getattr(keys, sys.argv[1])
     directory = Path(sys.argv[2])
+    overrides = json.loads(sys.argv[3])
     Registry.build(directory=Path(pyhighlights.__file__).parent)
     task = SPPTask(
         loader=keys.TOY,
@@ -67,4 +70,4 @@ if __name__ == "__main__":
         enable_checkpointing=False,
         enable_progress_bar=False,
         callbacks=[SaveParameters()],
-    ).fit(Registry.from_key(key), task.loaders(task.splits())["train"])
+    ).fit(Registry.from_key(key, **overrides), task.loaders(task.splits())["train"])
