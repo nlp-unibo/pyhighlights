@@ -1,9 +1,7 @@
 """What monitors a run, as configurations rather than as task parameters.
 
-Two sets are registered. The ``loss`` pair reproduces what the task used to
-build for itself -- early stopping and checkpointing on ``val_loss``,
-minimised -- so a study that wants the old behaviour names it rather than
-inheriting it silently. The ``score`` pair monitors
+Two sets are registered. The ``loss`` pair stops and checkpoints on
+``val_loss``, minimised, and is the task's default. The ``score`` pair monitors
 :class:`~pyhighlights.components.callbacks.GeneralizationLossScore`'s
 combination and maximises it.
 

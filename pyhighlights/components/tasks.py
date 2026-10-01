@@ -358,7 +358,7 @@ class SPPTask(Task):
         The *training* batches, and a bound that bounds: a
         ``limit_val_batches`` leaves training unbounded, and Lightning reads a
         float as a fraction, so ``limit_train_batches=1.0`` is its own default
-        and means every batch. Both used to pass.
+        and means every batch. Both are refused.
         """
         if not self.bounds_training_batches():
             raise ValueError(
@@ -493,15 +493,14 @@ class SPPTask(Task):
 
         A checkpoint callback is told where to write and whether to store
         weights only, because those are the task's business rather than the
-        study's -- the run deletes them again once it has scored the epoch
-        they hold.
+        study's. The run deletes them again once it has scored the epoch they
+        hold.
 
         Nothing is monitored when no keys are given, and the run is scored on
-        the weights it ended on. The registered configuration names the pair
-        the task used to build for itself -- early stopping and checkpointing
-        on ``val_loss`` -- rather than this class naming it, so that which
-        callbacks are the default is a decision of the configuration layer and
-        is stated once.
+        the weights it ended on. The registered configuration names the
+        default pair, early stopping and checkpointing on ``val_loss``, rather
+        than this class naming it. Which callbacks are the default is
+        therefore a decision of the configuration layer and is stated once.
         """
         callbacks: List[Callback] = []
         for key in self.callbacks or []:

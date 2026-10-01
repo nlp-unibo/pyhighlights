@@ -218,11 +218,10 @@ def test_a_word_is_selected_whole_or_not_at_all():
 
 
 def test_special_tokens_are_never_selected_but_are_always_read():
-    """``[CLS]`` is not a word, so it is not a choice -- and never dropped.
+    """``[CLS]`` is not a word, so it is not a choice, and it is never dropped.
 
-    Removing it from the input was how the library used to keep it
-    unselectable, at the cost of running a pretrained encoder off the
-    distribution it was trained on.
+    Removing it from the input would keep it unselectable, at the cost of
+    running a pretrained encoder off the distribution it was trained on.
     """
     Registry.build(directory=Path(pyhighlights.__file__).parent)
     model = Registry.from_key(GRU_FR)

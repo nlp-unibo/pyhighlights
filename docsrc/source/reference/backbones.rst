@@ -29,7 +29,7 @@ What ships
 Three implementations, and each answers the discrete-choice problem in the same way while reading text differently.
 
 :class:`~pyhighlights.components.models.spp.implementations.GRUBackbone` embeds tokens from a table and encodes them with a GRU, packing the batch so padding stays out of the recurrence.
-It is the architecture every published select-then-predict implementation uses, over a frozen GloVe table.
+It is the architecture the reference implementations of FR, MCD, MRD, DR, MGR and DAR use, over a frozen GloVe table.
 
 :class:`~pyhighlights.components.models.spp.implementations.TransformerBackbone` encodes with a pretrained transformer read through ``transformers``, which is an optional dependency, and ``freeze_transformer`` decides whether its weights move.
 Selection happens over words rather than subtokens, so a word's subtoken states are folded into one state after the encoder and never before it, which keeps the encoder on the distribution it was pretrained on.

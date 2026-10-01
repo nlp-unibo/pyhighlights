@@ -517,8 +517,8 @@ class PredictionAnalyzer(Analyzer):
         for path in files:
             rows: List[Dict[str, Any]] = []
             # Both reasons a row is dropped are "the corpus changed under the
-            # run", and both used to be silent: a corpus edited enough to miss
-            # every sample produced an empty frame and no account of why.
+            # run". Both are counted, so a corpus edited enough to miss every
+            # sample produces an empty frame with an account of why.
             missing = 0
             misplaced = 0
             run = path.parent
