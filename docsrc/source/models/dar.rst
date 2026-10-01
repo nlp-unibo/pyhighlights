@@ -8,15 +8,18 @@ Problem
 -------
 
 Selector and predictor are trained together on one signal, so nothing stops them from agreeing on a private code.
-The selection drifts away from the semantics of the document, the predictor learns to read the drift, accuracy stays high, and the generator is rewarded for a highlight nobody else can interpret.
+The selection drifts away from the semantics of the document, and the predictor learns to read the drift.
+Accuracy stays high, and the generator is rewarded for a highlight nobody else can interpret.
 The paper calls that rationale shift, and it is the failure mode where every reported number looks correct and the highlight is unreadable.
 
 Method
 ------
 
 DAR adds a third module that never learned the code.
-An aligner, which is a second predictor, is trained on the full input alone and then frozen, so its only notion of what a label looks like comes from ordinary text.
-Since that module has never seen a highlight during its own training, it can only read one the way it reads text, and asking it to predict the label from the highlight therefore costs the generator anything it selected in a private code.
+An aligner, which is a second predictor, is trained on the full input alone and then frozen.
+Its only notion of what a label looks like therefore comes from ordinary text.
+Since that module has never seen a highlight during its own training, it can only read one the way it reads text.
+Asking it to predict the label from the highlight therefore costs the generator anything it selected in a private code.
 
 .. mermaid::
 
@@ -53,7 +56,7 @@ Training
 Pretraining first, then an ordinary single-optimizer loop.
 
 1. Before the first rationalization epoch, the aligner is trained on the full input for ``pretrain_epochs`` epochs, in a loop the model drives itself.
-2. Its parameters are frozen and a flag is written into a buffer, so a resumed run finds it trained rather than pretraining a second one.
+2. Its parameters are frozen and it is set to evaluation mode. A flag in a buffer records this, so a resumed run finds it trained rather than pretraining a second one.
 3. Every batch afterwards selects, predicts from the highlight, and asks the frozen aligner to predict from the same highlight.
 4. The four terms are summed and one backward pass updates the generator and the predictor, never the aligner.
 
@@ -74,15 +77,23 @@ Implementation
      - ``DAR.align_full``
    * - The aligner left out of the optimizer
      - ``DAR.configure_optimizers``
-   * - Pretraining survives a checkpoint
+   * - Pretraining kept across a checkpoint
      - the ``aligner_ready`` buffer
    * - The alignment term
      - ``DAR.compute_loss``, which exposes ``aligner_class_logits``
 
 The aligner is pretrained by the model rather than by the task, so it is part of the model, is checkpointed with it, and a resumed run finds it trained.
-Two limits follow from that choice.
-Under data parallelism each process pretrains its own aligner on its own shard with no gradient synchronisation, since the loop sits outside the strategy Lightning drives.
-And an ``EarlyStopping`` callback counts epochs of the rationalizer rather than of the pretraining, which keeps a long pretraining off the patience counter.
+The pretraining loop runs outside the strategy Lightning drives.
+Under data parallelism it averages each gradient across processes itself, so every process holds the same aligner.
+An ``EarlyStopping`` callback counts epochs of the rationalizer rather than of the pretraining, which keeps a long pretraining off the patience counter.
+
+Differences from the reference implementation
+---------------------------------------------
+
+The reference implementation reloads its pretrained aligner in training mode.
+Its dropout therefore runs on every highlight the aligner scores, and the alignment term changes between two readings of the same highlight.
+This library treats that as an error in the reference.
+Once frozen, the aligner stays in evaluation mode, and the alignment term is a fixed function of the highlight.
 
 Configuration
 -------------
@@ -106,7 +117,7 @@ Configuration
 
    Registry.from_key(GRU_DAR, pretrain_epochs=50)
 
-``pretrain_epochs`` defaults to ``20``, where the reference implementation spends ``100`` and keeps the best of them against a validation split; this keeps the last, so the default is the smaller number a fixed budget can afford.
+``pretrain_epochs`` sets the length of the pretraining, and the aligner of its last epoch is the one kept.
 ``aligner_backbone`` is the aligner's own encoder and its head is built from ``predictor``, since the two modules answer the same question about the same labels.
 The alignment term is appended to ``losses`` by the model rather than declared in the list, so a registration cannot forget the term the method is.
 
