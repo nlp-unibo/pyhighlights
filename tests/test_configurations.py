@@ -388,10 +388,8 @@ def test_every_architecture_inherits_the_shared_shape():
     assert "losses" in SPPModelConfig.default().values
 
     # And no architecture restates a shared field at the value it already
-    # inherits. A copy satisfies the inheritance above and is what PR #48
-    # actually cost: MRD and G-RAT still carried `optimizer` and the three
-    # metric lists verbatim, so anything added beside them in the base would
-    # have reached six architectures and not those two.
+    # inherits. A copy satisfies the inheritance above, yet a field added
+    # beside it in the base would not reach the architecture holding it.
     shared = SPPShapeConfig.model_fields
     restated = [
         f"{config.__name__}.{field}"

@@ -165,9 +165,8 @@ def test_an_empty_knowledge_set_is_kept_rather_than_repaired():
 def test_repair_keeps_one_position_per_pair_not_one_per_sample():
     """The repair runs on the last axis, so a pair axis in front is fine.
 
-    ``select`` used to write this inline over ``dim=1``. Grounded models repair
-    one selection per ``(sample, entry)`` pair, and both go through the same
-    code so the two cannot drift.
+    Grounded models repair one selection per ``(sample, entry)`` pair, and
+    ``select`` goes through the same code, so the two cannot drift.
     """
     model = grounded()
     logits = th.zeros(2, 3, 4, 2)
@@ -267,8 +266,8 @@ def test_rationale_terms_are_reference_minus_restricted():
     """The token-level convention, so the two sufficiencies read alike.
 
     Token sufficiency is ``p(y|x) - p(y|h)``, where lower is better. Rationale
-    sufficiency used to be the restricted pass minus the reference, so the
-    two columns named sufficiency improved in opposite directions.
+    sufficiency is the reference minus the restricted pass as well, so the
+    two columns named sufficiency improve in the same direction.
     """
     from pyhighlights.components.models.spp.base import probability
 

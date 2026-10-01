@@ -96,8 +96,10 @@ def test_a_value_named_like_the_stage_does_not_collide_with_it(caplog):
 
 def test_the_root_logger_does_not_turn_every_stage_on():
     """`logging.basicConfig(level=DEBUG)` is how a caller sees this library's
-    own progress messages, and it used to enable every stage of every run --
-    past the bound a task refuses a diagnosed run without.
+    own progress messages.
+
+    It must not enable every stage of every run, which would bypass the bound
+    a task refuses a diagnosed run without.
     """
     root = logging.getLogger()
     level = root.level
@@ -183,7 +185,7 @@ def test_nothing_is_reduced_while_nothing_is_listening():
     """Two stages hold a tensor they would have to reduce to report.
 
     Counting the repaired rows is a reduction and an `int()` on it is a device
-    synchronisation, so a run that never asked for diagnostics used to pay one
+    synchronisation. A run that never asked for diagnostics must not pay one
     per forward pass.
     """
     from pyhighlights.configurations.keys import GRU_FR

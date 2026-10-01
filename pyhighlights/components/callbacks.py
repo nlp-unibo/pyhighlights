@@ -1,13 +1,10 @@
 """Callbacks a run is monitored by, and the criterion that selects its epoch.
 
-Early stopping and checkpointing used to be built inside
-:class:`~pyhighlights.components.tasks.SPPTask` from one ``monitor`` string and
-one ``patience``, with ``mode="min"`` written into both. That is three
-decisions a study cannot make: it cannot maximise a metric, cannot monitor
-anything but a single logged quantity, and cannot say that a model spends its
-first epochs pretraining something the monitor knows nothing about. They are
-registered components here, so a study configures them the way it configures
-its losses and its metrics.
+Early stopping and checkpointing are registered components, so a study
+configures them the way it configures its losses and its metrics. A study can
+maximise a metric, monitor a combination of logged quantities, and say that a
+model spends its first epochs pretraining something the monitor knows nothing
+about.
 
 **One quantity decides both.** The callback that stops a run and the callback
 that keeps an epoch have to agree, or a run reports a model its own stopping
