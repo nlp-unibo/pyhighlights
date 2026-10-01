@@ -1,11 +1,13 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
 from cinnamon.registry import Registry
 
 import pyhighlights
+from pyhighlights.components import benchmarks
 from pyhighlights.components.analyzers import (
     PREDICTIONS,
     HighlightPositionAnalyzer,
@@ -45,6 +47,23 @@ class FakeTask(Task):
         return results
 
 
+def serve(monkeypatch, tasks: dict) -> list:
+    """Have the benchmark's registry build the fake tasks ``tasks`` names.
+
+    Each task is rebuilt with the arguments the benchmark passes, so a test
+    sees where it was told to save. Returns those arguments, one per build.
+    """
+    built = []
+
+    def from_key(key, expected_type=None, **arguments):
+        built.append(arguments)
+        task = tasks[key]
+        return FakeTask(task.summary, fails=task.fails, name=task.name, **arguments)
+
+    monkeypatch.setattr(benchmarks, "Registry", SimpleNamespace(from_key=from_key))
+    return built
+
+
 def summary(**metrics) -> dict:
     return {
         f"test_{name}": {"mean": value, "std": 0.1, "values": [value]}
@@ -58,15 +77,7 @@ def test_a_benchmark_runs_its_tasks_and_collects_them(tmp_path, monkeypatch):
         "second": FakeTask(summary(accuracy=0.6), name="second"),
     }
     benchmark = Benchmark(tasks=list(tasks), name="grid", save_path=str(tmp_path))
-    monkeypatch.setattr(
-        benchmark,
-        "build",
-        lambda key: tasks[key].__class__(
-            tasks[key].summary,
-            name=tasks[key].name,
-            save_path=str(benchmark.directory),
-        ),
-    )
+    serve(monkeypatch, tasks)
 
     report = benchmark.run()
 
@@ -84,7 +95,7 @@ def test_a_failing_task_does_not_take_the_grid_with_it(tmp_path, monkeypatch):
         "fine": FakeTask(summary(accuracy=0.9), name="fine"),
     }
     benchmark = Benchmark(tasks=list(tasks), name="grid", save_path=str(tmp_path))
-    monkeypatch.setattr(benchmark, "build", lambda key: tasks[key])
+    serve(monkeypatch, tasks)
 
     report = benchmark.run()
 
@@ -96,7 +107,6 @@ def test_a_failing_task_does_not_take_the_grid_with_it(tmp_path, monkeypatch):
     strict = Benchmark(
         tasks=["broken"], name="strict", save_path=str(tmp_path), strict=True
     )
-    monkeypatch.setattr(strict, "build", lambda key: tasks[key])
     with pytest.raises(RuntimeError, match="cannot run"):
         strict.run()
 
@@ -188,8 +198,6 @@ def test_registered_benchmark_and_analyzers_build(tmp_path):
     benchmark = Registry.from_key(TOY_BENCHMARK, save_path=str(tmp_path))
     assert isinstance(benchmark, Benchmark)
     assert benchmark.tasks == [TOY_TASK]
-    # The task it builds is told to save inside the benchmark.
-    assert benchmark.build(TOY_TASK).save_path == benchmark.directory
 
     assert isinstance(Registry.from_key(METRICS_ANALYZER), MetricsAnalyzer)
     assert isinstance(
@@ -771,7 +779,7 @@ def test_the_report_is_written_after_every_task(tmp_path, monkeypatch):
         "second": FakeTask(summary(accuracy=0.7), name="second"),
     }
     benchmark = Benchmark(tasks=list(tasks), name="grid", save_path=str(tmp_path))
-    monkeypatch.setattr(benchmark, "build", lambda key: tasks[key])
+    serve(monkeypatch, tasks)
     run = FakeTask.run
 
     def record(self):
@@ -788,18 +796,20 @@ def test_the_report_is_written_after_every_task(tmp_path, monkeypatch):
     assert written == [0, 1]
 
 
-def test_the_benchmark_directory_wins_over_a_task_argument(tmp_path):
+def test_the_benchmark_directory_wins_over_a_task_argument(tmp_path, monkeypatch):
     """A task writing elsewhere leaves `benchmark.json` naming results no
     analyzer reading this directory can find."""
-    Registry.build(directory=Path(pyhighlights.__file__).parent)
     benchmark = Benchmark(
-        tasks=[TOY_TASK],
+        tasks=["first"],
         name="grid",
         save_path=str(tmp_path),
         task_args={"save_path": str(tmp_path / "elsewhere")},
     )
+    built = serve(monkeypatch, {"first": FakeTask(summary(), name="first")})
 
-    assert benchmark.build(TOY_TASK).save_path == benchmark.directory
+    benchmark.run()
+
+    assert built == [{"save_path": str(benchmark.directory)}]
 
 
 def test_the_newest_run_is_the_newest_stamp_not_the_last_walked(tmp_path):
