@@ -333,7 +333,7 @@ def test_registered_downloads_carry_the_digest_they_document(tmp_path):
         assert Registry.retrieve_configuration(key).sha256 == R2A_SHA256
     assert Registry.retrieve_configuration(MOVIES).sha256 == ERASERLoader.SHA256
 
-    # HateXplain is two downloads, so it is two digests -- and two URLs at an
+    # HateXplain is two downloads, so it is two digests, and two URLs at an
     # immutable commit rather than at a branch, since a digest pins bytes and
     # a branch name does not pin which bytes.
     hatexplain = Registry.retrieve_configuration(HATEXPLAIN)
@@ -415,8 +415,8 @@ def test_a_downloaded_corpus_is_pinned_or_refused(tmp_path):
 def test_a_corpus_older_than_these_columns_is_converted_by_parse(tmp_path):
     """The hook a legacy schema overrides, rather than a loader of its own.
 
-    The released GenSPP corpus stores `structure_indexes` -- the positions that
-    are marked -- where this library stores a `highlights` vector. That is a
+    The released GenSPP corpus stores `structure_indexes`, the positions that
+    are marked, where this library stores a `highlights` vector. That is a
     difference in serialisation, not in what the corpus is, so it is fifteen
     lines of conversion rather than a second class.
     """
@@ -472,7 +472,7 @@ def test_a_configured_source_is_never_fallen_back_on(tmp_path):
 
     A `url` that cannot be read has to raise. Generating instead would hand
     back a corpus of the right shape and different content, which is the
-    failure nothing downstream can see -- every metric still computes.
+    failure nothing downstream can see: every metric still computes.
     """
     loader = ToyLoader(url=str(tmp_path / "absent.pkl"))
 

@@ -1,8 +1,8 @@
 """Preprocessing: everything done to a corpus after it is parsed.
 
-A loader hands back a corpus as distributed. What happens next -- repairing
-leaking splits, turning per-annotator judgements into one label and one
-highlight vector -- is an editorial choice, and two studies over the same
+A loader hands back a corpus as distributed. What happens next, such as
+repairing leaking splits or turning per-annotator judgements into one label
+and one highlight vector, is an editorial choice, and two studies over the same
 corpus routinely make it differently. So it is a component: pick one, or
 compose several with :class:`Pipeline`, and the choice is named in a
 configuration rather than buried in the loader that fetched the files.
@@ -79,7 +79,7 @@ def class_weights(labels: Sequence[Any], classes: int | None = None) -> List[flo
 
     ``classes`` is the number of classes the model has, and defaults to the
     largest label seen plus one. Pass it wherever the split might not contain
-    every class -- an inferred count would silently give the model one output
+    every class: an inferred count would silently give the model one output
     fewer than the task has.
     """
     values = [int(label) for label in labels]
@@ -93,8 +93,8 @@ def class_weights(labels: Sequence[Any], classes: int | None = None) -> List[flo
         # Fewer classes than the split holds is not a split missing a class,
         # which is the case below. It is a count that cannot be right, and
         # weighting the classes it does cover would hand the model a shorter
-        # weight vector than its own output layer -- a shape error much later,
-        # about something else.
+        # weight vector than its own output layer. That is a shape error much
+        # later, about something else.
         raise ValueError(f"label {max(values)} is not a class of {classes}")
 
     classes = max(values) + 1 if classes is None else classes
@@ -122,9 +122,9 @@ def remove_leakage(
     their original order, and the returned mapping keeps the input order.
 
     A row whose key is empty or missing is dropped wherever it sits. It is not
-    a duplicate of the next empty row -- comparing them would claim a leak the
-    corpus does not have -- and it is nothing to train on either: an empty
-    text is an empty token sequence, and a highlight over it names no word.
+    a duplicate of the next empty row, since comparing them would claim a leak
+    the corpus does not have. It is nothing to train on either: an empty text
+    is an empty token sequence, and a highlight over it names no word.
     The check reads the normalized key, so a blank row goes whether or not
     ``normalize_keys`` is set.
 
@@ -153,9 +153,8 @@ class LeakageRemover(Preprocessor):
     judgement about the study rather than about the corpus: keeping the
     annotated split whole is right when highlight scores are the result, and
     wrong when the training set is what must be reproduced. Hence a
-    preprocessor -- the loader has no business making that call, and splits
-    the user built themselves are just as valid an input as the distributed
-    ones.
+    preprocessor: the loader has no business making that call, and splits the
+    user built themselves are just as valid an input as the distributed ones.
 
     :attr:`removed` records how many rows each split lost, blank rows
     included.
@@ -188,8 +187,8 @@ class LeakageRemover(Preprocessor):
 class AnnotationAggregator(Preprocessor):
     """Collapses per-annotator labels and highlights into one of each.
 
-    A corpus annotated by several people -- HateXplain has three per post --
-    is loaded with every judgement kept, because reducing them is a choice the
+    A corpus annotated by several people (HateXplain has three per post) is
+    loaded with every judgement kept, because reducing them is a choice the
     corpus does not make for you:
 
     - ``label``: majority vote. A post whose top label is shared with another
@@ -266,9 +265,9 @@ class AnnotationAggregator(Preprocessor):
                 processed[name] = frame
                 continue
 
-            # A corpus may carry more than COLUMNS -- `knowledge` is the one
-            # this library reads -- and a reduction of the annotators is no
-            # reason to lose it. Rebuilding the frame from COLUMNS alone
+            # A corpus may carry more than COLUMNS, such as the `knowledge`
+            # column this library reads, and a reduction of the annotators is
+            # no reason to lose it. Rebuilding the frame from COLUMNS alone
             # dropped it silently, and the split then weighted no links.
             carried = [
                 column
@@ -302,9 +301,9 @@ class Pipeline(Preprocessor):
     """Runs preprocessors in order, each over what the last returned.
 
     Steps are registration keys rather than instances, so a pipeline is
-    something a configuration states -- aggregate the annotations, then repair
-    the leakage the aggregation left behind -- and a second study over the
-    same corpus states a different one without touching either step.
+    something a configuration states: aggregate the annotations, then repair
+    the leakage the aggregation left behind. A second study over the same
+    corpus states a different one without touching either step.
     """
 
     def __init__(self, steps: Sequence[RegistrationKey] = ()):
@@ -332,8 +331,8 @@ class Pipeline(Preprocessor):
 class LengthFilter(Preprocessor):
     """Drops rows longer than ``max_length`` tokens.
 
-    Nothing here is any one corpus's. The *policy* -- thirty tokens, because
-    that is how the GenSPP release bounds its compute -- is a configuration and
+    Nothing here is any one corpus's. The *policy* (thirty tokens, because
+    that is how the GenSPP release bounds its compute) is a configuration and
     lives in the benchmark that adopts it.
 
     Truncating would keep the row and lose the tokens, which for a corpus
@@ -361,9 +360,9 @@ class LengthFilter(Preprocessor):
 class LabelMapper(Preprocessor):
     """Rewrites label values through a mapping.
 
-    Collapsing classes is an editorial choice like any other -- the GenSPP
+    Collapsing classes is an editorial choice like any other: the GenSPP
     paper folds HateXplain's ``offensive`` into ``normal`` and trains on two
-    classes -- and it has to happen before the votes are counted, not after:
+    classes. It has to happen before the votes are counted, not after:
     a post two annotators call ``hatespeech`` and one calls ``offensive`` has
     a majority either way, but one where the votes are ``hatespeech``,
     ``offensive`` and ``normal`` has one only once the last two are the same
@@ -402,8 +401,8 @@ def link_weights(links: Sequence[Any], entries: int) -> List[float]:
     imbalanced twice over: most examples instantiate nothing, and among those
     that do, most entries still do not apply. A single positive weight cannot
     separate the entry that fires on half the annotated examples from the one
-    that fires on three of them -- and the deciding entry is frequently the
-    rare one, which is the reason this is a vector.
+    that fires on three of them. The deciding entry is frequently the rare
+    one, which is the reason this is a vector.
 
     ``links`` is one sequence of entry indices per example, or ``None`` where
     the corpus annotates none; unannotated examples are skipped, since they
@@ -440,8 +439,8 @@ class ClassWeights(Preprocessor):
     than typed into a configuration by hand and hoped to still be right. Doing
     it here rather than inside a task makes the reading a named step: it is in
     the pipeline, so it is in the manifest, and it runs over the split the
-    study actually trains on -- after whatever filtering and aggregation came
-    before it, which is what changes the frequencies.
+    study actually trains on. That is the split after whatever filtering and
+    aggregation came before it, which is what changes the frequencies.
 
     Nothing is added to the frames. :attr:`weights` and :attr:`counts` hold
     what it found, and :class:`~pyhighlights.components.tasks.ClassWeightsTask`
@@ -482,8 +481,8 @@ class KnowledgeWeights(ClassWeights):
     ``entries`` is the size of the base, and it is required rather than
     inferred. The largest index a split happens to use is not the size of the
     knowledge base, and guessing it would hand the loss a weight vector one
-    entry short -- which broadcasts against the wrong axis or silently drops
-    the last entry.
+    entry short. Such a vector broadcasts against the wrong axis or silently
+    drops the last entry.
     """
 
     def __init__(self, entries: int, split: str = "train"):

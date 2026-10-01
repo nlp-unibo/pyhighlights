@@ -320,7 +320,7 @@ def test_the_first_generation_is_not_one_point_repeated():
 
     The shared initial state is what makes fitness comparable, and it covers
     everything except the chromosome. Covering the chromosome too would give
-    every founder the same generator -- a first generation of one repeated
+    every founder the same generator: a first generation of one repeated
     point, with mutation left as the only source of diversity.
     """
     model = register_tiny_genspp()
@@ -345,8 +345,8 @@ def test_scoring_a_candidate_does_not_read_the_global_random_state():
     zero would take that back silently, which is why this is asserted rather
     than assumed.
 
-    Scoring does *advance* that state -- building a model draws from it -- and
-    that is fine, which is the second assertion here: the search's own
+    Scoring does *advance* that state, because building a model draws from it.
+    That is fine, which is the second assertion here: the search's own
     randomness lives on explicit generators, so nothing reads what scoring
     left behind.
     """
@@ -402,7 +402,7 @@ def test_every_candidate_trains_on_the_same_batch_order():
     `GenSPPTask` hands the search the training `DataLoader` the task built,
     which shuffles. Re-iterating it draws a new permutation, so before `_fit`
     froze one the same chromosome scored differently depending on how many
-    candidates preceded it -- and with a pool, on how the workers interleaved.
+    candidates preceded it and, with a pool, on how the workers interleaved.
     """
     orders: List[List[List[int]]] = []
 
@@ -449,7 +449,7 @@ def test_a_diverged_candidate_is_refused_where_it_diverged():
     `compute_fitness` compares the loss against its limit, and a NaN compares
     false, so the candidate came back with a NaN fitness instead of the floor.
     That survives into the population and fails inside `random.choices` with
-    `Total of weights must be finite` -- which names neither the candidate nor
+    `Total of weights must be finite`, which names neither the candidate nor
     the device that trained it.
     """
     assert math.isnan(
@@ -613,8 +613,8 @@ def test_search_is_reproducible_and_keeps_only_candidate_chromosomes():
     first_search = trainer(model_key, n_generations=1)
     first_model = first_search.fit(train, validation)
     # Two founders and two children scored, one build per founder to draw its
-    # generator at random -- scoring cannot draw it, since no result there may
-    # read the global random state -- one more to capture the shared initial
+    # generator at random (scoring cannot draw it, since no result there may
+    # read the global random state), one more to capture the shared initial
     # state before any pool exists, and one per candidate that turned out to
     # be the best so far, which the search rebuilds from its chromosome and
     # the weights descent left on it. Everything but the four scorings is paid
@@ -649,7 +649,7 @@ def test_a_generation_draws_couples_and_keeps_the_population_whole():
     and crosses each couple into two, so its default 0.5 adds one child per
     member: 25 couples and 50 children for a population of 50. This was
     written as ``population_size // 2``, which is the same number with the
-    rate baked in -- and reads as though a generation bred half a population.
+    rate baked in, and reads as though a generation bred half a population.
 
     What has to hold whatever the rate is: the population that comes out is
     the population that went in, because survival keeps exactly
@@ -770,7 +770,7 @@ def test_a_diagnosed_search_scores_one_candidate_at_a_time(caplog, monkeypatch):
 
     Two candidates writing their stages at once read as one model that never
     existed, so a search asked to diagnose itself takes the sequential path
-    however many devices it was given -- and says which candidate each run of
+    however many devices it was given, and says which candidate each run of
     lines belongs to.
     """
     import logging
@@ -805,8 +805,8 @@ def test_the_winner_says_its_generator_is_not_trained():
 
     Scoring the winner is a forward pass and a second search draws its own
     founders, so a generator left marked trainable reads as a model half of
-    which descent produced -- to a cost table counting parameters, and to
-    anything building an optimizer over `parameters()`.
+    which descent produced. A cost table counting parameters reads it that
+    way, and so does anything building an optimizer over `parameters()`.
     """
     model_key = register_tiny_genspp()
     search = trainer(model_key, n_generations=1)
@@ -829,8 +829,8 @@ def test_a_candidate_comes_back_as_a_chromosome_and_what_descent_moved():
     """A worker in another process cannot hand a model back over a pipe.
 
     So it hands back neither: the chromosome it was given, and the weights
-    gradient descent left on the predictor. Everything frozen is left out --
-    a GloVe table is megabytes, is the same in every candidate, and is loaded
+    gradient descent left on the predictor. Everything frozen is left out: a
+    GloVe table is megabytes, is the same in every candidate, and is loaded
     from the search's own copy when the model is built again.
     """
     search = trainer(register_tiny_genspp(), devices=["cpu"])
@@ -971,7 +971,7 @@ def test_two_unseeded_searches_do_not_draw_the_same_founders():
     """`seed=None` means this run should differ from the last one.
 
     Founders are built from the global generator, and `fit` restores that
-    around the whole search -- so a search that reseeded only its own
+    around the whole search. A search that reseeded only its own
     generators drew the same population every time, and differed after that
     only in selection and mutation.
     """

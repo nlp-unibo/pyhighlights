@@ -108,7 +108,7 @@ def test_the_predictor_phase_also_steps_the_generator():
 
     The predictor reads a detached copy, so classification stays on the
     predictor's side, but sparsity and contiguity reach the generator here as
-    well as in its own phase -- and `training_step` steps the generator's
+    well as in its own phase, and `training_step` steps the generator's
     optimizer in both. That is what the reference implementation does in
     `train_util.train_decouple_causal2`, which adds both terms to its
     classification loss and steps `opt_gen` beside `opt_pred`. Asserted rather

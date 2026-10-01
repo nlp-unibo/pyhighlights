@@ -175,8 +175,8 @@ def _score_in_worker(item: Tuple[int, th.Tensor | None, th.device]):
 
 
 #: How long a worker gets to answer the probe below. Generous, because it is
-#: paid once per search and a loaded node can be slow to schedule a fork --
-#: and short against a search measured in hours, which is what it protects.
+#: paid once per search and a loaded node can be slow to schedule a fork. It
+#: is short against a search measured in hours, which is what it protects.
 #: A probe that never answers is a deadlocked fork; the timeout turns that
 #: into a search that runs on threads instead. See :meth:`GenSPPTrainer._open_pool`.
 PROBE_SECONDS = 60.0

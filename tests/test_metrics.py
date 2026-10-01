@@ -305,8 +305,8 @@ def test_each_build_gets_its_own_metric_state():
 def test_class_f1_reports_the_rare_class_where_macro_reports_the_other_one():
     """Nineteen negatives and one positive, all called negative.
 
-    Macro F1 answers 0.49 -- half of a perfect score on the class that is 95%
-    of the rows -- and the model found nothing. The class metric answers 0.0,
+    Macro F1 answers 0.49, half of a perfect score on the class that is 95%
+    of the rows, and the model found nothing. The class metric answers 0.0,
     which is the number a skewed corpus is read with.
     """
     Registry.build(directory=Path(pyhighlights.__file__).parent)

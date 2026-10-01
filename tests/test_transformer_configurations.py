@@ -267,8 +267,8 @@ def test_a_stacked_backbone_trains_a_gru_over_a_frozen_transformer(monkeypatch):
 
     backbone = Registry.from_key(STACKED_BACKBONE, hidden_size=4)
     assert isinstance(backbone, StackedBackbone)
-    # Bidirectional by default, so the states are twice the hidden size --
-    # and nothing downstream reads the transformer's width.
+    # Bidirectional by default, so the states are twice the hidden size, and
+    # nothing downstream reads the transformer's width.
     assert backbone.output_size == 8
 
     # Frozen underneath, trainable on top: one learning rate is correct for
@@ -303,16 +303,16 @@ def test_no_backbone_lets_a_dropped_word_reach_the_predictor(monkeypatch):
     """The select-then-predict guarantee, checked at the backbone contract.
 
     A highlight *is* the predictor's input, not a story about it. So changing a
-    word the selection dropped must not change what the predictor reads -- and
-    it has to hold for every backbone, or a highlight means one thing over a
+    word the selection dropped must not change what the predictor reads. It
+    has to hold for every backbone, or a highlight means one thing over a
     GRU and another over a transformer.
 
     ``StackedBackbone`` failed this. Masking the transformer's attention is not
     enough: a transformer carries every position's own input forward through
     the residual stream whether or not anything attended to it, so a dropped
-    subtoken still had a state, and the recurrent encoder above it is recurrent
-    -- that state reached every position after it and then the pooled summary
-    the predictor reads. ``GRUBackbone`` zeroed its dropped embeddings and did
+    subtoken still had a state, and the recurrent encoder above it is
+    recurrent: that state reached every position after it and then the pooled
+    summary the predictor reads. ``GRUBackbone`` zeroed its dropped embeddings and did
     not have the problem, which is how the two disagreed.
     """
     transformers = ModuleType("transformers")

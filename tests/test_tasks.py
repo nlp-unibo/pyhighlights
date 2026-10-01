@@ -446,10 +446,10 @@ def test_a_run_can_drop_its_checkpoints_once_they_are_scored(tmp_path):
     """The weights are hundreds of gigabytes on a grid and nothing reads them.
 
     What a run is read from has to survive: the metrics, the manifest and the
-    stored predictions. The checkpoint is written and restored either way --
-    scoring the epoch training happened to end on is a different experiment
-    from scoring the best one -- so this deletes it afterwards rather than
-    never asking for it.
+    stored predictions. The checkpoint is written and restored either way,
+    because scoring the epoch training happened to end on is a different
+    experiment from scoring the best one. This test therefore deletes it
+    afterwards rather than never asking for it.
     """
     Registry.build(directory=Path(pyhighlights.__file__).parent)
 
@@ -477,7 +477,7 @@ def test_a_run_can_drop_its_checkpoints_once_they_are_scored(tmp_path):
 
 
 def test_weights_only_checkpoints_still_restore_the_best_epoch(tmp_path):
-    """Enough to score, not enough to resume -- which no task does."""
+    """Enough to score, not enough to resume, which no task does."""
     Registry.build(directory=Path(pyhighlights.__file__).parent)
 
     task = Registry.from_key(

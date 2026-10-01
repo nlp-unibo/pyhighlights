@@ -3,9 +3,9 @@
 The criterion is the discrepancy between those two. Removing plain noise or a
 spurious feature leaves the remainder looking like the whole input; removing
 the causal features does not. So the generator *maximizes* that discrepancy,
-and the predictor is never trained on the highlight at all -- two things that
-make this model read differently from every other one here, and the two the
-tests are about.
+and the predictor is never trained on the highlight at all. These two things
+make this model read differently from every other one here, and they are what
+the tests are about.
 """
 
 from pathlib import Path

@@ -63,8 +63,8 @@ class InputData(ModelData):
     The **word axis** ``[B, W]`` is what a person reads and what a selection is
     made over: ``mask`` and ``highlight_true``. A word is the unit the corpus
     annotates, the unit a sparsity target is a fraction of, and the unit an
-    export shows -- and it is the same unit whichever backbone read the text,
-    which is what makes two backbones comparable in one table.
+    export shows. It is the same unit whichever backbone read the text, which
+    is what makes two backbones comparable in one table.
 
     ``word_ids`` is the map between them. For a vocabulary tokenizer the two
     axes coincide and it is the identity.
@@ -81,7 +81,7 @@ class InputData(ModelData):
     #: token or padding. The map between the axes, and what turns a selection
     #: back into something readable.
     word_ids: th.Tensor | None = None
-    #: Subtoken axis: what the encoder attends over -- every real subtoken
+    #: Subtoken axis: what the encoder attends over, meaning every real subtoken
     #: *and* every special token, since a backbone was pretrained with those
     #: and reads worse without them. Distinct from ``mask``, which says what
     #: may be selected: ``[CLS]`` is not a word and is never a choice, but it
@@ -91,7 +91,7 @@ class InputData(ModelData):
     #: **Knowledge axis** ``[B, M]``: which entries of the knowledge base
     #: explain each example, one column per entry. ``-1`` on a row the corpus
     #: does not annotate, and ``0`` where it annotates that the entry does not
-    #: apply -- the same convention ``highlight_true`` uses, and the same
+    #: apply. This is the convention ``highlight_true`` uses, for the same
     #: reason: an empty knowledge set is a prediction to be scored, not an
     #: absent annotation to be skipped.
     #:

@@ -2,8 +2,8 @@
 
 A task is what a paper's table row is made of. It names the corpus, the
 preprocessing, the model and the metrics as registration keys, runs the whole
-thing over a list of seeds, and writes down what happened -- so reproducing a
-number means running one key, not remembering which loader went with which
+thing over a list of seeds, and writes down what happened. Reproducing a
+number therefore means running one key, not remembering which loader went with which
 checkpoint.
 
 Seeds are a list rather than a number because a single run of a
@@ -74,7 +74,7 @@ def vocabulary(frames: Iterable[pd.DataFrame], size: int) -> Dict[str, int]:
     over an out-of-vocabulary word is distinguishable from one over nothing.
 
     Built from the training split alone. A vocabulary fitted on evaluation text
-    would leak it -- quietly, since nothing downstream can tell where an id
+    would leak it, and quietly, since nothing downstream can tell where an id
     came from.
     """
     if size < 3:
@@ -116,7 +116,7 @@ def summarize(runs: Sequence[Mapping[str, float]]) -> Dict[str, Dict[str, float]
     The **sample** standard deviation, ``ddof=1``. The seeds are a sample of
     the runs the configuration could produce rather than the whole of them,
     which is what a table reporting ``mean +/- std`` claims, and the
-    population form is smaller by ``sqrt(n / (n - 1))`` -- 12% at five seeds
+    population form is smaller by ``sqrt(n / (n - 1))``: 12% at five seeds
     and 41% at two. One seed has no spread to report and gives ``0.0`` rather
     than a ``nan``.
     """
@@ -157,8 +157,8 @@ class Task(abc.ABC):
         if self._started is None:
             stamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
             # Claimed by creating it rather than by finding it absent: two
-            # processes starting the same task in the same second -- a grid
-            # run in parallel, a requeued job -- both pass an `exists()` check
+            # processes starting the same task in the same second (a grid
+            # run in parallel, a requeued job) both pass an `exists()` check
             # and then write into one directory. `mkdir` is what decides.
             self._started = stamp
             for suffix in itertools.count(2):
@@ -206,10 +206,9 @@ class SPPTask(Task):
     the terms of :mod:`pyhighlights.components.faithfulness` over the test
     split, and is off by default: they are two more columns rather than a
     correction, and a registered reproduction should report what its paper
-    reports. What lands on disk is
-    ``results.json`` -- every seed's metrics, plus their mean and standard
-    deviation -- ``manifest.json``, and, when asked, one
-    ``predictions-seed=<seed>.pkl`` per seed.
+    reports. What lands on disk is ``results.json`` (every seed's metrics,
+    plus their mean and standard deviation), ``manifest.json``, and, when
+    asked, one ``predictions-seed=<seed>.pkl`` per seed.
     """
 
     def __init__(
@@ -305,7 +304,7 @@ class SPPTask(Task):
         # hundreds of gigabytes of files nothing downstream reads: the task
         # restores the best one itself before scoring, and an analyzer reads
         # `results.json` and the stored predictions. Deleted after scoring
-        # rather than never written -- scoring the weights training happened
+        # rather than never written: scoring the weights training happened
         # to end on is a different experiment from scoring the best epoch.
         self.keep_checkpoints = keep_checkpoints
         # Weights without the optimizer state, which is most of a file for a
@@ -511,7 +510,7 @@ class SPPTask(Task):
         # Everything that monitors has to monitor the same thing. Early
         # stopping decides when a run ends and the checkpoint decides which
         # epoch it is scored on, so two quantities mean the reported model is
-        # not the one the stopping rule chose -- and nothing downstream says
+        # not the one the stopping rule chose. Nothing downstream says
         # so, because `results.json` records the scores and not the argument
         # behind them. Refused here rather than left to a reader of a table.
         monitored = {
@@ -548,8 +547,8 @@ class SPPTask(Task):
         ``embeddings`` and ``knowledge`` are data rather than configuration,
         so they reach the model here rather than through a registration. Both
         default to what :meth:`tokenizer` and :meth:`loaders` read off the
-        corpus, and both may be passed outright -- a caller that built them
-        itself, or a test.
+        corpus, and both may be passed outright, by a caller that built them
+        itself or by a test.
 
         A task that embeds from a vector file and is handed no matrix is
         refused: it would otherwise build a model with a randomly initialised
@@ -598,8 +597,9 @@ class SPPTask(Task):
         :meth:`build_model` passes them to the constructor, which is where a
         model belonging to this task gets them. A searched model is built by
         the search from the model key alone, so it arrives without any, and
-        this is the one place that is repaired -- all three splits, so a model
-        is not left holding metrics from one path and none from another.
+        this is the one place that is repaired. All three splits are repaired,
+        so a model is not left holding metrics from one path and none from
+        another.
         """
         model.train_metrics = build_metrics(self.train_metrics)
         model.val_metrics = build_metrics(self.val_metrics)
@@ -610,7 +610,7 @@ class SPPTask(Task):
 
         The collator pads unannotated positions with ``-1`` and the criterion
         skips them, so supervising a corpus annotated on test alone trains
-        exactly as an unsupervised run does -- and reports itself as the
+        exactly as an unsupervised run does, and reports itself as the
         ceiling that run was measured against. Checked where the loaders are
         built, which is the one thing every path to ``fit`` goes through.
         """
@@ -736,8 +736,8 @@ class SPPTask(Task):
 
         What a run is read from survives: the metrics, the manifest, the
         stored predictions and, for a search, ``search.json``. The weights do
-        not, so a number cannot be re-derived without training again -- which
-        is the trade a grid of transformer cells makes to fit on a filesystem,
+        not, so a number cannot be re-derived without training again. That is
+        the trade a grid of transformer cells makes to fit on a filesystem,
         and why this is off by default.
         """
         for checkpoint in sorted(directory.glob("*.ckpt")):
@@ -791,7 +791,7 @@ class SPPTask(Task):
             # After the metrics rather than beside them: the terms need the
             # predictor run against masks of their own, so they are a stage
             # over the split rather than another binding inside a test step.
-            # Test only -- a validation faithfulness number selects nothing.
+            # Test only: a validation faithfulness number selects nothing.
             if self.faithfulness:
                 # Lightning moves the model back to the CPU when it tears a
                 # loop down, and this stage runs outside every loop: without
@@ -864,7 +864,7 @@ class GenSPPTask(SPPTask):
     :class:`SPPTask`'s. What differs is the training: no gradient reaches the
     generator, so the model is not named directly but by the
     :class:`~pyhighlights.components.models.spp.genspp.GenSPPTrainer` that
-    searches for it -- one search per seed, seeded with it, since a genetic
+    searches for it: one search per seed, seeded with it, since a genetic
     search over a population of two dozen is the noisiest part of the run.
 
     Each seed leaves behind the weights the search settled on and
@@ -895,7 +895,7 @@ class GenSPPTask(SPPTask):
     #: How many candidates a diagnosed search may evaluate. Each one trains a
     #: predictor over the whole training split, and every batch of that is a
     #: page of the record, so a smoke test is a handful of them and the
-    #: published settings -- fifty candidates over a hundred generations --
+    #: published settings (fifty candidates over a hundred generations)
     #: are five thousand times that.
     SMOKE_CANDIDATES = 8
 
@@ -957,7 +957,7 @@ class GenSPPTask(SPPTask):
             loaders["train"], loaders["val"], embeddings=self._embedding_matrix
         )
         # What the seed actually trained, which is the founders plus the
-        # children of every generation that ran -- fewer than
+        # children of every generation that ran. That is fewer than
         # `n_generations` when the search reached `stop_threshold` and
         # stopped. Scored several at a time, one per worker, so both numbers
         # are needed to say what one candidate cost.
@@ -994,7 +994,7 @@ class ClassWeightsTask(Task):
 
     So the numbers are readable by a person, persist after the process that
     computed them exits, and carry the key of the corpus and the preprocessing
-    that produced them -- which is what makes them worth copying into a
+    that produced them. That is what makes them worth copying into a
     configuration, where every training run's manifest then records them.
 
     It trains nothing and takes no seeds.

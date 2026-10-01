@@ -227,8 +227,8 @@ def test_two_runs_inside_one_second_still_get_a_directory_each(tmp_path, monkeyp
     """The stamp is one second wide; the guarantee is not."""
     # Built here rather than borrowed from whichever test ran first: every
     # other test in this module builds its own, and this one only passed
-    # because it followed them. Run it on a worker of its own -- which is
-    # what `pytest -n` does -- and the registry it reads was never built.
+    # because it followed them. Run it on a worker of its own, which is
+    # what `pytest -n` does, and the registry it reads was never built.
     Registry.build(directory=Path(pyhighlights.__file__).parent)
     # The clock is pinned because a real one produces this collision only by
     # luck: two runs that straddle a second boundary get two different stamps,
@@ -248,8 +248,8 @@ def test_two_runs_inside_one_second_still_get_a_directory_each(tmp_path, monkeyp
 def test_a_parameter_called_key_does_not_overwrite_the_registration_key():
     """Both survive, because the key is not stored under a parameter's name.
 
-    `LeakageRemover` has a `key` parameter -- it names the column it
-    deduplicates on -- so its resolved entry used to read `"key": "text"` with
+    `LeakageRemover` has a `key` parameter, naming the column it
+    deduplicates on, so its resolved entry used to read `"key": "text"` with
     the registration key gone, and `PredictionAnalyzer.corpus` then handed
     `"text"` to `RegistrationKey.parse`.
     """
