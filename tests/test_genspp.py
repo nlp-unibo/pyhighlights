@@ -1,5 +1,10 @@
 import math
+import multiprocessing
+import os
 import random
+import subprocess
+import sys
+import threading
 from itertools import chain
 from pathlib import Path
 from types import SimpleNamespace
@@ -20,7 +25,6 @@ from pyhighlights.components.models.spp import (
     SPPBackbone,
     SPPPredictor,
     SPPSelector,
-    genspp,
 )
 from pyhighlights.components.models.spp.genspp import _Individual
 from pyhighlights.configurations.keys import GRU_GENSPP, GRU_GENSPP_TRAINER
@@ -49,6 +53,34 @@ class TinyBackbone(SPPBackbone):
     def pool(self, states: th.Tensor, mask: th.Tensor) -> th.Tensor:
         float_mask = mask.unsqueeze(-1)
         return (states * float_mask).sum(1) / float_mask.sum(1).clamp_min(1)
+
+
+PARENT_LOCK = threading.Lock()
+
+
+class LockingBackbone(TinyBackbone):
+    """Backbone exposing a native-library lock inherited by forked workers."""
+
+    def encode(
+        self,
+        features: th.Tensor,
+        mask: th.Tensor,
+        selection_mask: th.Tensor | None = None,
+    ) -> th.Tensor:
+        with PARENT_LOCK:
+            return super().encode(features, mask, selection_mask)
+
+
+class CrashingBackbone(TinyBackbone):
+    """Backbone simulating a worker terminated outside Python."""
+
+    def encode(
+        self,
+        features: th.Tensor,
+        mask: th.Tensor,
+        selection_mask: th.Tensor | None = None,
+    ) -> th.Tensor:
+        os._exit(23)
 
 
 class TinySelector(SPPSelector):
@@ -127,10 +159,12 @@ def register(name: str, component: str) -> RegistrationKey:
     )
 
 
-def register_tiny_genspp() -> RegistrationKey:
+def register_tiny_genspp(
+    backbone_component: str | None = None,
+) -> RegistrationKey:
     Registry.initialize()
     CountingGenSPP.instances = 0
-    backbone = register("backbone", f"{__name__}.TinyBackbone")
+    backbone = register("backbone", backbone_component or f"{__name__}.TinyBackbone")
     selector = register("selector", f"{__name__}.TinySelector")
     predictor = register("predictor", f"{__name__}.TinyPredictor")
     register("criterion", "torch.nn.CrossEntropyLoss")
@@ -368,8 +402,142 @@ def test_scoring_a_candidate_does_not_read_the_global_random_state():
     assert not th.equal(state, th.get_rng_state())
 
 
+def _fit_while_parent_lock_is_held(results) -> None:
+    """Run parallel fit while another parent thread owns ``PARENT_LOCK``."""
+    acquired = threading.Event()
+    release = threading.Event()
+
+    def hold() -> None:
+        with PARENT_LOCK:
+            acquired.set()
+            release.wait()
+
+    holder = threading.Thread(target=hold)
+    holder.start()
+    acquired.wait()
+    try:
+        model = register_tiny_genspp(f"{__name__}.LockingBackbone")
+        search = trainer(
+            model,
+            n_generations=1,
+            population_size=2,
+            task_loss_limit=10.0,
+            devices=["cpu"] * 2,
+        )
+        search.fit([batch(labels=(0, 1))], [batch(labels=(0, 1))])
+        results.put(("ok", [item.fitness for item in search.population]))
+    except BaseException as error:
+        results.put(("error", f"{type(error).__name__}: {error}"))
+    finally:
+        release.set()
+        holder.join()
+
+
+def test_parallel_fit_does_not_inherit_a_locked_parent_mutex():
+    """Parallel fit must not inherit locks held by threads in its caller."""
+    context = multiprocessing.get_context("spawn")
+    results = context.Queue()
+    process = context.Process(target=_fit_while_parent_lock_is_held, args=(results,))
+    process.start()
+    process.join(timeout=300)
+    if process.is_alive():
+        process.terminate()
+        process.join()
+        pytest.fail("parallel fit inherited a locked parent mutex")
+
+    assert process.exitcode == 0
+    status, value = results.get(timeout=1)
+    assert status == "ok", value
+    assert len(value) == 2
+
+
+def _fit_with_crashing_worker(results) -> None:
+    """Report whether a hard worker exit returns control to ``fit``."""
+    try:
+        model = register_tiny_genspp(f"{__name__}.CrashingBackbone")
+        search = trainer(model, devices=["cpu"] * 2)
+        search.fit([batch(labels=(0, 1))], [batch(labels=(0, 1))])
+        results.put(("ok", None))
+    except BaseException as error:
+        results.put(("error", f"{type(error).__name__}: {error}"))
+
+
+def test_parallel_fit_reports_a_worker_that_exits():
+    """A hard worker exit must fail the search rather than wait forever."""
+    context = multiprocessing.get_context("spawn")
+    results = context.Queue()
+    process = context.Process(target=_fit_with_crashing_worker, args=(results,))
+    process.start()
+    process.join(timeout=300)
+    if process.is_alive():
+        process.terminate()
+        process.join()
+        pytest.fail("parallel fit waited forever after a worker exited")
+
+    assert process.exitcode == 0
+    status, value = results.get(timeout=1)
+    assert status == "error"
+    assert value == (
+        "RuntimeError: a GenSPP worker process exited before scoring its candidate"
+    )
+
+
+def test_parallel_fit_runs_from_a_guarded_script(tmp_path):
+    """Spawned workers may import a script without rerunning its search."""
+    script = tmp_path / "guarded_search.py"
+    script.write_text(
+        """from tests.test_genspp import batch, register_tiny_genspp, trainer
+
+
+def main():
+    search = trainer(register_tiny_genspp(), devices=[\"cpu\"] * 2)
+    search.fit([batch()], [batch()])
+
+
+if __name__ == \"__main__\":
+    main()
+"""
+    )
+
+    environment = os.environ | {"PYTHONPATH": str(Path(__file__).parents[1])}
+    subprocess.run(
+        [sys.executable, str(script)], check=True, timeout=300, env=environment
+    )
+
+
+def test_parallel_fit_shares_corpus_storage():
+    """CPU workers must not hold one materialized corpus copy each."""
+    model = register_tiny_genspp()
+    train, validation = [batch()], [batch()]
+
+    trainer(model, devices=["cpu"] * 2).fit(train, validation)
+
+    assert train[0].features.is_shared()
+    assert validation[0].features.is_shared()
+
+
+def test_parallel_fit_shares_by_file_name_while_workers_can_spawn(monkeypatch):
+    """The executor spawns workers during scoring, after the pool opens."""
+    model = register_tiny_genspp()
+    search = trainer(model, devices=["cpu"] * 2)
+    score = GenSPPTrainer._score
+    seen = []
+
+    def recorded(self, *args, **kwargs):
+        seen.append(th.multiprocessing.get_sharing_strategy())
+        return score(self, *args, **kwargs)
+
+    monkeypatch.setattr(GenSPPTrainer, "_score", recorded)
+    caller = th.multiprocessing.get_sharing_strategy()
+
+    search.fit([batch()], [batch()])
+
+    assert seen == ["file_system"]
+    assert th.multiprocessing.get_sharing_strategy() == caller
+
+
 def test_several_devices_give_the_same_population_as_one():
-    """Threads change when a candidate is scored, never what it scores."""
+    """Processes change where a candidate is scored, never what it scores."""
     model = register_tiny_genspp()
     train, val = [batch(labels=(0, 1))], [batch(labels=(0, 1))]
 
@@ -858,80 +1026,6 @@ def test_a_candidate_comes_back_as_a_chromosome_and_what_descent_moved():
     assert name not in search._trained_state(model)
 
 
-def _refuses_to_differentiate() -> bool:
-    """What a worker does when torch has closed fork to this process."""
-    raise RuntimeError(
-        "Unable to handle autograd's threading in combination with "
-        "fork-based multiprocessing."
-    )
-
-
-def test_a_pool_that_cannot_differentiate_is_not_used(caplog, monkeypatch):
-    """Torch refuses fork once autograd has run threads in the parent.
-
-    It refuses in the worker rather than at the fork, so a search that asked
-    no questions would lose a whole generation to it. This one asks, and a
-    pool that cannot answer is closed and replaced by threads.
-
-    The refusal is forced here rather than provoked: whether torch has started
-    autograd's threads depends on what else has run in the process, so a test
-    that trained something first would assert it on some runs and not others.
-    """
-    monkeypatch.setattr(genspp, "_worker_can_train", _refuses_to_differentiate)
-    # An earlier optimizer step initialises CUDA on a machine that has it,
-    # which rules fork out before any probe. The probe is what this is about.
-    monkeypatch.setattr(th.cuda, "is_initialized", lambda: False)
-    model = register_tiny_genspp()
-    train, validation = [batch(labels=(0, 1))], [batch(labels=(0, 1))]
-
-    search = trainer(model, devices=["cpu"] * 4)
-    with caplog.at_level("WARNING", logger=genspp.__name__):
-        search._open_pool(train, validation)
-
-    assert search._pool is None
-    assert genspp._WORK is None
-    # Threads are several times slower, so the fallback is said.
-    assert "failed their probe" in caplog.text
-    # And the search still runs, on threads.
-    assert search.fit(train, validation) is not None
-
-
-def test_a_cuda_parent_keeps_the_search_on_threads(monkeypatch):
-    """A parent that has touched CUDA cannot fork a worker that trains.
-
-    Torch marks the child of a CUDA-initialised process and refuses to
-    initialise CUDA in it. An optimizer step reaches torch's accelerator
-    health check, which asks the current accelerator for its stream, so it
-    initialises CUDA even for parameters on the CPU. The candidate therefore
-    dies in the worker although every device here is a CPU one, which is why
-    the parent's CUDA state rules fork out before a pool is opened.
-    """
-    search = trainer(register_tiny_genspp(), devices=["cpu"] * 4)
-    monkeypatch.setattr(th.cuda, "is_initialized", lambda: False)
-    assert search._forkable() is True
-    monkeypatch.setattr(th.cuda, "is_initialized", lambda: True)
-    assert search._forkable() is False
-    assert search._unforkable_reason() == "this process has already initialised CUDA"
-
-
-def test_the_worker_probe_descends_as_well_as_differentiates(monkeypatch):
-    """The probe has to fail wherever a candidate would.
-
-    A probe that only ran backward passed on a CUDA host and left the first
-    real candidate to raise ``Cannot re-initialize CUDA in forked
-    subprocess`` from ``optimizer.step``. The step is part of the probe for
-    that reason, and this pins it there.
-    """
-    assert genspp._worker_can_train() is True
-
-    def refuse(self, *arguments, **keywords):
-        raise RuntimeError("Cannot re-initialize CUDA in forked subprocess")
-
-    monkeypatch.setattr(th.optim.Adam, "step", refuse)
-    with pytest.raises(RuntimeError, match="re-initialize CUDA"):
-        genspp._worker_can_train()
-
-
 def test_a_frozen_predictor_encoder_does_not_drop_while_a_candidate_trains(
     monkeypatch,
 ):
@@ -986,38 +1080,3 @@ def test_two_unseeded_searches_do_not_draw_the_same_founders():
     assert not any(
         th.equal(one.chromosome, other.chromosome) for one, other in zip(first, second)
     )
-
-
-def _refuses_to_fork() -> bool:
-    """A pool that fails for something other than autograd's threading."""
-    raise OSError("Cannot allocate memory")
-
-
-def test_a_pool_that_fails_to_launch_leaves_nothing_behind(monkeypatch):
-    """Not every launch failure is the `RuntimeError` autograd raises.
-
-    A node out of memory or file descriptors raises `OSError` instead, and a
-    worker that never answers raises neither. Whatever the reason, the search
-    is left with no pool, no workers and nothing holding the corpus it was
-    about to hand them.
-    """
-    monkeypatch.setattr(genspp, "_worker_can_train", _refuses_to_fork)
-    model = register_tiny_genspp()
-    train, validation = [batch(labels=(0, 1))], [batch(labels=(0, 1))]
-
-    search = trainer(model, devices=["cpu"] * 4)
-    search._open_pool(train, validation)
-
-    assert search._pool is None
-    assert genspp._WORK is None
-    assert search.fit(train, validation) is not None
-
-
-def test_a_search_that_cannot_fork_says_why(caplog, monkeypatch):
-    """Threads are several times slower than processes, so the choice is said."""
-    search = trainer(register_tiny_genspp(), devices=["cpu"] * 2)
-    monkeypatch.setattr(th.cuda, "is_initialized", lambda: True)
-    with caplog.at_level("INFO", logger=genspp.__name__):
-        search._open_pool([batch()], [batch()])
-    assert search._pool is None
-    assert "already initialised CUDA" in caplog.text

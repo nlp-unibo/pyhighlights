@@ -97,23 +97,45 @@ Two classes rather than one: the model, and the search that fits it.
 The generator's modules are put in evaluation mode for the whole of a candidate's predictor fitting, because dropout inside a frozen generator would score the same candidate differently from one epoch to the next.
 Candidates are evaluated one per device, and ``devices`` is the same knob for a pool of CPU workers and for a node's GPUs.
 
-CPU workers are **processes**, CUDA workers are threads. A candidate is a small model, so its cost is the training loop stepping from Python rather than the arithmetic inside torch, and that loop holds the GIL: eight threads on eight cores were measured at 240% of a possible 800%. Processes lift that. One generation of the Toy search, 100 candidates at a population of fifty, ran in 142.6 s sequentially, 91.0 s on eight threads and 22.6 s on eight processes: 1426, 910 and 226 ms a candidate, or 2.00, 1.28 and 0.32 hours for the 5050 candidates of a seed. All three settled on the same chromosome. CUDA is the other way round, since its kernels do release the GIL and a process per device would pay for a context each. A search falls back to threads where fork is unavailable, where autograd has already run in the calling process, which torch refuses to combine with fork, or where the calling process has initialised CUDA. On a machine with a GPU, one optimizer step initialises CUDA even for parameters on the CPU, so a search that runs after another model trained in the same process scores on threads. The search logs which of these kept it on threads.
+CPU workers are **spawned processes**, while CUDA workers are threads.
+A candidate is a small model, so much of its cost comes from the Python training loop.
+That loop holds the GIL, which limits CPU threads.
+Processes remove this limit.
+CUDA kernels release the GIL.
+A process per device would also allocate a separate CUDA context.
 
-Why the pool is forked once, before the first candidate, rather than per generation::
+The process pool remains open for the whole search.
+Each worker installs the caller's resolved Cinnamon runtime once.
+It receives the frozen training and validation batches through Torch's shared-memory transport and limits Torch to one thread.
+Candidate tasks then carry only a chromosome and a device.
+Spawning gives each worker clean native-library locks.
+It remains safe when the calling process has already started Torch or other native threads.
 
-   RuntimeError: Unable to handle autograd's threading in combination with
-   fork-based multiprocessing.
+Parallel CPU search must run from an importable Python file, and its entry point must use Python's multiprocessing guard:
 
-Torch raises that once autograd has run threads in the parent, and it raises it in the child when the pass is attempted rather than at the fork.
-So a pool is asked to train something trivial before it is trusted with a candidate, and one that cannot, or that does not answer within the probe timeout, is closed for threads.
-``forkserver`` would be the start method that avoids forking a threaded process, and it cannot be used here: the registry is process-global state built once by the caller, and a worker that did not inherit it cannot build the model a chromosome is for::
+.. code-block:: python
 
-   NotExpandedException: The registration graph has yet to be expanded!
-   Configuration retrieval is not allowed.
+   def main():
+       trainer.fit(train_loader, validation_loader)
 
-Rebuilding it per worker would cost seconds each and register a second copy of every configuration.
-Inheriting memory is what makes these workers correct, not merely cheap, so the fork risk is bounded rather than removed.
-A search opens its pool with one Python thread running, torch's being native, which is why CPython's own warning about forking a multi-threaded process does not fire outside a test runner that adds threads of its own.
+
+   if __name__ == "__main__":
+       main()
+
+An unguarded script can rerun its search while workers import it.
+Interactive standard input and notebook cells are not importable spawn entry points; use one CPU device there or call a guarded file.
+
+A terminated worker fails the search directly.
+The search does not continue on threads.
+That fallback would change a multi-hour runtime without changing the requested configuration.
+Naming one device remains the explicit sequential mode.
+
+The paper's Toy configuration was measured on a 22-logical-CPU development machine.
+One generation scored 100 candidates in 232.6 seconds sequentially.
+Three runs with eight spawned workers took 38.2, 38.9 and 42.6 seconds, a 38.9-second median and about a 6.0x speedup, and produced the same best fitness.
+These measurements include worker and registry startup.
+Cluster throughput depends on processor allocation.
+Measure it on the target node before projecting the complete 5,050-candidate seed.
 
 One shared initial state is given to every candidate, so that a fitness is a property of a chromosome rather than of the predictor initialisation drawn alongside it.
 The reference implementation reaches the same place from the other side: it keeps a pool of models and resets each reused one to *that slot's* initial weights, which makes a candidate's predictor depend on the slot it was given.

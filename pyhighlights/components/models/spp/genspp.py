@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-import logging
 import math
 import random
 from collections.abc import Sequence
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
+from copy import copy
 from dataclasses import dataclass
 from itertools import chain
-from multiprocessing import TimeoutError as MPTimeoutError
-from multiprocessing import get_all_start_methods, get_context
+from multiprocessing import get_context
 from multiprocessing.pool import ThreadPool
 from typing import Any, Dict, Iterable, List, Set, Tuple
 
@@ -17,8 +18,6 @@ from cinnamon.registry import RegistrationKey, Registry
 from pyhighlights.components.models import InputData
 from pyhighlights.components.models.spp.base import SPP, SPPBackbone, SPPSelector
 from pyhighlights.utility import diagnostics
-
-logger = logging.getLogger(__name__)
 
 
 class GenSPP(SPP):
@@ -155,16 +154,15 @@ class _Individual:
     selection_rate: float
 
 
-#: What a worker scores against: the trainer, and the two splits
-#: :meth:`GenSPPTrainer._fit` froze. Set when the worker starts, from
-#: arguments fork gives it by inheritance. Only the tasks themselves cross a
-#: pipe, so a generation costs a chromosome each way.
+#: What a worker scores against: the trainer and the two splits
+#: :meth:`GenSPPTrainer._fit` froze. The initializer installs it once, so a
+#: candidate task carries only its chromosome and device.
 _WORK: Tuple["GenSPPTrainer", Any, Any] | None = None
 
 
 def _score_in_worker(item: Tuple[int, th.Tensor | None, th.device]):
     """One candidate, in a process of its own. Module level to be picklable."""
-    if _WORK is None:  # pragma: no cover: a worker that never forked
+    if _WORK is None:  # pragma: no cover: a worker without its initializer
         raise RuntimeError("worker started without a search to score for")
     trainer, train_loader, val_loader = _WORK
     _, chromosome, device = item
@@ -174,45 +172,22 @@ def _score_in_worker(item: Tuple[int, th.Tensor | None, th.device]):
     return individual, trainer._trained_state(model)
 
 
-#: How long a worker gets to answer the probe below. Generous, because it is
-#: paid once per search and a loaded node can be slow to schedule a fork. It
-#: is short against a search measured in hours, which is what it protects.
-#: A probe that never answers is a deadlocked fork; the timeout turns that
-#: into a search that runs on threads instead. See :meth:`GenSPPTrainer._open_pool`.
-PROBE_SECONDS = 60.0
-
-
-def _worker_can_train() -> bool:
-    """Whether a worker can train at all.
-
-    Torch refuses the combination once autograd has run threads in the parent,
-    and it refuses it in the **child**, when the pass is attempted, rather than
-    at the fork. So a search asks a worker to train something trivial before
-    trusting it with a candidate.
-
-    The probe descends as well as differentiates. An optimizer step reaches
-    torch's accelerator health check, which asks the current accelerator for
-    its stream and so initialises CUDA even for parameters that live on the
-    CPU. In a forked child that raises, and a probe that only ran backward
-    would pass and leave the first real candidate to fail.
-    """
-    parameter = th.nn.Parameter(th.zeros(1))
-    optimizer = th.optim.Adam([parameter])
-    (parameter * 2).sum().backward()
-    optimizer.step()
-    return True
-
-
-def _start_worker(trainer: "GenSPPTrainer", train_loader: Any, val_loader: Any) -> None:
-    """Take delivery of the search, once, and keep torch to one thread.
-
-    Eight workers each taking a thread per core is sixty-four threads over
-    however many the machine has, which costs more in contention than the
-    threads can return on a model this size.
-    """
+def _start_worker(
+    registry: Dict[RegistrationKey, Dict[str, Any]],
+    trainer: "GenSPPTrainer",
+    train_loader: Any,
+    val_loader: Any,
+) -> None:
+    """Install caller runtime once, then keep torch to one thread per worker."""
     global _WORK
+    Registry.install_runtime(registry)
     _WORK = (trainer, train_loader, val_loader)
     th.set_num_threads(1)
+
+
+def _worker_ready() -> bool:
+    """Confirm that an executor worker completed its initializer."""
+    return _WORK is not None
 
 
 class GenSPPTrainer:
@@ -310,6 +285,8 @@ class GenSPPTrainer:
         self._torch_generator = th.Generator()
         #: The process pool, while a search is running. See :meth:`_open_pool`.
         self._pool = None
+        #: The caller's tensor sharing strategy while the pool holds its own.
+        self._sharing: str | None = None
         #: Trailing genes carrying the decision threshold, counted off the
         #: first candidate in :meth:`_fit`. Zero until then, so a mutation
         #: outside a search treats every gene alike.
@@ -488,8 +465,8 @@ class GenSPPTrainer:
         so its cost is the training loop stepping from Python rather than the
         arithmetic inside torch, and that loop holds the GIL. On CUDA the
         picture reverses: the kernels release the GIL, and a process per device
-        would pay for a context each and cannot be forked from a parent that
-        has already initialised one. :doc:`/models/genspp` has the measurements.
+        would pay for a separate context. :doc:`/models/genspp` has the
+        measurements.
 
         A candidate takes its device from its position, so a run naming one
         device is the sequential search and pays for no pool at all.
@@ -515,7 +492,12 @@ class GenSPPTrainer:
         if len(self.devices) == 1 or diagnostics.active():
             scored = [score(item) for item in work]
         elif self._pool is not None:
-            scored = self._pool.map(_score_in_worker, work)
+            try:
+                scored = list(self._pool.map(_score_in_worker, work))
+            except BrokenProcessPool as error:
+                raise RuntimeError(
+                    "a GenSPP worker process exited before scoring its candidate"
+                ) from error
         else:
             with ThreadPool(processes=len(self.devices)) as pool:
                 scored = pool.map(score, work)
@@ -531,98 +513,61 @@ class GenSPPTrainer:
             individuals.append(individual)
         return individuals
 
-    def _forkable(self) -> bool:
-        """Whether this search's candidates can be scored in processes.
-
-        CPU only, because a CUDA context cannot be inherited across a fork,
-        and only where the platform offers fork at all: spawning would re-import
-        and re-register everything per worker, per generation.
-
-        A parent that has already initialised CUDA rules out fork even when
-        every device here is a CPU one. Torch marks such a child as forked from
-        a CUDA process and refuses to initialise CUDA in it, and an optimizer
-        step initialises CUDA whenever an accelerator is present, whatever the
-        parameters sit on. A task that trains on a GPU around the search
-        therefore leaves the search on threads.
-        """
-        return self._unforkable_reason() is None
-
-    def _unforkable_reason(self) -> str | None:
-        """Why this search cannot fork its workers, or ``None`` when it can."""
-        if not all(device.type == "cpu" for device in self.devices):
-            return "a CUDA device cannot be inherited across a fork"
-        if "fork" not in get_all_start_methods():
-            return "this platform does not offer fork"
-        if th.cuda.is_initialized():
-            return "this process has already initialised CUDA"
-        return None
-
     def _open_pool(
         self, train_loader: Iterable[InputData], val_loader: Iterable[InputData]
     ) -> None:
-        """One process per device, forked once for the whole search.
+        """Open one persistent, spawned process per CPU device.
 
-        The fork is what makes this cheap: a worker reads the corpus and the
-        trainer out of inherited memory rather than over a pipe, so only a
-        chromosome goes in and a scored candidate comes back. Inheritance is
-        also what makes it correct, since the registry is process-global state
-        a worker cannot rebuild, and that is why ``forkserver`` is no answer
-        to the risk below.
-
-        Forked before the first candidate rather than per generation, because
-        torch refuses fork-based multiprocessing once autograd has run threads
-        in the parent, and refuses it in the **child**, when the pass is
-        attempted, rather than at the fork. So a pool is asked to train
-        something trivial before it is trusted with a candidate. A pool that
-        cannot, or that does not answer inside :data:`PROBE_SECONDS`, is
-        closed and the search runs on threads.
-
-        The timeout bounds the risk rather than removing it: forking a process
-        that has threads can leave a child holding a lock nothing will
-        release, and a parent that hangs inside ``fork`` itself is out of its
-        reach. See :doc:`/models/genspp` for what makes that unlikely here.
+        Spawned workers start with clean native-library locks. The registry is
+        process-global, so its portable resolved runtime is installed once by
+        each worker. Torch's multiprocessing reducers share the corpus tensors
+        while the trainer travels once as an initializer argument. Candidate
+        tasks then carry only their chromosome and device.
         """
-        if len(self.devices) == 1 or diagnostics.active():
+        if (
+            len(self.devices) == 1
+            or diagnostics.active()
+            or not all(device.type == "cpu" for device in self.devices)
+        ):
             return
-        if not self._forkable():
-            logger.info(
-                "GenSPP scores candidates on threads: %s",
-                self._unforkable_reason(),
-            )
-            return
+        worker = copy(self)
+        worker._pool = None
+        worker._sharing = None
+        # File-backed sharing avoids copying every corpus tensor into every
+        # worker. The executor spawns a worker on demand, during any later
+        # submission, and pickles its initializer arguments then. The strategy
+        # therefore holds until :meth:`_close_pool`: a storage already shared
+        # by file name cannot be shared again by descriptor.
+        self._sharing = th.multiprocessing.get_sharing_strategy()
+        th.multiprocessing.set_sharing_strategy("file_system")
+        self._pool = ProcessPoolExecutor(
+            max_workers=len(self.devices),
+            mp_context=get_context("spawn"),
+            initializer=_start_worker,
+            initargs=(
+                Registry.freeze_runtime(),
+                worker,
+                train_loader,
+                val_loader,
+            ),
+        )
+        ready = [self._pool.submit(_worker_ready) for _ in self.devices]
         try:
-            # Named as the workers' inputs rather than left in a global
-            # for them to find. Under fork these are inherited and not
-            # pickled, so a closure `pickle` refuses arrives intact and
-            # handing over the corpus costs nothing. What it buys is that a
-            # launch which fails leaves nothing here still holding it, and
-            # that a worker's inputs are written down rather than being
-            # whatever the parent happened to have set.
-            self._pool = get_context("fork").Pool(
-                processes=len(self.devices),
-                initializer=_start_worker,
-                initargs=(self, train_loader, val_loader),
-            )
-            self._pool.apply_async(_worker_can_train).get(timeout=PROBE_SECONDS)
-        except (RuntimeError, OSError, TimeoutError, MPTimeoutError) as error:
-            # Threads hold the GIL through the training loop, so the search
-            # runs several times slower than on processes.
-            logger.warning(
-                "GenSPP worker processes failed their probe (%s: %s), so "
-                "candidates are scored on threads",
-                type(error).__name__,
-                error,
-            )
-            self._close_pool()
+            if not all(future.result() for future in ready):  # pragma: no cover
+                raise RuntimeError("a GenSPP worker did not initialise")
+        except BrokenProcessPool as error:
+            raise RuntimeError("a GenSPP worker process failed to start") from error
 
     def _close_pool(self) -> None:
         # Joined rather than left to the collector: `peak_memory` reads
         # `RUSAGE_CHILDREN`, which stays at zero until a child is reaped, and
         # a run's cost is measured as soon as its search returns.
         if self._pool is not None:
-            self._pool.terminate()
-            self._pool.join()
+            self._pool.shutdown(wait=True, cancel_futures=True)
             self._pool = None
+        if self._sharing is not None:
+            th.multiprocessing.set_sharing_strategy(self._sharing)
+            self._sharing = None
 
     @staticmethod
     def _trained_state(model: GenSPP) -> Dict[str, th.Tensor]:
