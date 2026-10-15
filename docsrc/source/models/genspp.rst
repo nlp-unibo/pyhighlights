@@ -106,8 +106,10 @@ A process per device would also allocate a separate CUDA context.
 
 The process pool remains open for the whole search.
 Each worker installs the caller's resolved Cinnamon runtime once.
-It receives the frozen training and validation batches through Torch's shared-memory transport and limits Torch to one thread.
+It receives its own copy of the frozen training and validation batches and limits Torch to one thread.
 Candidate tasks then carry only a chromosome and a device.
+Tensors cross the process boundary as pickled bytes rather than through Torch's shared-memory transport.
+That transport backs each tensor with a named file in ``/dev/shm``, and a cluster job epilog may delete those files while a search runs.
 Spawning gives each worker clean native-library locks.
 It remains safe when the calling process has already started Torch or other native threads.
 
