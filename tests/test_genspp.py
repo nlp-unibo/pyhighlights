@@ -516,6 +516,26 @@ def test_parallel_fit_shares_corpus_storage():
     assert validation[0].features.is_shared()
 
 
+def test_parallel_fit_shares_by_file_name_while_workers_can_spawn(monkeypatch):
+    """The executor spawns workers during scoring, after the pool opens."""
+    model = register_tiny_genspp()
+    search = trainer(model, devices=["cpu"] * 2)
+    score = GenSPPTrainer._score
+    seen = []
+
+    def recorded(self, *args, **kwargs):
+        seen.append(th.multiprocessing.get_sharing_strategy())
+        return score(self, *args, **kwargs)
+
+    monkeypatch.setattr(GenSPPTrainer, "_score", recorded)
+    caller = th.multiprocessing.get_sharing_strategy()
+
+    search.fit([batch()], [batch()])
+
+    assert seen == ["file_system"]
+    assert th.multiprocessing.get_sharing_strategy() == caller
+
+
 def test_several_devices_give_the_same_population_as_one():
     """Processes change where a candidate is scored, never what it scores."""
     model = register_tiny_genspp()

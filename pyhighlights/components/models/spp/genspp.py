@@ -285,6 +285,8 @@ class GenSPPTrainer:
         self._torch_generator = th.Generator()
         #: The process pool, while a search is running. See :meth:`_open_pool`.
         self._pool = None
+        #: The caller's tensor sharing strategy while the pool holds its own.
+        self._sharing: str | None = None
         #: Trailing genes carrying the decision threshold, counted off the
         #: first candidate in :meth:`_fit`. Zero until then, so a mutation
         #: outside a search treats every gene alike.
@@ -530,32 +532,31 @@ class GenSPPTrainer:
             return
         worker = copy(self)
         worker._pool = None
+        worker._sharing = None
         # File-backed sharing avoids copying every corpus tensor into every
-        # worker. Start all workers before restoring the caller's strategy, so
-        # each initializer argument uses that transport without changing later
-        # multiprocessing in the caller.
-        sharing = th.multiprocessing.get_sharing_strategy()
+        # worker. The executor spawns a worker on demand, during any later
+        # submission, and pickles its initializer arguments then. The strategy
+        # therefore holds until :meth:`_close_pool`: a storage already shared
+        # by file name cannot be shared again by descriptor.
+        self._sharing = th.multiprocessing.get_sharing_strategy()
+        th.multiprocessing.set_sharing_strategy("file_system")
+        self._pool = ProcessPoolExecutor(
+            max_workers=len(self.devices),
+            mp_context=get_context("spawn"),
+            initializer=_start_worker,
+            initargs=(
+                Registry.freeze_runtime(),
+                worker,
+                train_loader,
+                val_loader,
+            ),
+        )
+        ready = [self._pool.submit(_worker_ready) for _ in self.devices]
         try:
-            th.multiprocessing.set_sharing_strategy("file_system")
-            self._pool = ProcessPoolExecutor(
-                max_workers=len(self.devices),
-                mp_context=get_context("spawn"),
-                initializer=_start_worker,
-                initargs=(
-                    Registry.freeze_runtime(),
-                    worker,
-                    train_loader,
-                    val_loader,
-                ),
-            )
-            ready = [self._pool.submit(_worker_ready) for _ in self.devices]
-            try:
-                if not all(future.result() for future in ready):  # pragma: no cover
-                    raise RuntimeError("a GenSPP worker did not initialise")
-            except BrokenProcessPool as error:
-                raise RuntimeError("a GenSPP worker process failed to start") from error
-        finally:
-            th.multiprocessing.set_sharing_strategy(sharing)
+            if not all(future.result() for future in ready):  # pragma: no cover
+                raise RuntimeError("a GenSPP worker did not initialise")
+        except BrokenProcessPool as error:
+            raise RuntimeError("a GenSPP worker process failed to start") from error
 
     def _close_pool(self) -> None:
         # Joined rather than left to the collector: `peak_memory` reads
@@ -564,6 +565,9 @@ class GenSPPTrainer:
         if self._pool is not None:
             self._pool.shutdown(wait=True, cancel_futures=True)
             self._pool = None
+        if self._sharing is not None:
+            th.multiprocessing.set_sharing_strategy(self._sharing)
+            self._sharing = None
 
     @staticmethod
     def _trained_state(model: GenSPP) -> Dict[str, th.Tensor]:
