@@ -163,6 +163,7 @@ Which genes those are is asked of the selector rather than read off the end of t
 
 A search of that size is expensive, and ``ToyGenSPPTrainerConfig`` exists for the case where the wiring rather than the result is what is being checked: two candidates and one generation, which finishes in seconds and means nothing.
 The model's losses list holds the classification term alone, since the sparsity of a candidate is part of its fitness rather than a penalty on a gradient, and its backbones freeze their embeddings by default.
+The GRU backbone also leaves out layer normalisation by default, as the released GenSPP encoder does; ``layer_norm=True`` restores it.
 
 Running a search
 ----------------

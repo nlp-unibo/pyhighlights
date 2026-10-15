@@ -26,6 +26,8 @@ class GRUBackboneConfig(Configuration):
     num_layers: int = Param(1, ge=1)
     bidirectional: bool = Param(True)
     dropout_rate: float = Param(0.0, ge=0.0, lt=1.0)
+    #: Layer normalisation over the recurrent states.
+    layer_norm: bool = Param(True)
 
 
 @register_class(
