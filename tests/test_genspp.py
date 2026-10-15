@@ -83,6 +83,24 @@ class CrashingBackbone(TinyBackbone):
         os._exit(23)
 
 
+class ShmWipingBackbone(TinyBackbone):
+    """Backbone deleting the parent's shared-memory files, as a job epilog does.
+
+    Slurm epilogs and systemd's ``RemoveIPC`` delete a user's ``/dev/shm``
+    files when another of that user's jobs or sessions on the node ends.
+    """
+
+    def encode(
+        self,
+        features: th.Tensor,
+        mask: th.Tensor,
+        selection_mask: th.Tensor | None = None,
+    ) -> th.Tensor:
+        for path in Path("/dev/shm").glob(f"torch_{os.getppid()}_*"):
+            path.unlink(missing_ok=True)
+        return super().encode(features, mask, selection_mask)
+
+
 class TinySelector(SPPSelector):
     def __init__(self, input_size: int):
         super().__init__()
@@ -505,35 +523,37 @@ if __name__ == \"__main__\":
     )
 
 
-def test_parallel_fit_shares_corpus_storage():
-    """CPU workers must not hold one materialized corpus copy each."""
-    model = register_tiny_genspp()
-    train, validation = [batch()], [batch()]
+def _fit_while_shared_memory_is_wiped(results) -> None:
+    """Run a parallel search whose workers delete the parent's shm files."""
+    try:
+        model = register_tiny_genspp(f"{__name__}.ShmWipingBackbone")
+        search = trainer(model, n_generations=1, population_size=8, devices=["cpu"] * 2)
+        search.fit([batch()], [batch()])
+        results.put(("ok", len(search.population)))
+    except BaseException as error:
+        results.put(("error", f"{type(error).__name__}: {error}"))
 
-    trainer(model, devices=["cpu"] * 2).fit(train, validation)
 
-    assert train[0].features.is_shared()
-    assert validation[0].features.is_shared()
+@pytest.mark.skipif(not Path("/dev/shm").is_dir(), reason="needs /dev/shm")
+def test_parallel_fit_survives_a_wiped_dev_shm():
+    """Nothing a search needs may live as a named file in ``/dev/shm``.
 
+    A candidate queued for a worker, and a corpus tensor the parent frees,
+    both fail once the file behind them is deleted: the worker cannot open
+    it, and torch aborts the parent when it cannot unlink it.
+    """
+    context = multiprocessing.get_context("spawn")
+    results = context.Queue()
+    process = context.Process(target=_fit_while_shared_memory_is_wiped, args=(results,))
+    process.start()
+    process.join(timeout=300)
+    if process.is_alive():
+        process.terminate()
+        process.join()
+        pytest.fail("parallel fit hung after its shared memory was wiped")
 
-def test_parallel_fit_shares_by_file_name_while_workers_can_spawn(monkeypatch):
-    """The executor spawns workers during scoring, after the pool opens."""
-    model = register_tiny_genspp()
-    search = trainer(model, devices=["cpu"] * 2)
-    score = GenSPPTrainer._score
-    seen = []
-
-    def recorded(self, *args, **kwargs):
-        seen.append(th.multiprocessing.get_sharing_strategy())
-        return score(self, *args, **kwargs)
-
-    monkeypatch.setattr(GenSPPTrainer, "_score", recorded)
-    caller = th.multiprocessing.get_sharing_strategy()
-
-    search.fit([batch()], [batch()])
-
-    assert seen == ["file_system"]
-    assert th.multiprocessing.get_sharing_strategy() == caller
+    assert process.exitcode == 0
+    assert results.get(timeout=1) == ("ok", 8)
 
 
 def test_several_devices_give_the_same_population_as_one():

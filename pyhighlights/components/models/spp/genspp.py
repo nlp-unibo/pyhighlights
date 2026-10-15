@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import pickle
 import random
 from collections.abc import Sequence
 from concurrent.futures import ProcessPoolExecutor
@@ -160,28 +161,27 @@ class _Individual:
 _WORK: Tuple["GenSPPTrainer", Any, Any] | None = None
 
 
-def _score_in_worker(item: Tuple[int, th.Tensor | None, th.device]):
-    """One candidate, in a process of its own. Module level to be picklable."""
+def _score_in_worker(item: bytes) -> bytes:
+    """One candidate, in a process of its own. Module level to be picklable.
+
+    The candidate and its result cross the process boundary as plain pickled
+    bytes. See :meth:`GenSPPTrainer._open_pool` for why.
+    """
     if _WORK is None:  # pragma: no cover: a worker without its initializer
         raise RuntimeError("worker started without a search to score for")
     trainer, train_loader, val_loader = _WORK
-    _, chromosome, device = item
+    _, chromosome, device = pickle.loads(item)
     individual, model = trainer._evaluate_individual(
         train_loader, val_loader, chromosome, device
     )
-    return individual, trainer._trained_state(model)
+    return pickle.dumps((individual, trainer._trained_state(model)))
 
 
-def _start_worker(
-    registry: Dict[RegistrationKey, Dict[str, Any]],
-    trainer: "GenSPPTrainer",
-    train_loader: Any,
-    val_loader: Any,
-) -> None:
+def _start_worker(registry: Dict[RegistrationKey, Dict[str, Any]], work: bytes) -> None:
     """Install caller runtime once, then keep torch to one thread per worker."""
     global _WORK
     Registry.install_runtime(registry)
-    _WORK = (trainer, train_loader, val_loader)
+    _WORK = pickle.loads(work)
     th.set_num_threads(1)
 
 
@@ -285,8 +285,6 @@ class GenSPPTrainer:
         self._torch_generator = th.Generator()
         #: The process pool, while a search is running. See :meth:`_open_pool`.
         self._pool = None
-        #: The caller's tensor sharing strategy while the pool holds its own.
-        self._sharing: str | None = None
         #: Trailing genes carrying the decision threshold, counted off the
         #: first candidate in :meth:`_fit`. Zero until then, so a mutation
         #: outside a search treats every gene alike.
@@ -493,7 +491,12 @@ class GenSPPTrainer:
             scored = [score(item) for item in work]
         elif self._pool is not None:
             try:
-                scored = list(self._pool.map(_score_in_worker, work))
+                scored = [
+                    pickle.loads(result)
+                    for result in self._pool.map(
+                        _score_in_worker, [pickle.dumps(item) for item in work]
+                    )
+                ]
             except BrokenProcessPool as error:
                 raise RuntimeError(
                     "a GenSPP worker process exited before scoring its candidate"
@@ -520,9 +523,15 @@ class GenSPPTrainer:
 
         Spawned workers start with clean native-library locks. The registry is
         process-global, so its portable resolved runtime is installed once by
-        each worker. Torch's multiprocessing reducers share the corpus tensors
-        while the trainer travels once as an initializer argument. Candidate
-        tasks then carry only their chromosome and device.
+        each worker. The trainer and the corpus travel once, as an initializer
+        argument. Candidate tasks then carry only their chromosome and device.
+
+        Every tensor crosses the process boundary as plain pickled bytes, so
+        each worker holds its own copy of the corpus. Torch's multiprocessing
+        reducers would instead back a tensor with a named file in
+        ``/dev/shm``. A cluster job epilog may delete those files while the
+        search runs. A worker then cannot open a queued candidate, and torch
+        aborts the parent when it cannot unlink a corpus tensor it frees.
         """
         if (
             len(self.devices) == 1
@@ -532,23 +541,13 @@ class GenSPPTrainer:
             return
         worker = copy(self)
         worker._pool = None
-        worker._sharing = None
-        # File-backed sharing avoids copying every corpus tensor into every
-        # worker. The executor spawns a worker on demand, during any later
-        # submission, and pickles its initializer arguments then. The strategy
-        # therefore holds until :meth:`_close_pool`: a storage already shared
-        # by file name cannot be shared again by descriptor.
-        self._sharing = th.multiprocessing.get_sharing_strategy()
-        th.multiprocessing.set_sharing_strategy("file_system")
         self._pool = ProcessPoolExecutor(
             max_workers=len(self.devices),
             mp_context=get_context("spawn"),
             initializer=_start_worker,
             initargs=(
                 Registry.freeze_runtime(),
-                worker,
-                train_loader,
-                val_loader,
+                pickle.dumps((worker, train_loader, val_loader)),
             ),
         )
         ready = [self._pool.submit(_worker_ready) for _ in self.devices]
@@ -565,9 +564,6 @@ class GenSPPTrainer:
         if self._pool is not None:
             self._pool.shutdown(wait=True, cancel_futures=True)
             self._pool = None
-        if self._sharing is not None:
-            th.multiprocessing.set_sharing_strategy(self._sharing)
-            self._sharing = None
 
     @staticmethod
     def _trained_state(model: GenSPP) -> Dict[str, th.Tensor]:
