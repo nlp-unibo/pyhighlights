@@ -39,6 +39,8 @@ class GenSPPGRUBackboneConfig(GRUBackboneConfig):
     hidden_size: int = Param(16, ge=1)
     freeze_embeddings: bool = Param(True)
     bidirectional: bool = Param(False)
+    #: The released GenSPP encoder passes the GRU states on unnormalised.
+    layer_norm: bool = Param(False)
 
 
 @register_class(

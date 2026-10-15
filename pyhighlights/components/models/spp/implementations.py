@@ -13,7 +13,7 @@ from pyhighlights.components.models.spp.base import (
 
 def recurrent_states(
     encoder: th.nn.GRU,
-    layer_norm: th.nn.LayerNorm,
+    layer_norm: th.nn.Module,
     dropout: th.nn.Dropout,
     inputs: th.Tensor,
     valid: th.Tensor,
@@ -67,6 +67,9 @@ class GRUBackbone(SPPBackbone):
     and freezes a loaded one, since pretrained vectors are kept fixed unless a
     run asks otherwise. ``True`` freezes either table, and ``False`` trains
     either.
+
+    ``layer_norm`` normalises the recurrent states before dropout. With
+    ``False``, the states leave the recurrence unchanged.
     """
 
     def __init__(
@@ -78,6 +81,7 @@ class GRUBackbone(SPPBackbone):
         num_layers: int = 1,
         bidirectional: bool = True,
         dropout_rate: float = 0.0,
+        layer_norm: bool = True,
     ):
         super().__init__()
         self.freeze_embeddings = freeze_embeddings
@@ -92,7 +96,9 @@ class GRUBackbone(SPPBackbone):
             bidirectional=bidirectional,
         )
         self._output_size = hidden_size * (2 if bidirectional else 1)
-        self.layer_norm = th.nn.LayerNorm(self.output_size)
+        self.layer_norm = (
+            th.nn.LayerNorm(self.output_size) if layer_norm else th.nn.Identity()
+        )
         self.dropout = th.nn.Dropout(dropout_rate)
 
     @property
