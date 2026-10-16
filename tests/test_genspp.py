@@ -8,7 +8,7 @@ import threading
 from itertools import chain
 from pathlib import Path
 from types import SimpleNamespace
-from typing import List
+from typing import FrozenSet, List, Set
 
 import pytest
 import torch as th
@@ -17,6 +17,12 @@ from cinnamon.registry import RegistrationKey, Registry
 from torch.utils.data import DataLoader
 
 import pyhighlights
+from pyhighlights.components import (
+    HighlightCollator,
+    HighlightDataset,
+    HighlightExample,
+    VocabularyTokenizer,
+)
 from pyhighlights.components.models import InputData
 from pyhighlights.components.models.spp import (
     GenSPP,
@@ -26,7 +32,7 @@ from pyhighlights.components.models.spp import (
     SPPPredictor,
     SPPSelector,
 )
-from pyhighlights.components.models.spp.genspp import _Individual
+from pyhighlights.components.models.spp.genspp import _Individual, _Rows
 from pyhighlights.configurations.keys import GRU_GENSPP, GRU_GENSPP_TRAINER
 
 NAMESPACE = "tests_genspp"
@@ -312,7 +318,12 @@ def test_inner_training_changes_only_predictor_and_validation_scores_fitness():
     ]
 
     cpu = th.device("cpu")
-    search._train_predictor(model, [batch(sample_ids=(10, 11), labels=(0, 0))], cpu)
+    search._train_predictor(
+        model,
+        _Rows.of([batch(sample_ids=(10, 11), labels=(0, 0))]),
+        cpu,
+        th.Generator(),
+    )
 
     assert all(
         th.equal(before, after)
@@ -353,7 +364,7 @@ def test_a_candidate_scores_the_same_wherever_it_is_evaluated():
     search._random.seed(7)
     search._torch_generator.manual_seed(7)
     search._initial_state = None
-    train, val = [batch()], [batch()]
+    train, val = _Rows.of([batch()]), [batch()]
 
     probe = search._chromosome(Registry.from_key(model)).clone()
     decoy = probe + 0.3
@@ -404,7 +415,7 @@ def test_scoring_a_candidate_does_not_read_the_global_random_state():
     """
     model = register_tiny_genspp()
     search = trainer(model, seed=7, task_loss_limit=10.0)
-    train, val = [batch(labels=(0, 1))], [batch(labels=(0, 1))]
+    train, val = _Rows.of([batch(labels=(0, 1))]), [batch(labels=(0, 1))]
     probe = search._founder_chromosome()
 
     before = search._score(train, val, [probe])[0]
@@ -584,52 +595,112 @@ def test_several_devices_give_the_same_population_as_one():
     ]
 
 
-def test_every_candidate_trains_on_the_same_batch_order():
-    """A shuffling loader must not make fitness depend on evaluation order.
+def test_each_candidate_regroups_its_batches_every_epoch():
+    """Batches vary by candidate and by epoch, and never by position.
 
-    `GenSPPTask` hands the search the training `DataLoader` the task built,
-    which shuffles. Re-iterating it draws a new permutation, so `_fit` freezes
-    one. Otherwise the same chromosome would score differently depending on
-    how many candidates preceded it and, with a pool, on how the workers
-    interleaved.
+    Every epoch permutes the rows of the training split and cuts new batches,
+    as a shuffling `DataLoader` would. The permutation is drawn from a
+    generator seeded by the chromosome. Two candidates train on different
+    batches, and so do two epochs of one candidate, while the same chromosome
+    trains on the same batches wherever it is evaluated. That last property is
+    what keeps a fitness a property of the chromosome.
     """
-    orders: List[List[List[int]]] = []
+    groupings: List[List[Set[FrozenSet[int]]]] = []
 
     class RecordingTrainer(GenSPPTrainer):
-        def _train_predictor(self, model, train_loader, device):
-            orders.append([list(item.sample_ids.tolist()) for item in train_loader])
-            super()._train_predictor(model, train_loader, device)
+        def _train_predictor(self, model, train_loader, device, order):
+            replay = th.Generator()
+            replay.set_state(order.get_state())
+            groupings.append(
+                [
+                    {
+                        frozenset(item.sample_ids.tolist())
+                        for item in train_loader.batches(replay)
+                    }
+                    for _ in range(self.predictor_epochs)
+                ]
+            )
+            super()._train_predictor(model, train_loader, device, order)
 
-    rows = [
-        InputData(
-            features=th.tensor([[1, 2, 3]]),
-            mask=th.tensor([[1.0, 1.0, 1.0]]),
-            sample_ids=th.tensor([index]),
-            y_true=th.tensor([index % 2]),
-            highlight_true=th.full((1, 3), -1),
-        )
-        for index in range(8)
-    ]
-    shuffling = DataLoader(rows, batch_size=None, shuffle=True)
-
+    loader = [batch(sample_ids=(2 * i, 2 * i + 1)) for i in range(4)]
     search = RecordingTrainer(
         model=register_tiny_genspp(),
         n_generations=1,
         population_size=4,
-        predictor_epochs=1,
+        predictor_epochs=2,
         task_loss_limit=10.0,
         seed=7,
     )
-    search.fit(shuffling, rows)
+    search.fit(loader, [batch()])
 
-    # One founder and one child per candidate of a two-generation search, so
-    # this is not one candidate compared with itself.
-    assert len(orders) == 8
-    assert all(order == orders[0] for order in orders[1:])
-    # The frozen order is one the loader shuffled, not the order it was
-    # written in: a loader that happened not to shuffle would pass the
-    # assertion above without proving anything.
-    assert orders[0] != [[index] for index in range(8)]
+    # One founder and one child per candidate of a two-generation search.
+    assert len(groupings) == 8
+    assert all(len(epoch) == 4 for grouping in groupings for epoch in grouping)
+    assert len({str(sorted(map(sorted, g[0]))) for g in groupings}) > 1
+    assert all(grouping[0] != grouping[1] for grouping in groupings)
+
+    probe = search.population[0].chromosome
+    groupings.clear()
+    search._score(_Rows.of(loader), [batch()], [probe])
+    search._score(_Rows.of(loader), [batch()], [probe])
+    assert groupings[0] == groupings[1]
+
+
+def test_a_collating_loader_is_collated_once_over_the_whole_split():
+    """The task's loader pads per batch, so its batches cannot be concatenated.
+
+    Its own collator, asked for the whole split, pads every row to the longest
+    one, and the batch size is the loader's.
+    """
+    seen = []
+
+    def collate(rows):
+        seen.append(len(rows))
+        return InputData(
+            features=th.ones(len(rows), 3, dtype=th.long),
+            mask=th.ones(len(rows), 3),
+            sample_ids=th.tensor(rows),
+            y_true=th.zeros(len(rows), dtype=th.long),
+            highlight_true=th.full((len(rows), 3), -1),
+        )
+
+    rows = _Rows.of(DataLoader(list(range(5)), batch_size=2, collate_fn=collate))
+
+    assert seen == [5]
+    assert rows.batch_size == 2
+    sizes = [len(item.sample_ids) for item in rows.batches(th.Generator())]
+    assert sizes == [2, 2, 1]
+    with pytest.raises(ValueError, match="at least one batch"):
+        _Rows.of(DataLoader([], batch_size=2, collate_fn=collate))
+
+
+def test_a_regrouped_batch_is_padded_as_the_collator_pads_it():
+    """Dynamic padding: a batch is as wide as its own longest row.
+
+    The split is collated once, padded to its longest row, and every batch
+    cut from it must equal what the collator returns for those rows alone.
+    """
+    vocabulary = {word: index + 2 for index, word in enumerate("abcdefgh")}
+    examples = [
+        HighlightExample(index, list("abcdefgh"[: 1 + index % 4]), index % 2)
+        for index in range(8)
+    ] + [HighlightExample(8, list("abcdefgh"), 0, [1] * 8)]
+    collator = HighlightCollator(VocabularyTokenizer(vocabulary))
+    rows = _Rows.of(
+        DataLoader(HighlightDataset(examples), batch_size=3, collate_fn=collator)
+    )
+
+    widths = set()
+    for regrouped in rows.batches(th.Generator().manual_seed(3)):
+        expected = collator([examples[i] for i in regrouped.sample_ids.tolist()])
+        for name, value in expected.as_dict().items():
+            if value is None:
+                assert getattr(regrouped, name) is None, name
+            else:
+                assert th.equal(getattr(regrouped, name), value), name
+        widths.add(regrouped.features.shape[1])
+    # Some batch is narrower than the split, or this proves nothing.
+    assert min(widths) < 8
 
 
 def test_a_diverged_candidate_is_refused_where_it_diverged():
@@ -1027,7 +1098,7 @@ def test_a_candidate_comes_back_as_a_chromosome_and_what_descent_moved():
     chromosome = search._founder_chromosome()
 
     individual, scored = search._evaluate_individual(
-        [batch()], [batch()], chromosome, th.device("cpu")
+        _Rows.of([batch()]), [batch()], chromosome, th.device("cpu")
     )
     state = search._trained_state(scored)
     restored = search._restored(individual.chromosome, state)
