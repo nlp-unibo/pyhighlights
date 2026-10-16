@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import pickle
 import random
+import zlib
 from collections.abc import Sequence
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
@@ -11,10 +12,11 @@ from dataclasses import dataclass
 from itertools import chain
 from multiprocessing import get_context
 from multiprocessing.pool import ThreadPool
-from typing import Any, Dict, Iterable, List, Set, Tuple
+from typing import Any, Dict, Iterable, Iterator, List, Set, Tuple
 
 import torch as th
 from cinnamon.registry import RegistrationKey, Registry
+from torch.utils.data import DataLoader
 
 from pyhighlights.components.models import InputData
 from pyhighlights.components.models.spp.base import SPP, SPPBackbone, SPPSelector
@@ -153,6 +155,62 @@ class _Individual:
     fitness: float
     task_loss: float
     selection_rate: float
+
+
+@dataclass
+class _Rows:
+    """The training split as one batch, regrouped into new batches every epoch.
+
+    A loader that collates is asked to collate the whole split at once, so
+    tokenization runs once and any regrouping is an index. Each new batch is
+    then cut back to its own longest row on both axes, which is the padding
+    the collator would have given those rows. Any other iterable must yield
+    batches of one width, which are concatenated.
+    """
+
+    data: InputData
+    batch_size: int
+
+    @classmethod
+    def of(cls, loader: Iterable[InputData]) -> _Rows:
+        if isinstance(loader, DataLoader) and loader.batch_size is not None:
+            if not len(loader.dataset):
+                raise ValueError("training loader must contain at least one batch")
+            rows = [loader.dataset[i] for i in range(len(loader.dataset))]
+            return cls(loader.collate_fn(rows), loader.batch_size)
+        batches = list(loader)
+        if not batches:
+            raise ValueError("training loader must contain at least one batch")
+        first = batches[0].as_dict()
+        data = type(batches[0])(
+            **{
+                name: th.cat([batch.as_dict()[name] for batch in batches])
+                if isinstance(value, th.Tensor)
+                else value
+                for name, value in first.items()
+            }
+        )
+        return cls(data, len(batches[0].sample_ids))
+
+    def batches(self, generator: th.Generator) -> Iterator[InputData]:
+        order = th.randperm(len(self.data.sample_ids), generator=generator)
+        for start in range(0, len(order), self.batch_size):
+            index = order[start : start + self.batch_size]
+            batch = {
+                name: value[index] if isinstance(value, th.Tensor) else value
+                for name, value in self.data.as_dict().items()
+            }
+            # Collated batches carry `attention_mask`. Padding is on the right
+            # of both axes, and the collator never makes an axis narrower
+            # than one.
+            if batch["attention_mask"] is not None:
+                words = max(int(batch["mask"].sum(1).max()), 1)
+                subtokens = max(int(batch["attention_mask"].sum(1).max()), 1)
+                for name in ("mask", "highlight_true"):
+                    batch[name] = batch[name][:, :words]
+                for name in ("features", "word_ids", "attention_mask"):
+                    batch[name] = batch[name][:, :subtokens]
+            yield type(self.data)(**batch)
 
 
 #: What a worker scores against: the trainer and the two splits
@@ -353,16 +411,13 @@ class GenSPPTrainer:
             self._torch_generator.manual_seed(self.seed)
             th.manual_seed(self.seed)
 
-        # One batch order for the whole search, drawn after the seeding above.
-        # A shuffling `DataLoader` re-permutes on every pass, so a chromosome
-        # would score differently depending on how many candidates preceded it.
-        # Validation is materialised for cost rather than order: `_evaluate`
-        # sums over every batch, and a search re-collates the split thousands
-        # of times. Both splits stay in memory.
-        train_batches = list(train_loader)
+        # Collated once, so a candidate's batches come from its own generator in
+        # `_train_predictor` rather than from how many candidates re-iterated a
+        # shuffling `DataLoader` before it. Validation is materialised for
+        # cost: `_evaluate` sums over every batch, and a search would otherwise
+        # re-collate the split thousands of times. Both splits stay in memory.
+        train_batches = _Rows.of(train_loader)
         val_batches = list(val_loader)
-        if not train_batches:
-            raise ValueError("training loader must contain at least one batch")
         if not val_batches:
             raise ValueError("validation loader must contain at least one batch")
 
@@ -381,7 +436,7 @@ class GenSPPTrainer:
 
     def _search(
         self,
-        train_batches: List[InputData],
+        train_batches: _Rows,
         val_batches: List[InputData],
     ) -> GenSPP:
         """The search proper, with the workers open around it."""
@@ -453,7 +508,7 @@ class GenSPPTrainer:
 
     def _score(
         self,
-        train_loader: Iterable[InputData],
+        train_loader: _Rows,
         val_loader: Iterable[InputData],
         chromosomes: List[th.Tensor],
     ) -> List[_Individual]:
@@ -516,9 +571,7 @@ class GenSPPTrainer:
             individuals.append(individual)
         return individuals
 
-    def _open_pool(
-        self, train_loader: Iterable[InputData], val_loader: Iterable[InputData]
-    ) -> None:
+    def _open_pool(self, train_loader: _Rows, val_loader: Iterable[InputData]) -> None:
         """Open one persistent, spawned process per CPU device.
 
         Spawned workers start with clean native-library locks. The registry is
@@ -599,7 +652,7 @@ class GenSPPTrainer:
 
     def _evaluate_individual(
         self,
-        train_loader: Iterable[InputData],
+        train_loader: _Rows,
         val_loader: Iterable[InputData],
         chromosome: th.Tensor | None,
         device: th.device,
@@ -611,9 +664,9 @@ class GenSPPTrainer:
         process-wide, so what a thread drew from it would depend on how the
         threads interleaved. Nothing does. The model's own initialisation is
         entirely overwritten, by ``_initial_state`` outside the chromosome and
-        by the chromosome inside it, the batches arrive as the list :meth:`_fit`
-        froze rather than as a loader that would shuffle them again, and the
-        registered configurations set ``dropout_rate`` to 0. A dropout rate
+        by the chromosome inside it, the batch order is drawn from a generator
+        seeded by the chromosome, and the registered configurations set
+        ``dropout_rate`` to 0. A dropout rate
         above zero would take that back silently, so
         ``test_scoring_a_candidate_does_not_read_the_global_random_state``
         asserts it.
@@ -624,7 +677,12 @@ class GenSPPTrainer:
         the global state so a caller's is restored.
         """
         model = self._candidate(chromosome)
-        self._train_predictor(model, train_loader, device)
+        # Seeded by the chromosome, so each candidate trains on its own batches
+        # and the same chromosome always trains on the same ones.
+        order = th.Generator().manual_seed(
+            zlib.crc32(self._chromosome(model).numpy().tobytes())
+        )
+        self._train_predictor(model, train_loader, device, order)
         task_loss, selection_rate = self._evaluate(model, val_loader, device)
         fitness = self.compute_fitness(
             task_loss=task_loss,
@@ -700,7 +758,11 @@ class GenSPPTrainer:
         }
 
     def _train_predictor(
-        self, model: GenSPP, train_loader: Iterable[InputData], device: th.device
+        self,
+        model: GenSPP,
+        train_loader: _Rows,
+        device: th.device,
+        order: th.Generator,
     ) -> None:
         generator_parameters = model.generator_parameters()
         if not model.predictor_parameters():
@@ -719,7 +781,7 @@ class GenSPPTrainer:
                 # Which puts the frozen generator back in eval mode, so its
                 # dropout does not score the same candidate two ways.
                 model.on_train_epoch_start()
-                for batch in train_loader:
+                for batch in train_loader.batches(order):
                     batch = batch.to(device)
                     optimizer.zero_grad()
                     loss, _ = model.compute_loss(batch, model.training_forward(batch))
@@ -763,7 +825,7 @@ class GenSPPTrainer:
 
     def _run_generation(
         self,
-        train_loader: Iterable[InputData],
+        train_loader: _Rows,
         val_loader: Iterable[InputData],
     ) -> None:
         """Breed one generation and keep ``population_size`` of the result.

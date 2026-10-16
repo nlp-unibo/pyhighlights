@@ -217,13 +217,18 @@ A generation draws ``int(selection_rate * population_size)`` couples by roulette
 The children compete with their parents rather than replacing them, and survival is half elitism, the best half kept outright and the other half drawn from what is left, fitness-proportional and without replacement.
 The population that comes out of a generation is the size that went in.
 
-Each candidate's predictor is fitted by a throwaway Lightning trainer, so the inner training is the same code path every other model trains through, logging, checkpointing and sanity checks off, since a hundred generations build one trainer per candidate.
+Each candidate's predictor is fitted by a plain optimisation loop over the training batches.
 Gradients reach the predictor only:
 ``GenSPP.configure_optimizers`` hands over the predictor's parameters, and the generator is put back in evaluation mode at the start of every epoch so its dropout cannot score the same candidate two different ways.
 
-Every candidate trains on the same batches in the same order.
-The training loader shuffles, so the search draws one permutation from the seed before it starts and hands every candidate that: re-iterating the loader instead would give each candidate its own order, and a chromosome would score differently depending on how many candidates preceded it, or, with several devices, on how the workers interleaved.
-The whole training split is held in memory for the duration of the search as a result.
+Each candidate regroups the training rows into new batches at every epoch, as a shuffling loader would.
+The search collates the whole training split once, before it starts, so tokenization does not repeat.
+A candidate then permutes the rows with a generator seeded by a hash of its chromosome and cuts batches of the loader's size.
+Each batch is cut back to its own longest row, which is the padding the collator would give those rows.
+
+Two candidates therefore train on different batches, while the same chromosome trains on the same batches wherever it is evaluated.
+Its fitness consequently does not depend on how many candidates preceded it or on how the workers interleaved.
+The whole training split is held in memory for the duration of the search.
 
 Alongside the usual per-seed files, a GenSPP run writes ``best.ckpt``, the weights the search settled on, and ``search.json``, one entry per generation under ``training_progress``.
 The entry is the best **objective** the search reached in that generation, ``1 / fitness``, so it falls as the search improves and it is what ``stop_threshold`` is compared against.
