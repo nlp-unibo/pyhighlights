@@ -140,7 +140,10 @@ Cluster throughput depends on processor allocation.
 Measure it on the target node before projecting the complete 5,050-candidate seed.
 
 One shared initial state is given to every candidate, so that a fitness is a property of a chromosome rather than of the predictor initialisation drawn alongside it.
-The reference implementation reaches the same place from the other side: it keeps a pool of models and resets each reused one to *that slot's* initial weights, which makes a candidate's predictor depend on the slot it was given.
+The reference implementation keeps a pool of models and intends to reset each reused one to *that slot's* initial predictor weights.
+It stores those weights with ``state_dict()``, whose tensors share storage with the parameters, so training the predictor changes the stored copy as well.
+The reset therefore restores nothing, and a slot's predictor keeps its training across every candidate that occupies it.
+A candidate's predictor in the reference implementation depends on the slot it was given and on that slot's history.
 
 Configuration
 -------------
