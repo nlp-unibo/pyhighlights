@@ -19,6 +19,7 @@ from pyhighlights.components.codes import (
     mask_features,
     mask_probes,
     runs,
+    selection_entropy,
     summarize,
 )
 
@@ -229,3 +230,60 @@ def test_the_analyzer_reports_probes_and_kept(monkeypatch):
     )
     assert analyzer.probes().empty
     assert analyzer.kept().empty
+
+
+def test_a_class_that_always_selects_one_token_has_zero_entropy():
+    frame = toy([("abcdefgh", [1], None, 0, 0), ("hgfedcba", [6], None, 0, 0)])
+    report = selection_entropy(frame).iloc[0]
+    assert report["kept"] == 2
+    assert report["entropy"] == pytest.approx(0.0)
+    assert report["random_entropy"] > 0.0
+    assert math.isnan(report["gold_entropy"])
+
+
+def test_gold_entropy_is_the_reference_for_evidence_with_few_tokens():
+    """A toy highlight such as `aba` repeats tokens, so it scores low as well."""
+    frame = toy(
+        [("xabax", [1, 2, 3], [1, 2, 3], 0, 0), ("abaxx", [1], [0, 1, 2], 0, 0)]
+    )
+    report = selection_entropy(frame).iloc[0]
+    # Four `a` and two `b` annotated: the entropy of `aba` itself.
+    assert report["gold_entropy"] == pytest.approx(0.918, abs=1e-3)
+
+
+def test_random_selections_score_near_their_reference():
+    rng = np.random.default_rng(1)
+    alphabet = list("abcdefghijklmnop")
+    rows = []
+    for _ in range(300):
+        tokens = list(rng.choice(alphabet, size=20))
+        selected = rng.choice(20, size=5, replace=False).tolist()
+        rows.append(("".join(tokens), selected, None, 0, 0))
+    report = selection_entropy(toy(rows)).iloc[0]
+    assert report["entropy"] == pytest.approx(report["random_entropy"], abs=0.05)
+    assert report["entropy"] == pytest.approx(4.0, abs=0.05)
+
+
+def test_entropy_can_pool_the_classes_of_a_run():
+    frame = toy([("abcd", [0], None, 0, 0), ("abcd", [1], None, 1, 1)])
+    per_class = selection_entropy(frame)
+    pooled = selection_entropy(frame, per_class=False).iloc[0]
+    assert list(per_class["entropy"]) == [0.0, 0.0]
+    assert pooled["entropy"] == pytest.approx(1.0)
+    assert "label" not in selection_entropy(frame, per_class=False).columns
+
+
+def test_an_empty_selection_has_zero_entropy():
+    report = selection_entropy(toy([("abcd", [], None, 0, 0)])).iloc[0]
+    assert report["kept"] == 0
+    assert report["entropy"] == 0.0
+
+
+def test_the_analyzer_reports_entropy(monkeypatch):
+    frame = toy([("abcd", [0], None, 0, 0)])
+    monkeypatch.setattr(codes.PredictionAnalyzer, "analyze", lambda self: frame.copy())
+    assert SelectionCodeAnalyzer("anywhere").entropy().iloc[0]["entropy"] == 0.0
+    monkeypatch.setattr(
+        codes.PredictionAnalyzer, "analyze", lambda self: pd.DataFrame()
+    )
+    assert SelectionCodeAnalyzer("anywhere").entropy().empty

@@ -55,6 +55,13 @@ asked to reproduce the model's own decisions under five-fold cross-validation.
 A probe that succeeds far above its permuted control shows that the decision
 is recoverable from the mask without its text, which is a code carried by
 count or position. The probes need ``pyhighlights[analysis]``.
+
+**Selection entropy** is the Shannon entropy of the tokens a model selects,
+following Treviso and Martins (2020), *The Explanation Game: Towards Prediction
+Explainability through Sparse Communication*, BlackboxNLP, Appendix F.2. A
+code repeats a few tokens per class, so its entropy is low. It is reported
+beside the entropy of random selections of the same size in the same
+documents, which is its reference.
 """
 
 from __future__ import annotations
@@ -80,6 +87,7 @@ __all__ = [
     "mask_features",
     "mask_probes",
     "runs",
+    "selection_entropy",
     "summarize",
 ]
 
@@ -351,13 +359,57 @@ def mask_probes(frame: pd.DataFrame, random_state: int = 0) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def selection_entropy(
+    frame: pd.DataFrame, per_class: bool = True, random_state: int = 0
+) -> pd.DataFrame:
+    """Entropy, in bits, of the selected tokens per run, seed and class.
+
+    ``entropy`` counts every selected token of the group's documents.
+    ``random_entropy`` does the same for a random selection of the same size in
+    each document, drawn with ``random_state``. ``gold_entropy`` counts the
+    annotated tokens of the group's annotated documents, and is ``nan`` without
+    annotation. Evidence that repeats few tokens, such as a toy highlight, has
+    a low entropy too, so a low ``entropy`` reads as a code only below
+    ``gold_entropy``. A high one does not rule a code out, since a size code
+    can keep arbitrary tokens. ``kept`` is the number of selected tokens. With
+    ``per_class`` false, each run and seed is one group.
+    """
+    keys = ["run", "seed", "label"] if per_class else ["run", "seed"]
+    rng = np.random.default_rng(random_state)
+    rows = []
+    for key, group in frame.groupby(keys, sort=True):
+        chosen: Counter = Counter()
+        drawn: Counter = Counter()
+        gold: Counter = Counter()
+        for tokens, selected, highlights in zip(
+            group["tokens"], group["selected"], group["highlights"]
+        ):
+            positions = sorted(set(selected))
+            chosen.update(tokens[position] for position in positions)
+            random = rng.choice(len(tokens), size=len(positions), replace=False)
+            drawn.update(tokens[position] for position in random)
+            gold.update(tokens[position] for position in highlights or ())
+        rows.append(
+            {
+                **dict(zip(keys, key)),
+                "kept": sum(chosen.values()),
+                "entropy": _entropy(chosen),
+                "random_entropy": _entropy(drawn),
+                "gold_entropy": _entropy(gold) if gold else float("nan"),
+            }
+        )
+    columns = [*keys, "kept", "entropy", "random_entropy", "gold_entropy"]
+    return pd.DataFrame(rows, columns=columns)
+
+
 class SelectionCodeAnalyzer(PredictionAnalyzer):
     """:func:`summarize` over the stored predictions of a results tree.
 
     A run stores predictions only when its task sets ``store_predictions``.
     ``exclusive`` is passed to :func:`summarize`. :meth:`codes`,
-    :meth:`probes` and :meth:`kept` report the same rows through
-    :func:`codes`, :func:`mask_probes` and :func:`kept_by_label`.
+    :meth:`probes`, :meth:`kept` and :meth:`entropy` report the same rows
+    through :func:`codes`, :func:`mask_probes`, :func:`kept_by_label` and
+    :func:`selection_entropy`.
     """
 
     def __init__(
@@ -387,6 +439,10 @@ class SelectionCodeAnalyzer(PredictionAnalyzer):
         frame = super().analyze()
         return kept_by_label(frame) if not frame.empty else frame
 
+    def entropy(self, per_class: bool = True) -> pd.DataFrame:
+        frame = super().analyze()
+        return selection_entropy(frame, per_class) if not frame.empty else frame
+
 
 def _rivals(frame: pd.DataFrame, exclusive: bool) -> Dict[int, List[Tuple[str, ...]]]:
     """For each class, the other classes' highlights, when ``exclusive``."""
@@ -411,3 +467,12 @@ def _probe(features: np.ndarray, targets: np.ndarray) -> np.ndarray:
 
     probe = LogisticRegression(max_iter=3000, class_weight="balanced")
     return cross_val_predict(probe, features, targets, cv=5)
+
+
+def _entropy(counts: Counter) -> float:
+    """Shannon entropy, in bits, of a token count; zero when nothing is counted."""
+    total = sum(counts.values())
+    if not total:
+        return 0.0
+    shares = np.array(list(counts.values()), dtype=float) / total
+    return float(-(shares * np.log2(shares)).sum())
