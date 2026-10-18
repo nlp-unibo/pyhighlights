@@ -40,6 +40,26 @@ The probes need no annotation, and they need ``pip install "pyhighlights[analysi
 They read the document length from the ``tokens`` column.
 A run that truncated its inputs should pass the tokens the model actually read.
 
+Selection entropy
+-----------------
+
+:func:`~pyhighlights.components.codes.selection_entropy` is the Shannon entropy, in bits, of the tokens a model selects for each class.
+It follows Treviso and Martins (2020), *The Explanation Game*, BlackboxNLP, Appendix F.2, where a low entropy marks a trivial protocol.
+A code repeats a few tokens per class, so its entropy is low.
+The measure itself needs no annotation.
+
+It reports two references.
+The first is the entropy of random selections of the same size in the same documents.
+The second is the entropy of the annotated tokens, when the corpus has annotations.
+
+Evidence that repeats few tokens has a low entropy too: the toy highlight ``aba`` scores 0.92 bits.
+A low entropy therefore reads as a code only when it falls below that of the annotated tokens.
+A high entropy does not rule a code out, because a model that signals through selection size can keep arbitrary tokens.
+
+The toy runs of ``pyhighlights-genspp2025`` show both cases.
+GenSPP selects for ``abc`` documents at 0.33 bits, against 1.58 bits for the highlight.
+Every baseline stays above the highlight's entropy and still uses a size code.
+
 Reading a run
 -------------
 
@@ -54,6 +74,7 @@ A run stores the predictions this module reads only when its task sets ``store_p
    analyzer.codes()  # one row per run, seed and class
    analyzer.probes()  # mask probes, one row per run and seed
    analyzer.kept()  # positions kept per run, seed and gold label
+   analyzer.entropy()  # selected-token entropy per run, seed and class
 
 :func:`~pyhighlights.components.codes.summarize` and :func:`~pyhighlights.components.codes.codes` accept any frame with the same columns.
 The columns are ``run``, ``seed``, ``tokens``, ``selected``, ``highlights``, ``label`` and ``predicted``.
