@@ -25,3 +25,12 @@ Work items, results, and initializer data cross the process boundary as `pickle`
 `_candidate` calls `Registry.from_key`, `SPP.load_embeddings`, and `_align_initial_state`.
 `_align_initial_state` calls `_generator_names`.
 `_restored` calls `_candidate`.
+
+## pyhighlights/components/codes.py
+
+The module depends on `pyhighlights.components.analyzers` and `pandas`.
+`SelectionCodeAnalyzer` extends `PredictionAnalyzer`; its `analyze` calls `summarize`, and its `codes` calls `codes`.
+`summarize` calls `_rivals`, `complete`, `complete_in_order`, `gold_recall`, `codes`, and `_mean`.
+`_rivals` calls `class_highlights`.
+`complete` calls `runs` and `contains`.
+`complete_in_order` calls `contains`.
