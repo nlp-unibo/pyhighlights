@@ -23,6 +23,23 @@ It is the only view available for a source that stores the selected tokens witho
 **Code** is the most frequent selection of each class, with its length in tokens and the share of the class's documents that selected exactly it.
 Its length summed over classes compares runs that settled on codes of different size.
 
+Mask probes
+-----------
+
+A code can also be carried by the shape of a selection, such as how many tokens are kept or where they sit.
+:doc:`interlocking` explains how that shape reaches the predictor.
+:func:`~pyhighlights.components.codes.mask_probes` asks whether the model's own decisions are recoverable from shape alone.
+
+A class-balanced logistic regression reads the document length, the number of positions kept, the kept share, and a normalized histogram of where the kept positions sit.
+It reproduces the model's decisions under five-fold cross-validation.
+Each probe is reported against a control in which the decisions are shuffled, and against the gold label.
+The channels repeat the probe on the count, the length, the two together, the position histogram, and every feature.
+:func:`~pyhighlights.components.codes.kept_by_label` reports how much a model keeps per gold label, which is the simplest code.
+
+The probes need no annotation, and they need ``pip install "pyhighlights[analysis]"``.
+They read the document length from the ``tokens`` column.
+A run that truncated its inputs should pass the tokens the model actually read.
+
 Reading a run
 -------------
 
@@ -35,6 +52,8 @@ A run stores the predictions this module reads only when its task sets ``store_p
    analyzer = SelectionCodeAnalyzer("results", exclusive=True)
    analyzer.analyze()  # one row per run and seed
    analyzer.codes()  # one row per run, seed and class
+   analyzer.probes()  # mask probes, one row per run and seed
+   analyzer.kept()  # positions kept per run, seed and gold label
 
 :func:`~pyhighlights.components.codes.summarize` and :func:`~pyhighlights.components.codes.codes` accept any frame with the same columns.
 The columns are ``run``, ``seed``, ``tokens``, ``selected``, ``highlights``, ``label`` and ``predicted``.

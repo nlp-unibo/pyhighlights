@@ -29,7 +29,8 @@ Work items, results, and initializer data cross the process boundary as `pickle`
 ## pyhighlights/components/codes.py
 
 The module depends on `pyhighlights.components.analyzers` and `pandas`.
-`SelectionCodeAnalyzer` extends `PredictionAnalyzer`; its `analyze` calls `summarize`, and its `codes` calls `codes`.
+`SelectionCodeAnalyzer` extends `PredictionAnalyzer`; its `analyze` calls `summarize`, its `codes` calls `codes`, its `probes` calls `mask_probes`, and its `kept` calls `kept_by_label`.
+`mask_probes` calls `mask_features` and `_probe`, which depends on `scikit-learn` from the `analysis` extra.
 `summarize` calls `_rivals`, `complete`, `complete_in_order`, `gold_recall`, `codes`, and `_mean`.
 `_rivals` calls `class_highlights`.
 `complete` calls `runs` and `contains`.
