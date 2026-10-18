@@ -25,6 +25,7 @@ Reading a run back
 
 - :doc:`analyzers` turns a results directory into a frame, a table, or the text a model selected.
 - :doc:`faithfulness` is sufficiency and comprehensiveness, and what each compares.
+- :doc:`codes` is whether a selection holds the annotated evidence or a code for the label.
 - :doc:`diagnostics` records the inside of a forward pass without changing what it computes.
 - :doc:`cost` reports what a run spent.
 - :doc:`interlocking` is what the bottleneck does and does not guarantee, measured.
@@ -48,6 +49,7 @@ Corpora
    backbones
    analyzers
    faithfulness
+   codes
    diagnostics
    cost
    interlocking
