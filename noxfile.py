@@ -31,7 +31,7 @@ def lint(session: nox.Session) -> None:
 
 @nox.session(python=PYTHON_VERSIONS)
 def tests(session: nox.Session) -> None:
-    session.install("-e", ".[dev]")
+    session.install("-e", ".[dev,analysis]")
     # Each worker is its own interpreter, which is also what keeps cinnamon's
     # global registry from being shared between tests that build it.
     session.run(

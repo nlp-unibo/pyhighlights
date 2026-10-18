@@ -1,7 +1,9 @@
 """Whether a selection holds the annotated evidence or a code for the label."""
 
 import math
+import sys
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -13,6 +15,9 @@ from pyhighlights.components.codes import (
     complete_in_order,
     contains,
     gold_recall,
+    kept_by_label,
+    mask_features,
+    mask_probes,
     runs,
     summarize,
 )
@@ -162,3 +167,65 @@ def test_the_analyzer_summarizes_what_the_prediction_analyzer_reads(monkeypatch)
     )
     assert analyzer.analyze().empty
     assert analyzer.codes().empty
+
+
+def coded(documents=200, seed=0):
+    """A model that decides from how much it keeps, not from what."""
+    rng = np.random.default_rng(seed)
+    rows = []
+    for index in range(documents):
+        label = index % 2
+        length = int(rng.integers(10, 30))
+        kept = 1 if label else 6
+        selected = sorted(rng.choice(length, size=kept, replace=False).tolist())
+        rows.append(("x" * length, selected, None, label, label))
+    return toy(rows)
+
+
+def test_mask_features_describe_shape_without_text():
+    features = mask_features(list("abcdefghij"), [0, 9])
+    assert features[:3] == [10, 2, pytest.approx(0.2)]
+    histogram = features[3:]
+    assert len(histogram) == codes.BINS
+    assert sum(histogram) == pytest.approx(1.0)
+    assert histogram[0] == pytest.approx(0.5) and histogram[-1] == pytest.approx(0.5)
+
+
+def test_a_count_code_is_found_by_the_count_channel_and_not_by_its_control():
+    report = mask_probes(coded()).iloc[0]
+    assert report["documents"] == 200
+    assert report["f1"] > 0.95
+    assert report["channel_count"] > 0.95
+    assert report["permuted_f1"] < 0.75
+    assert report["mcc"] > 0.9
+
+
+def test_short_documents_are_left_out_of_the_probes():
+    frame = pd.concat([coded(), toy([("xyz", [0], None, 0, 0)])], ignore_index=True)
+    assert mask_probes(frame).iloc[0]["documents"] == 200
+
+
+def test_kept_by_label_exposes_a_count_code():
+    report = kept_by_label(coded()).set_index("label")
+    assert report.loc[0, "kept"] == pytest.approx(6)
+    assert report.loc[1, "kept"] == pytest.approx(1)
+
+
+def test_the_probes_name_the_missing_extra(monkeypatch):
+    monkeypatch.setitem(sys.modules, "sklearn.metrics", None)
+    with pytest.raises(ImportError, match=r"pyhighlights\[analysis\]"):
+        mask_probes(coded())
+
+
+def test_the_analyzer_reports_probes_and_kept(monkeypatch):
+    frame = coded()
+    monkeypatch.setattr(codes.PredictionAnalyzer, "analyze", lambda self: frame.copy())
+    analyzer = SelectionCodeAnalyzer("anywhere")
+    assert analyzer.probes().iloc[0]["f1"] > 0.95
+    assert len(analyzer.kept()) == 2
+
+    monkeypatch.setattr(
+        codes.PredictionAnalyzer, "analyze", lambda self: pd.DataFrame()
+    )
+    assert analyzer.probes().empty
+    assert analyzer.kept().empty

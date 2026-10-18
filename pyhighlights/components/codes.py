@@ -47,6 +47,14 @@ annotation marks, whatever the predictor makes of it.
 The annotation bounds the claim. On a corpus whose annotators disagree, such
 as HateXplain, an incomplete selection may still hold evidence that the
 annotation left out.
+
+**Mask probes** need no annotation. A logistic regression reads only the shape
+of each selection: the document length, the number of positions kept, the
+kept share, and a normalized histogram of where the kept positions sit. It is
+asked to reproduce the model's own decisions under five-fold cross-validation.
+A probe that succeeds far above its permuted control shows that the decision
+is recoverable from the mask without its text, which is a code carried by
+count or position. The probes need ``pyhighlights[analysis]``.
 """
 
 from __future__ import annotations
@@ -55,6 +63,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Dict, Iterable, List, Sequence, Tuple
 
+import numpy as np
 import pandas as pd
 
 from pyhighlights.components.analyzers import PREDICTIONS, PredictionAnalyzer
@@ -67,9 +76,26 @@ __all__ = [
     "complete_in_order",
     "contains",
     "gold_recall",
+    "kept_by_label",
+    "mask_features",
+    "mask_probes",
     "runs",
     "summarize",
 ]
+
+#: Bins of the position histogram.
+BINS = 10
+#: Shorter documents have no position geometry, and the histogram divides by
+#: the length minus one.
+MIN_TOKENS = 4
+#: Feature columns of :func:`mask_features` that each probe channel reads.
+CHANNELS = {
+    "count": [1],
+    "length": [0],
+    "count_length": [0, 1, 2],
+    "position": list(range(3, 3 + BINS)),
+    "mask": list(range(3 + BINS)),
+}
 
 
 def contains(sequence: Sequence, part: Sequence) -> bool:
@@ -234,12 +260,104 @@ def codes(frame: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["run", "seed", "label", "code", "size", "share"])
 
 
+def mask_features(tokens: Sequence[str], selected: Iterable[int]) -> List[float]:
+    """The shape of one selection, without its text.
+
+    The document length, the number of positions kept, the kept share, and a
+    histogram of where the kept positions sit over ``BINS`` bins. The histogram
+    is normalized to sum to one, so that the position channel cannot carry the
+    count.
+    """
+    length = len(tokens)
+    chosen = np.array(sorted(set(selected)), dtype=float)
+    where = chosen / max(1, length - 1)
+    histogram, _ = np.histogram(where, bins=BINS, range=(0, 1))
+    histogram = histogram / max(1, histogram.sum())
+    return [length, len(chosen), len(chosen) / length, *histogram]
+
+
+def kept_by_label(frame: pd.DataFrame) -> pd.DataFrame:
+    """Positions kept and kept share, per run, seed and gold label.
+
+    A gap between labels is the simplest code: the selector signals the label
+    through how much it keeps.
+    """
+    shaped = frame.assign(
+        kept=[len(set(selected)) for selected in frame["selected"]],
+        share=[
+            len(set(selected)) / len(tokens)
+            for tokens, selected in zip(frame["tokens"], frame["selected"])
+        ],
+    )
+    return (
+        shaped.groupby(["run", "seed", "label"], sort=True)[["kept", "share"]]
+        .mean()
+        .reset_index()
+    )
+
+
+def mask_probes(frame: pd.DataFrame, random_state: int = 0) -> pd.DataFrame:
+    """Whether the model's decisions are recoverable from mask shape alone.
+
+    One row per run and seed. Documents shorter than ``MIN_TOKENS`` are left
+    out. Every score is a cross-validated F1 of a class-balanced logistic
+    regression over :func:`mask_features`: positive-class F1 for two classes
+    and macro F1 otherwise.
+
+    ``f1`` reproduces the decisions from every feature, and ``permuted_f1``
+    does the same against the decisions shuffled, which is its control.
+    ``mcc`` is the Matthews correlation of the first. ``on_label`` predicts the
+    gold label instead: a probe that reproduces the model far better than the
+    label shows that the decision follows the mask rather than the document.
+    ``channel_<name>`` repeats the probe on one group of features in
+    ``CHANNELS``. ``random_state`` seeds the permutation of each run and seed.
+    """
+    try:
+        from sklearn.metrics import f1_score, matthews_corrcoef
+    except ImportError as error:
+        raise ImportError("mask probes require pyhighlights[analysis]") from error
+
+    rows = []
+    for (run, seed), group in frame.groupby(["run", "seed"], sort=True):
+        group = group[group["tokens"].map(len) >= MIN_TOKENS]
+        features = np.array(
+            [
+                mask_features(tokens, selected)
+                for tokens, selected in zip(group["tokens"], group["selected"])
+            ],
+            dtype=float,
+        )
+        decisions = group["predicted"].to_numpy()
+        labels = group["label"].to_numpy()
+        average = "binary" if len(np.union1d(decisions, labels)) <= 2 else "macro"
+        shuffled = np.random.default_rng(random_state).permutation(decisions)
+        predicted = _probe(features, decisions)
+        row = {
+            "run": run,
+            "seed": seed,
+            "documents": len(group),
+            "f1": f1_score(decisions, predicted, average=average),
+            "permuted_f1": f1_score(
+                shuffled, _probe(features, shuffled), average=average
+            ),
+            "mcc": matthews_corrcoef(decisions, predicted),
+            "on_label": f1_score(labels, _probe(features, labels), average=average),
+        }
+        for name, columns in CHANNELS.items():
+            row[f"channel_{name}"] = f1_score(
+                decisions, _probe(features[:, columns], decisions), average=average
+            )
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
 class SelectionCodeAnalyzer(PredictionAnalyzer):
     """:func:`summarize` over the stored predictions of a results tree.
 
     A run stores predictions only when its task sets ``store_predictions``.
-    ``exclusive`` is passed to :func:`summarize`. :meth:`codes` reports the
-    per-class codes of the same rows.
+    ``exclusive`` is passed to :func:`summarize`. :meth:`codes`,
+    :meth:`probes` and :meth:`kept` report the same rows through
+    :func:`codes`, :func:`mask_probes` and :func:`kept_by_label`.
     """
 
     def __init__(
@@ -261,6 +379,14 @@ class SelectionCodeAnalyzer(PredictionAnalyzer):
         frame = super().analyze()
         return codes(frame) if not frame.empty else frame
 
+    def probes(self) -> pd.DataFrame:
+        frame = super().analyze()
+        return mask_probes(frame) if not frame.empty else frame
+
+    def kept(self) -> pd.DataFrame:
+        frame = super().analyze()
+        return kept_by_label(frame) if not frame.empty else frame
+
 
 def _rivals(frame: pd.DataFrame, exclusive: bool) -> Dict[int, List[Tuple[str, ...]]]:
     """For each class, the other classes' highlights, when ``exclusive``."""
@@ -276,3 +402,12 @@ def _rivals(frame: pd.DataFrame, exclusive: bool) -> Dict[int, List[Tuple[str, .
 def _mean(values: Iterable[float]) -> float:
     values = list(values)
     return float(sum(values) / len(values)) if values else float("nan")
+
+
+def _probe(features: np.ndarray, targets: np.ndarray) -> np.ndarray:
+    """Five-fold cross-validated predictions of a class-balanced probe."""
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.model_selection import cross_val_predict
+
+    probe = LogisticRegression(max_iter=3000, class_weight="balanced")
+    return cross_val_predict(probe, features, targets, cv=5)
