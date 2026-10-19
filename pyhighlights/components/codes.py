@@ -77,7 +77,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 from pathlib import Path
-from typing import Dict, Iterable, Iterator, List, Sequence, Tuple
+from typing import Any, Dict, Iterable, Iterator, List, Mapping, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -85,6 +85,7 @@ import torch as th
 from cinnamon.registry import RegistrationKey, Registry
 
 from pyhighlights.components.analyzers import PREDICTIONS, PredictionAnalyzer
+from pyhighlights.utility.manifest import KEY_FIELD
 
 __all__ = [
     "SelectionCodeAnalyzer",
@@ -95,6 +96,7 @@ __all__ = [
     "contains",
     "evaluator_readings",
     "evaluators",
+    "replayed",
     "gold_recall",
     "kept_by_label",
     "mask_features",
@@ -512,6 +514,28 @@ def _score(tally: Counter, name: str, probabilities: th.Tensor, label: int) -> N
     tally["p_" + name.removeprefix("on_")] += float(probabilities[label])
 
 
+def replayed(build_args: Mapping[str, Any] | None) -> Dict[str, Any]:
+    """A manifest's ``build_args`` as overrides for ``Registry.from_key``.
+
+    The manifest writes an overriding key out as the values behind it, with
+    the key under ``@key``, so each such entry becomes its key again.
+    ``save_path`` is left out: rebuilding a run reads it and writes nothing.
+    """
+
+    def rebuilt(value):
+        if isinstance(value, Mapping) and KEY_FIELD in value:
+            return RegistrationKey.parse(registration_key=value[KEY_FIELD])
+        if isinstance(value, list):
+            return [rebuilt(item) for item in value]
+        return value
+
+    return {
+        name: rebuilt(value)
+        for name, value in (build_args or {}).items()
+        if name != "save_path"
+    }
+
+
 def evaluators(
     run: str | Path, split: str = "test"
 ) -> Iterator[Tuple[str, object, object]]:
@@ -524,7 +548,10 @@ def evaluators(
     """
     run = Path(run)
     manifest = json.loads((run / "manifest.json").read_text())
-    task = Registry.from_key(RegistrationKey.parse(registration_key=manifest["key"]))
+    task = Registry.from_key(
+        RegistrationKey.parse(registration_key=manifest["key"]),
+        **replayed(manifest.get("build_args")),
+    )
     splits = task.splits()
     if split not in splits:
         raise KeyError(f"the evaluator's corpus has no {split!r} split")

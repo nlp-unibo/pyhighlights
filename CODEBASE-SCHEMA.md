@@ -31,7 +31,7 @@ Work items, results, and initializer data cross the process boundary as `pickle`
 The module depends on `pyhighlights.components.analyzers`, `cinnamon.registry`, `pandas`, and `torch`.
 `SelectionCodeAnalyzer` extends `PredictionAnalyzer`; its `analyze` calls `summarize`, its `codes` calls `codes`, its `probes` calls `mask_probes`, its `kept` calls `kept_by_label`, and its `entropy` calls `selection_entropy`.
 Its `evaluated` calls `evaluators`, `_check_corpus`, and `evaluator_readings`.
-`evaluators` rebuilds an evaluator run's task with `Registry.from_key`, then calls its `splits`, `loaders`, and `build_model`.
+`evaluators` calls `replayed` and rebuilds an evaluator run's task with `Registry.from_key`, then calls its `splits`, `loaders`, and `build_model`.
 `evaluator_readings` calls the evaluator's `selection_valid` and `predict`.
 
 `selection_entropy` calls `_entropy`.

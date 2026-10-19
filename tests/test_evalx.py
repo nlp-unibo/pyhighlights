@@ -10,11 +10,16 @@ import torch as th
 from cinnamon.registry import Registry
 
 import pyhighlights
-from pyhighlights.components.codes import SelectionCodeAnalyzer, evaluator_readings
+from pyhighlights.components.codes import (
+    SelectionCodeAnalyzer,
+    evaluator_readings,
+    replayed,
+)
 from pyhighlights.components.models.spp.evalx import RandomSelector
 from pyhighlights.configurations.keys import (
     GRU_EVALX,
     MLP_SELECTOR,
+    TOY,
     TOY_EVALX_TASK,
     TOY_TASK,
 )
@@ -166,6 +171,22 @@ def test_readings_need_an_evaluator_that_selects_over_words():
     stub.select_over = "subtoken"
     with pytest.raises(ValueError, match="words"):
         evaluator_readings(frame([(1, [0], None, 0, 0)]), stub, [])
+
+
+def test_a_manifest_replays_the_overrides_it_was_built_with():
+    """An evaluator trained on an overridden corpus is read on that corpus."""
+    build_args = {
+        "save_path": "results",
+        "loader": {"@key": str(TOY), "length": 20},
+        "seeds": [0, 1],
+        "trainer_args": {"max_epochs": 1},
+    }
+    assert replayed(build_args) == {
+        "loader": TOY,
+        "seeds": [0, 1],
+        "trainer_args": {"max_epochs": 1},
+    }
+    assert replayed(None) == {}
 
 
 def test_the_analyzer_reads_a_toy_run_with_a_trained_evaluator(tmp_path):
