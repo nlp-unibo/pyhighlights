@@ -62,16 +62,27 @@ Explainability through Sparse Communication*, BlackboxNLP, Appendix F.2. A
 code repeats a few tokens per class, so its entropy is low. It is reported
 beside the entropy of random selections of the same size in the same
 documents, which is its reference.
+
+**Evaluator readings** ask an evaluator that no selector trained. An
+:class:`~pyhighlights.components.models.spp.evalx.EvalX` model learns the
+label from random selections of the input, so it cannot have learned any
+model's code. :func:`evaluator_readings` reports its accuracy on each run's
+selections, beside its accuracy on the full text and on the annotation. A
+selection the evaluator cannot read while the model's own predictor can is a
+code. Unlike the complete-highlight rate, this needs no annotation.
 """
 
 from __future__ import annotations
 
+import json
 from collections import Counter
 from pathlib import Path
-from typing import Dict, Iterable, List, Sequence, Tuple
+from typing import Dict, Iterable, Iterator, List, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
+import torch as th
+from cinnamon.registry import RegistrationKey, Registry
 
 from pyhighlights.components.analyzers import PREDICTIONS, PredictionAnalyzer
 
@@ -82,6 +93,8 @@ __all__ = [
     "complete",
     "complete_in_order",
     "contains",
+    "evaluator_readings",
+    "evaluators",
     "gold_recall",
     "kept_by_label",
     "mask_features",
@@ -402,6 +415,127 @@ def selection_entropy(
     return pd.DataFrame(rows, columns=columns)
 
 
+def evaluator_readings(frame: pd.DataFrame, evaluator, loader) -> pd.DataFrame:
+    """How a trained evaluator classifies each run and seed's selections.
+
+    One row per run and seed. ``documents`` counts the frame's documents that
+    ``loader`` holds, matched by sample id. ``on_selection`` is the
+    evaluator's accuracy against the gold label from the model's selection
+    alone, and ``agrees`` is how often it reproduces the model's own
+    prediction from it. ``on_full`` reads every valid position. ``on_highlight``
+    reads the annotated positions, over the ``annotated`` documents that have
+    an annotation. The two references bound what a selection can be read as.
+
+    ``evaluator`` is an :class:`~pyhighlights.components.models.spp.base.SPP`
+    that selects over words, as an
+    :class:`~pyhighlights.components.models.spp.evalx.EvalX` model does.
+    ``loader`` yields its batches of the split the frame holds, in any order.
+    A selected position beyond a batch's width was cut by truncation, and is
+    left out.
+    """
+    if evaluator.select_over != "word":
+        raise ValueError("evaluator readings need an evaluator that selects over words")
+    groups = {
+        key: {int(row.sample_id): row for row in group.itertuples(index=False)}
+        for key, group in frame.groupby(["run", "seed"], sort=True)
+    }
+    highlights = {
+        int(row.sample_id): row.highlights for row in frame.itertuples(index=False)
+    }
+    tallies = {key: Counter() for key in groups}
+    evaluator.eval()
+    with th.no_grad():
+        for batch in loader:
+            ids = [int(sample_id) for sample_id in batch.sample_ids]
+            if not any(sample_id in highlights for sample_id in ids):
+                continue
+            valid = evaluator.selection_valid(batch).float()
+            width = valid.shape[1]
+
+            def read(positions: Dict[int, Sequence[int]]) -> th.Tensor:
+                mask = th.zeros_like(valid)
+                for index, kept in positions.items():
+                    mask[index, [p for p in kept if p < width]] = 1.0
+                return evaluator.predict(batch, mask).argmax(-1).tolist()
+
+            on_full = evaluator.predict(batch, valid).argmax(-1).tolist()
+            annotated = {
+                index: highlights[sample_id]
+                for index, sample_id in enumerate(ids)
+                if highlights.get(sample_id) is not None
+            }
+            on_highlight = read(annotated) if annotated else []
+            for key, rows in groups.items():
+                present = {
+                    index: rows[sample_id].selected
+                    for index, sample_id in enumerate(ids)
+                    if sample_id in rows
+                }
+                if not present:
+                    continue
+                on_selection = read(present)
+                tally = tallies[key]
+                for index in present:
+                    row = rows[ids[index]]
+                    tally["documents"] += 1
+                    tally["on_selection"] += on_selection[index] == row.label
+                    tally["agrees"] += on_selection[index] == row.predicted
+                    tally["on_full"] += on_full[index] == row.label
+                    if index in annotated:
+                        tally["annotated"] += 1
+                        tally["on_highlight"] += on_highlight[index] == row.label
+
+    rows = []
+    for (run, seed), tally in tallies.items():
+        documents, annotated = tally["documents"], tally["annotated"]
+        rows.append(
+            {
+                "run": run,
+                "seed": seed,
+                "documents": documents,
+                "on_selection": tally["on_selection"] / documents
+                if documents
+                else float("nan"),
+                "agrees": tally["agrees"] / documents if documents else float("nan"),
+                "on_full": tally["on_full"] / documents if documents else float("nan"),
+                "annotated": annotated,
+                "on_highlight": tally["on_highlight"] / annotated
+                if annotated
+                else float("nan"),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def evaluators(
+    run: str | Path, split: str = "test"
+) -> Iterator[Tuple[str, object, object]]:
+    """Every seed of a trained evaluator run, with a loader of ``split``.
+
+    Yields ``(seed, model, loader)``. The run's ``manifest.json`` names the
+    task, which is rebuilt to rebuild the model and the corpus it read. Each
+    seed directory has to hold exactly one checkpoint, so the run needs
+    ``keep_checkpoints``. The registry has to be built.
+    """
+    run = Path(run)
+    manifest = json.loads((run / "manifest.json").read_text())
+    task = Registry.from_key(RegistrationKey.parse(registration_key=manifest["key"]))
+    splits = task.splits()
+    if split not in splits:
+        raise KeyError(f"the evaluator's corpus has no {split!r} split")
+    loader = task.loaders(splits)[split]
+    for directory in sorted(run.glob("seed=*")):
+        checkpoints = sorted(directory.glob("*.ckpt"))
+        if len(checkpoints) != 1:
+            raise ValueError(
+                f"{directory} holds {len(checkpoints)} checkpoints, expected one"
+            )
+        model = task.build_model()
+        state = th.load(checkpoints[0], map_location="cpu", weights_only=False)
+        model.load_state_dict(state["state_dict"], strict=True)
+        yield directory.name.partition("=")[2], model, loader
+
+
 class SelectionCodeAnalyzer(PredictionAnalyzer):
     """:func:`summarize` over the stored predictions of a results tree.
 
@@ -409,7 +543,8 @@ class SelectionCodeAnalyzer(PredictionAnalyzer):
     ``exclusive`` is passed to :func:`summarize`. :meth:`codes`,
     :meth:`probes`, :meth:`kept` and :meth:`entropy` report the same rows
     through :func:`codes`, :func:`mask_probes`, :func:`kept_by_label` and
-    :func:`selection_entropy`.
+    :func:`selection_entropy`. :meth:`evaluated` reads them with a trained
+    evaluator through :func:`evaluator_readings`.
     """
 
     def __init__(
@@ -442,6 +577,45 @@ class SelectionCodeAnalyzer(PredictionAnalyzer):
     def entropy(self, per_class: bool = True) -> pd.DataFrame:
         frame = super().analyze()
         return selection_entropy(frame, per_class) if not frame.empty else frame
+
+    def evaluated(self, evaluator: str | Path) -> pd.DataFrame:
+        """:func:`evaluator_readings` per seed of the ``evaluator`` run.
+
+        One row per run, seed and ``evaluator_seed``, so the spread across
+        evaluator seeds can be read. The evaluator has to have read the same
+        corpus: a document whose tokens differ from the frame's is refused.
+        """
+        frame = super().analyze()
+        if frame.empty:
+            return frame
+        readings = []
+        for evaluator_seed, model, loader in evaluators(evaluator, self.split):
+            if not readings:
+                _check_corpus(frame, loader)
+            readings.append(
+                evaluator_readings(frame, model, loader).assign(
+                    evaluator_seed=evaluator_seed
+                )
+            )
+        if not readings:
+            raise ValueError(f"{evaluator} holds no evaluator seed")
+        return pd.concat(readings, ignore_index=True)
+
+
+def _check_corpus(frame: pd.DataFrame, loader) -> None:
+    """Refuse an evaluator whose corpus places the frame's documents differently."""
+    corpus = {
+        int(example.sample_id): list(example.tokens)
+        for example in loader.dataset.examples
+    }
+    differing = sum(
+        corpus.get(int(row.sample_id)) not in (None, list(row.tokens))
+        for row in frame.itertuples(index=False)
+    )
+    if differing:
+        raise ValueError(
+            f"{differing} documents read differently in the evaluator's corpus"
+        )
 
 
 def _rivals(frame: pd.DataFrame, exclusive: bool) -> Dict[int, List[Tuple[str, ...]]]:
