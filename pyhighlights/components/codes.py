@@ -111,6 +111,8 @@ BINS = 10
 #: Shorter documents have no position geometry, and the histogram divides by
 #: the length minus one.
 MIN_TOKENS = 4
+#: Folds of every probe's cross-validation.
+FOLDS = 5
 #: Feature columns of :func:`mask_features` that each probe channel reads.
 CHANNELS = {
     "count": [1],
@@ -334,6 +336,11 @@ def mask_probes(frame: pd.DataFrame, random_state: int = 0) -> pd.DataFrame:
     label shows that the decision follows the mask rather than the document.
     ``channel_<name>`` repeats the probe on one group of features in
     ``CHANNELS``. ``random_state`` seeds the permutation of each run and seed.
+
+    A probe needs at least two classes with ``FOLDS`` members each. A score
+    whose targets have fewer is ``NaN``, so a run that always makes the same
+    decision reports no probe of its decisions and still reports
+    ``on_label``.
     """
     try:
         from sklearn.metrics import f1_score, matthews_corrcoef
@@ -354,22 +361,26 @@ def mask_probes(frame: pd.DataFrame, random_state: int = 0) -> pd.DataFrame:
         labels = group["label"].to_numpy()
         average = "binary" if len(np.union1d(decisions, labels)) <= 2 else "macro"
         shuffled = np.random.default_rng(random_state).permutation(decisions)
-        predicted = _probe(features, decisions)
+
+        def score(targets, columns=slice(None), metric=None):
+            if not _probeable(targets):
+                return float("nan")
+            predicted = _probe(features[:, columns], targets)
+            if metric is not None:
+                return metric(targets, predicted)
+            return f1_score(targets, predicted, average=average)
+
         row = {
             "run": run,
             "seed": seed,
             "documents": len(group),
-            "f1": f1_score(decisions, predicted, average=average),
-            "permuted_f1": f1_score(
-                shuffled, _probe(features, shuffled), average=average
-            ),
-            "mcc": matthews_corrcoef(decisions, predicted),
-            "on_label": f1_score(labels, _probe(features, labels), average=average),
+            "f1": score(decisions),
+            "permuted_f1": score(shuffled),
+            "mcc": score(decisions, metric=matthews_corrcoef),
+            "on_label": score(labels),
         }
         for name, columns in CHANNELS.items():
-            row[f"channel_{name}"] = f1_score(
-                decisions, _probe(features[:, columns], decisions), average=average
-            )
+            row[f"channel_{name}"] = score(decisions, columns)
         rows.append(row)
     return pd.DataFrame(rows)
 
@@ -666,13 +677,19 @@ def _mean(values: Iterable[float]) -> float:
     return float(sum(values) / len(values)) if values else float("nan")
 
 
+def _probeable(targets: np.ndarray) -> bool:
+    """Whether every fold can train on two classes or more."""
+    counts = np.unique(targets, return_counts=True)[1]
+    return len(counts) >= 2 and counts.min() >= FOLDS
+
+
 def _probe(features: np.ndarray, targets: np.ndarray) -> np.ndarray:
-    """Five-fold cross-validated predictions of a class-balanced probe."""
+    """Cross-validated predictions of a class-balanced probe, over ``FOLDS``."""
     from sklearn.linear_model import LogisticRegression
     from sklearn.model_selection import cross_val_predict
 
     probe = LogisticRegression(max_iter=3000, class_weight="balanced")
-    return cross_val_predict(probe, features, targets, cv=5)
+    return cross_val_predict(probe, features, targets, cv=FOLDS)
 
 
 def _entropy(counts: Counter) -> float:
