@@ -35,7 +35,7 @@ Its `evaluated` calls `evaluators`, `_check_corpus`, and `evaluator_readings`.
 `evaluator_readings` calls the evaluator's `selection_valid` and `predict`.
 
 `selection_entropy` calls `_entropy`.
-`mask_probes` calls `mask_features` and `_probe`, which depends on `scikit-learn` from the `analysis` extra.
+`mask_probes` calls `mask_features`, `_probeable` and `_probe`, which depends on `scikit-learn` from the `analysis` extra.
 `summarize` calls `_rivals`, `complete`, `complete_in_order`, `gold_recall`, `codes`, and `_mean`.
 `_rivals` calls `class_highlights`.
 `complete` calls `runs` and `contains`.

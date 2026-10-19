@@ -33,6 +33,7 @@ A code can also be carried by the shape of a selection, such as how many tokens 
 A class-balanced logistic regression reads the document length, the number of positions kept, the kept share, and a normalized histogram of where the kept positions sit.
 It reproduces the model's decisions under five-fold cross-validation.
 Each probe is reported against a control in which the decisions are shuffled, and against the gold label.
+A probe needs two classes with five members each, so a run that always makes the same decision reports ``NaN`` for its decisions and still reports the gold label.
 The channels repeat the probe on the count, the length, the two together, the position histogram, and every feature.
 :func:`~pyhighlights.components.codes.kept_by_label` reports how much a model keeps per gold label, which is the simplest code.
 

@@ -201,6 +201,19 @@ def test_a_count_code_is_found_by_the_count_channel_and_not_by_its_control():
     assert report["mcc"] > 0.9
 
 
+def test_a_run_with_one_decision_reports_no_probe_of_its_decisions():
+    """A model that always predicts one class has nothing to reproduce."""
+    frame = coded().assign(predicted=0)
+    report = mask_probes(frame).iloc[0]
+    for column in ("f1", "permuted_f1", "mcc", "channel_count"):
+        assert math.isnan(report[column])
+    assert report["on_label"] > 0.95
+
+    # A class with fewer members than folds is as unprobeable as no class.
+    frame.loc[0, "predicted"] = 1
+    assert math.isnan(mask_probes(frame).iloc[0]["f1"])
+
+
 def test_short_documents_are_left_out_of_the_probes():
     frame = pd.concat([coded(), toy([("xyz", [0], None, 0, 0)])], ignore_index=True)
     assert mask_probes(frame).iloc[0]["documents"] == 200
