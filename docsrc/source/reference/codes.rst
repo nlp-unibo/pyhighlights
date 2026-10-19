@@ -60,6 +60,40 @@ The toy runs of ``pyhighlights-genspp2025`` show both cases.
 GenSPP selects for ``abc`` documents at 0.33 bits, against 1.58 bits for the highlight.
 Every baseline stays above the highlight's entropy and still uses a size code.
 
+Evaluator readings
+------------------
+
+The measures above either need an annotation or look at the shape of a selection.
+An evaluator reads the selected text itself, with a model that no selector trained.
+:class:`~pyhighlights.components.models.spp.evalx.EvalX` follows EVAL-X, from Jethani, Sudarshan, Aphinyanaphongs and Ranganath (2021), *Have We Learned to Explain?*, AISTATS, PMLR 130:1459-1467.
+It is trained on random selections of the input with the document's own label.
+It therefore estimates the label given any subset of the input, and it cannot have learned any model's code.
+
+The evaluator is an SPP model whose selector is :class:`~pyhighlights.components.models.spp.evalx.RandomSelector`.
+It reads a selection with the same backbones and the same masking as the predictors it evaluates.
+The selector draws a keep rate per example, uniformly from ``[min_keep, max_keep]``, so that small selections are covered.
+In ``"tokens"`` mode it keeps each position independently, and in ``"spans"`` mode it keeps one contiguous span.
+Both settings are part of the model's configuration, so every run's manifest records them.
+
+:func:`~pyhighlights.components.codes.evaluator_readings` reports, per run and seed, the evaluator's accuracy on the model's selections and how often it reproduces the model's own prediction.
+It also reports two references: the evaluator's accuracy on the full text, and on the annotated positions where the corpus has annotations.
+A model whose own predictor classifies its selections while the evaluator cannot is decoding a code.
+Unlike the complete-highlight rate, the readings need no annotation.
+
+Each accuracy has a ``p_`` column beside it, which is the evaluator's mean probability of the gold label.
+Read the probability first where the evidence is ambiguous.
+On the toy corpus, ``ba`` occurs in the highlights of both ``aba`` and ``baa``, and the evaluator gives it a gold probability near one half.
+Its accuracy is near zero or one instead, depending on which of the two classes an evaluator seed's argmax favours.
+
+An evaluator is trained like any other model, through a task.
+``TOY_EVALX_TASK`` trains one on the synthetic corpus.
+:meth:`~pyhighlights.components.codes.SelectionCodeAnalyzer.evaluated` rebuilds every seed of a trained evaluator run from its manifest and checkpoints.
+It reports one row per run, seed and evaluator seed, so that the spread across evaluator seeds can be read.
+The evaluator run needs ``keep_checkpoints``, and it has to have read the same corpus as the runs it scores.
+
+The evaluator answers for the data distribution, within what random selections taught it.
+Selections far from that distribution, such as a single token in a long document, are read with whatever the evaluator learned from the few random selections of that size.
+
 Reading a run
 -------------
 
@@ -75,6 +109,7 @@ A run stores the predictions this module reads only when its task sets ``store_p
    analyzer.probes()  # mask probes, one row per run and seed
    analyzer.kept()  # positions kept per run, seed and gold label
    analyzer.entropy()  # selected-token entropy per run, seed and class
+   analyzer.evaluated("results/toy-evalx/<started>")  # evaluator readings
 
 :func:`~pyhighlights.components.codes.summarize` and :func:`~pyhighlights.components.codes.codes` accept any frame with the same columns.
 The columns are ``run``, ``seed``, ``tokens``, ``selected``, ``highlights``, ``label`` and ``predicted``.
@@ -91,5 +126,9 @@ API
 ---
 
 .. automodule:: pyhighlights.components.codes
+   :members:
+   :show-inheritance:
+
+.. automodule:: pyhighlights.components.models.spp.evalx
    :members:
    :show-inheritance:
