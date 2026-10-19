@@ -426,6 +426,12 @@ def evaluator_readings(frame: pd.DataFrame, evaluator, loader) -> pd.DataFrame:
     reads the annotated positions, over the ``annotated`` documents that have
     an annotation. The two references bound what a selection can be read as.
 
+    Each accuracy has a ``p_`` column beside it: the evaluator's mean
+    probability of the gold label. Read it first where the evidence is
+    ambiguous. A selection that two classes share has a gold probability
+    near one half, while its accuracy is near zero or one depending on which
+    class the evaluator's argmax happens to favour.
+
     ``evaluator`` is an :class:`~pyhighlights.components.models.spp.base.SPP`
     that selects over words, as an
     :class:`~pyhighlights.components.models.spp.evalx.EvalX` model does.
@@ -456,15 +462,15 @@ def evaluator_readings(frame: pd.DataFrame, evaluator, loader) -> pd.DataFrame:
                 mask = th.zeros_like(valid)
                 for index, kept in positions.items():
                     mask[index, [p for p in kept if p < width]] = 1.0
-                return evaluator.predict(batch, mask).argmax(-1).tolist()
+                return th.softmax(evaluator.predict(batch, mask), dim=-1)
 
-            on_full = evaluator.predict(batch, valid).argmax(-1).tolist()
+            on_full = th.softmax(evaluator.predict(batch, valid), dim=-1)
             annotated = {
                 index: highlights[sample_id]
                 for index, sample_id in enumerate(ids)
                 if highlights.get(sample_id) is not None
             }
-            on_highlight = read(annotated) if annotated else []
+            on_highlight = read(annotated) if annotated else None
             for key, rows in groups.items():
                 present = {
                     index: rows[sample_id].selected
@@ -478,33 +484,32 @@ def evaluator_readings(frame: pd.DataFrame, evaluator, loader) -> pd.DataFrame:
                 for index in present:
                     row = rows[ids[index]]
                     tally["documents"] += 1
-                    tally["on_selection"] += on_selection[index] == row.label
-                    tally["agrees"] += on_selection[index] == row.predicted
-                    tally["on_full"] += on_full[index] == row.label
+                    _score(tally, "on_selection", on_selection[index], row.label)
+                    tally["agrees"] += (
+                        int(on_selection[index].argmax()) == row.predicted
+                    )
+                    _score(tally, "on_full", on_full[index], row.label)
                     if index in annotated:
                         tally["annotated"] += 1
-                        tally["on_highlight"] += on_highlight[index] == row.label
+                        _score(tally, "on_highlight", on_highlight[index], row.label)
 
     rows = []
     for (run, seed), tally in tallies.items():
         documents, annotated = tally["documents"], tally["annotated"]
-        rows.append(
-            {
-                "run": run,
-                "seed": seed,
-                "documents": documents,
-                "on_selection": tally["on_selection"] / documents
-                if documents
-                else float("nan"),
-                "agrees": tally["agrees"] / documents if documents else float("nan"),
-                "on_full": tally["on_full"] / documents if documents else float("nan"),
-                "annotated": annotated,
-                "on_highlight": tally["on_highlight"] / annotated
-                if annotated
-                else float("nan"),
-            }
-        )
+        row = {"run": run, "seed": seed, "documents": documents}
+        for name in ("on_selection", "p_selection", "agrees", "on_full", "p_full"):
+            row[name] = tally[name] / documents if documents else float("nan")
+        row["annotated"] = annotated
+        for name in ("on_highlight", "p_highlight"):
+            row[name] = tally[name] / annotated if annotated else float("nan")
+        rows.append(row)
     return pd.DataFrame(rows)
+
+
+def _score(tally: Counter, name: str, probabilities: th.Tensor, label: int) -> None:
+    """Count one reading's accuracy and its probability of the gold label."""
+    tally[name] += int(probabilities.argmax()) == label
+    tally["p_" + name.removeprefix("on_")] += float(probabilities[label])
 
 
 def evaluators(

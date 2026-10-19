@@ -80,6 +80,11 @@ It also reports two references: the evaluator's accuracy on the full text, and o
 A model whose own predictor classifies its selections while the evaluator cannot is decoding a code.
 Unlike the complete-highlight rate, the readings need no annotation.
 
+Each accuracy has a ``p_`` column beside it, which is the evaluator's mean probability of the gold label.
+Read the probability first where the evidence is ambiguous.
+On the toy corpus, ``ba`` occurs in the highlights of both ``aba`` and ``baa``, and the evaluator gives it a gold probability near one half.
+Its accuracy is near zero or one instead, depending on which of the two classes an evaluator seed's argmax favours.
+
 An evaluator is trained like any other model, through a task.
 ``TOY_EVALX_TASK`` trains one on the synthetic corpus.
 :meth:`~pyhighlights.components.codes.SelectionCodeAnalyzer.evaluated` rebuilds every seed of a trained evaluator run from its manifest and checkpoints.

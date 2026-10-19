@@ -95,7 +95,8 @@ class Stub:
 
     def predict(self, batch, mask):
         kept = mask.sum(-1)
-        return th.stack([(kept < 2).float(), (kept >= 2).float()], dim=-1)
+        # Logits this far apart make the softmax certain.
+        return 50 * th.stack([(kept < 2).float(), (kept >= 2).float()], dim=-1)
 
 
 def frame(rows, run="m", seed="1"):
@@ -144,6 +145,9 @@ def test_readings_score_selections_and_both_references():
     assert readings["on_full"] == pytest.approx(2 / 3)
     assert readings["annotated"] == 2
     assert readings["on_highlight"] == pytest.approx(1 / 2)
+    # The stub is certain, so each probability equals its accuracy.
+    for name in ("selection", "full", "highlight"):
+        assert readings[f"p_{name}"] == pytest.approx(readings[f"on_{name}"])
 
 
 def test_readings_keep_runs_and_seeds_apart():
@@ -186,5 +190,5 @@ def test_the_analyzer_reads_a_toy_run_with_a_trained_evaluator(tmp_path):
 
     assert sorted(readings["evaluator_seed"]) == ["0", "1"]
     assert (readings["documents"] > 0).all()
-    for column in ("on_selection", "agrees", "on_full", "on_highlight"):
+    for column in ("on_selection", "p_selection", "agrees", "on_full", "on_highlight"):
         assert readings[column].between(0, 1).all()
