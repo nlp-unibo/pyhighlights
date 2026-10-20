@@ -114,6 +114,16 @@ def subword_batch() -> InputData:
     )
 
 
+def test_pretrained_embeddings_reach_the_guider():
+    model = Registry.from_key(GRU_GRAT)
+    matrix = th.full((7, model.guider.backbone.embedding.embedding_dim), 0.25)
+
+    model.load_embeddings(matrix)
+
+    assert th.equal(model.guider.backbone.embedding.weight, matrix)
+    assert th.equal(model.selector_backbone.embedding.weight, matrix)
+
+
 def test_grat_guides_a_selection_over_words_from_attention_over_subtokens():
     """The guider encodes subtokens; the target it produces is per word.
 
