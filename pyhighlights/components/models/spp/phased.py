@@ -57,6 +57,11 @@ class PhasedSPP(SPP):
     and scores each phase on its own selection. Validation scores every
     criterion once, on one selection.
 
+    ``monitored_losses`` names the criteria whose weighted sum evaluation
+    logs as ``loss``, which is what early stopping and checkpointing usually
+    monitor. Every criterion is still scored and logged under its own name.
+    ``None`` sums all of them.
+
     Under data parallelism, every parameter has to receive a gradient in each
     phase. With ``shared_losses`` empty, the generator receives none in the
     predictor phase. Such a model needs
@@ -72,6 +77,7 @@ class PhasedSPP(SPP):
         shared_losses: List[RegistrationKey[Loss]],
         predictor_losses: List[RegistrationKey[Loss]],
         generator_losses: List[RegistrationKey[Loss]],
+        monitored_losses: List[str] | None = None,
         **kwargs,
     ):
         name = type(self).__name__
@@ -105,6 +111,16 @@ class PhasedSPP(SPP):
         self.losses = th.nn.ModuleList(
             [*self.shared_losses, *self.predictor_losses, *self.generator_losses]
         )
+        # A name matching no loss would leave a criterion out of the
+        # monitored total silently, or monitor nothing at all.
+        names = [loss.name for loss in self.losses]
+        unknown = sorted(set(monitored_losses or ()) - set(names))
+        if unknown:
+            raise ValueError(
+                f"monitored_losses {unknown} name no loss of this model, "
+                f"whose losses are {names}"
+            )
+        self.monitored_losses = monitored_losses
         self.automatic_optimization = False
 
     def loss_names(self) -> List[str]:
@@ -197,7 +213,15 @@ class PhasedSPP(SPP):
             output_data,
             **self.extra_logits(input_data, head.highlight_mask),
         )
-        return compute_losses(self.losses, values)
+        total, losses = compute_losses(self.losses, values)
+        if self.monitored_losses is None:
+            return total, losses
+        monitored = [
+            losses[loss.name] * loss.coefficient
+            for loss in self.losses
+            if loss.name in losses and loss.name in self.monitored_losses
+        ]
+        return sum(monitored, total.new_zeros(())), losses
 
     def configure_optimizers(self):
         # One optimizer per phase, as the phases alternate and the generator
