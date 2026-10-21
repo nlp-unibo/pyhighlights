@@ -52,8 +52,10 @@ Prediction goes through the inherited `SPP.predict`.
 
 ## pyhighlights/components/models/spp/grat.py
 
-The module depends on `pyhighlights.components.models`, `pyhighlights.components.models.spp.base`, `pyhighlights.utility.diagnostics`, `pyhighlights.utility.losses`, `cinnamon.registry`, and `torch`.
+The module depends on `pyhighlights.components.models`, `pyhighlights.components.models.spp.base`, `pyhighlights.components.models.spp.implementations`, `pyhighlights.utility.diagnostics`, `pyhighlights.utility.losses`, `cinnamon.registry`, and `torch`.
 `GRAT` extends `SPP` and builds a `GRATGuider` with `Registry.from_key`.
 `GRAT.load_embeddings` calls `SPP.load_embeddings` and then `GRATGuider.load_embeddings`.
-`AttentionGuider` extends `GRATGuider`; its `forward` calls `SPPBackbone.encode`, and its `load_embeddings` calls `SPPBackbone.load_embeddings`.
+`AttentionGuider` extends `GRATGuider`; its `forward` calls `SPPBackbone.encode` and `masked_softmax`, and its `load_embeddings` calls `SPPBackbone.load_embeddings`.
+`GuidanceGuider` extends `GRATGuider` and builds a `GRUBackbone`; its `forward` calls `GRUBackbone.encode` and `masked_softmax`, and its `load_embeddings` calls `GRUBackbone.load_embeddings`.
+`pyhighlights/configurations/grat.py` registers `GuidanceGuider` under `GUIDANCE_GUIDER`, the default guider of `GRUGRATConfig`.
 `pyhighlights.components.tasks` calls `GRAT.load_embeddings` from `SPPTask.build_model`.

@@ -77,7 +77,9 @@ Implementation
      - Where
    * - The guider contract
      - :class:`~pyhighlights.components.models.spp.grat.GRATGuider`
-   * - The attention classifier itself
+   * - The original guider, over a GRU
+     - :class:`~pyhighlights.components.models.spp.grat.GuidanceGuider`
+   * - An attention classifier over any backbone
      - :class:`~pyhighlights.components.models.spp.grat.AttentionGuider`
    * - The annealing factor
      - ``GRAT.guide_factor``
@@ -94,7 +96,14 @@ Implementation
 
 The guider attends over subtokens, since that is what its encoder reads, while the selection it guides is over words, so each word takes the attention its subtokens hold between them.
 The fold sums rather than averages, because attention is a distribution and averaging would report a long word as less attended than the short one beside it.
-``AttentionGuider`` adds positive noise to its scores during training, which is the reference implementation's way of keeping the attention from collapsing onto a handful of words.
+Both guiders add positive noise to their scores during training, which is the reference implementation's way of keeping the attention from collapsing onto a handful of words.
+
+``GuidanceGuider`` is the reference's ``GuidanceModule`` layer for layer, and ``GRU_GRAT`` uses it.
+The GRU states are added to a linear map of the embeddings and normalised.
+A two-layer GELU network scores each position, and the attended states pass through a projection, a GELU, the same normalisation and an attention-pooling block.
+With the same weights and no padding, its attention and logits agree with the reference's to within 1e-6.
+``AttentionGuider`` keeps only the attention and the weighted sum, over any backbone.
+A transformer guider needs it, because a transformer backbone exposes no embeddings for the residual.
 
 Each of the two backward passes reaches one half of the model: the guider's pass reaches the guider, and the rationalizer's pass reaches the rationalizer.
 A data-parallel wrapper expects every parameter it registered in every pass, so ``backward_and_average`` blocks its synchronisation for the pass.
@@ -103,8 +112,11 @@ The method then averages the gradients of the half that pass trains across proce
 Differences from the reference implementation
 ---------------------------------------------
 
-Two details differ from the reference, and both remove a dependence on padding.
+Three details differ from the reference, and all three remove a dependence on padding.
 Numbers from this implementation therefore do not reproduce the reference's exactly.
+
+The reference's guider runs its GRU over the padded batch, so the backward direction reads the padding first.
+``GuidanceGuider`` packs the batch, as every recurrent encoder in the library does.
 
 The per-word target divides each word's attention by the mean attention plus :math:`1 / (1 + n)`, over the :math:`n` valid words.
 This implementation takes that mean over the valid words.
@@ -127,6 +139,8 @@ Configuration
      - :class:`~pyhighlights.configurations.grat.GRUGRATConfig`
    * - ``TRANSFORMER_GRAT``
      - :class:`~pyhighlights.configurations.grat.TransformerGRATConfig`
+   * - ``GUIDANCE_GUIDER``
+     - :class:`~pyhighlights.configurations.grat.GuidanceGuiderConfig`
    * - ``GRU_GUIDER``
      - :class:`~pyhighlights.configurations.grat.AttentionGuiderConfig`
    * - ``TRANSFORMER_GUIDER``
