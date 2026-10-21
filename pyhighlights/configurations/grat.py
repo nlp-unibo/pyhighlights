@@ -15,7 +15,7 @@ from pyhighlights.configurations.keys import (
     CLASSIFICATION_LOSS,
     CONTIGUITY_LOSS,
     GRU_BACKBONE,
-    GRU_GUIDER,
+    GUIDANCE_GUIDER,
     GUIDE_LOSS,
     JSD_LOSS,
     MLP_PREDICTOR,
@@ -28,6 +28,7 @@ from pyhighlights.utility.losses import Loss
 
 ATTENTION_GUIDER_COMPONENT = "pyhighlights.components.models.spp.grat.AttentionGuider"
 GRAT_COMPONENT = "pyhighlights.components.models.spp.grat.GRAT"
+GUIDANCE_GUIDER_COMPONENT = "pyhighlights.components.models.spp.grat.GuidanceGuider"
 
 
 @register_class(
@@ -53,6 +54,26 @@ class TransformerAttentionGuiderConfig(AttentionGuiderConfig):
 
 
 @register_class(
+    name="guider",
+    tags={"guidance", "gru"},
+    namespace=NAMESPACE,
+    component=GUIDANCE_GUIDER_COMPONENT,
+)
+class GuidanceGuiderConfig(Configuration):
+    """The original G-RAT guider, sized as the library's GRU backbone."""
+
+    vocab_size: int = Param(10_000, ge=3)
+    embedding_dim: int = Param(128, ge=1)
+    #: Per direction, as in ``GRUBackboneConfig``: the guider's states are
+    #: twice as wide.
+    hidden_size: int = Param(128, ge=1)
+    predictor: RegistrationKey[SPPPredictor] = Param(MLP_PREDICTOR)
+    noise_sigma: float = Param(1.0, ge=0.0)
+    dropout_rate: float = Param(0.0, ge=0.0, lt=1.0)
+    freeze_embeddings: bool | None = Param(None)
+
+
+@register_class(
     name="model", tags={"grat", "gru"}, namespace=NAMESPACE, component=GRAT_COMPONENT
 )
 class GRUGRATConfig(SPPModelConfig):
@@ -60,7 +81,7 @@ class GRUGRATConfig(SPPModelConfig):
     #: G-RAT encodes the highlight with its own backbone, so the predictor's
     #: is required rather than optional.
     predictor_backbone: RegistrationKey[SPPBackbone] = Param(GRU_BACKBONE)
-    guider: RegistrationKey[GRATGuider] = Param(GRU_GUIDER)
+    guider: RegistrationKey[GRATGuider] = Param(GUIDANCE_GUIDER)
     losses: List[RegistrationKey[Loss]] = Param(
         [CLASSIFICATION_LOSS, SPARSITY_LOSS, CONTIGUITY_LOSS, GUIDE_LOSS, JSD_LOSS]
     )

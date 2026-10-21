@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 
 import pyhighlights
 from pyhighlights.components.models import InputData
-from pyhighlights.components.models.spp import GRAT
+from pyhighlights.components.models.spp import GRAT, GuidanceGuider
 from pyhighlights.configurations.keys import GRU_GRAT
 from tests.data_parallel import processes_agree
 
@@ -96,6 +96,53 @@ def test_registered_gru_grat_guidance_and_staged_training():
         not th.equal(before, after)
         for before, after in zip(guider_before, model.guider.parameters())
     )
+
+
+def test_the_gru_guider_is_the_original_guidance_module():
+    """The default GRU guider follows ``GuidanceModule`` of the original G-RAT.
+
+    Its attention is a distribution over the valid positions, the noise is
+    drawn only in training, and padding a row changes nothing about it.
+    """
+    model = Registry.from_key(GRU_GRAT)
+    guider = model.guider
+    assert isinstance(guider, GuidanceGuider)
+    width = guider.backbone.output_size
+    assert guider.convert.out_features == width
+    assert [type(layer) for layer in guider.attention] == [
+        th.nn.Linear,
+        th.nn.GELU,
+        th.nn.Linear,
+    ]
+    assert [type(layer) for layer in guider.pooling] == [
+        th.nn.Linear,
+        th.nn.LayerNorm,
+        th.nn.GELU,
+        th.nn.Linear,
+    ]
+
+    data = batch()
+    guider.eval()
+    first = guider(data, data.mask)
+    assert th.allclose(first.attention.sum(dim=1), th.ones(2))
+    assert not first.attention[~data.mask.bool()].any()
+    assert th.equal(guider(data, data.mask).class_logits, first.class_logits)
+
+    trimmed = InputData(
+        features=data.features[1:, :2],
+        mask=data.mask[1:, :2],
+        sample_ids=data.sample_ids[1:],
+        y_true=data.y_true[1:],
+        highlight_true=data.highlight_true[1:, :2],
+    )
+    alone = guider(trimmed, trimmed.mask)
+    assert th.allclose(alone.class_logits, first.class_logits[1:], atol=1e-6)
+    assert th.allclose(alone.attention, first.attention[1:, :2], atol=1e-6)
+
+    guider.train()
+    th.manual_seed(0)
+    noisy = guider(data, data.mask)
+    assert not th.allclose(noisy.attention, first.attention)
 
 
 def subword_batch() -> InputData:
