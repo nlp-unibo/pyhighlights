@@ -48,3 +48,11 @@ The module depends on `pyhighlights.components.models.spp.base` and `torch`.
 Prediction goes through the inherited `SPP.predict`.
 `pyhighlights/configurations/evalx.py` registers `RandomSelector`, `EvalX`, and the toy evaluator task.
 `pyhighlights.components.codes.evaluator_readings` reads selections with a trained `EvalX`.
+
+## pyhighlights/components/models/spp/grat.py
+
+The module depends on `pyhighlights.components.models`, `pyhighlights.components.models.spp.base`, `pyhighlights.utility.diagnostics`, `pyhighlights.utility.losses`, `cinnamon.registry`, and `torch`.
+`GRAT` extends `SPP` and builds a `GRATGuider` with `Registry.from_key`.
+`GRAT.load_embeddings` calls `SPP.load_embeddings` and then `GRATGuider.load_embeddings`.
+`AttentionGuider` extends `GRATGuider`; its `forward` calls `SPPBackbone.encode`, and its `load_embeddings` calls `SPPBackbone.load_embeddings`.
+`pyhighlights.components.tasks` calls `GRAT.load_embeddings` from `SPPTask.build_model`.

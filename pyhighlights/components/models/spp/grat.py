@@ -42,6 +42,12 @@ class GRATGuider(th.nn.Module, abc.ABC):
         axis itself.
         """
 
+    def load_embeddings(self, matrix: th.Tensor) -> None:
+        """Adopt the pretrained token table the model's backbones read."""
+        raise NotImplementedError(
+            f"{type(self).__name__} does not take a token embedding matrix"
+        )
+
 
 class AttentionGuider(GRATGuider):
     """Backbone-independent attention classifier used to guide G-RAT."""
@@ -63,6 +69,9 @@ class AttentionGuider(GRATGuider):
             input_size=self.backbone.output_size,
         )
         self.noise_sigma = noise_sigma
+
+    def load_embeddings(self, matrix: th.Tensor) -> None:
+        self.backbone.load_embeddings(matrix)
 
     def forward(self, data: InputData, mask: th.Tensor) -> GRATGuiderOutput:
         valid = mask.bool()
@@ -144,6 +153,11 @@ class GRAT(SPP):
         self.jsd_loss = jsd_loss
         self.register_buffer("_model_steps", th.zeros((), dtype=th.long))
         self.automatic_optimization = False
+
+    def load_embeddings(self, matrix: th.Tensor) -> None:
+        # The guider reads the same ids through a backbone of its own.
+        super().load_embeddings(matrix)
+        self.guider.load_embeddings(matrix)
 
     def loss_names(self) -> List[str]:
         # The guider's terms are logged under a prefix beside the model's.
