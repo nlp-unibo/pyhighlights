@@ -58,6 +58,32 @@ def test_evaluation_scores_every_group_at_once():
     assert th.isfinite(total)
 
 
+def test_the_monitored_total_sums_only_the_losses_it_names():
+    """Every loss is still reported, and ``loss`` sums the named ones."""
+    th.manual_seed(0)
+    batch = batch_of()
+    model = Registry.from_key(GRU_MCD)
+    model.eval()
+    everything, losses = model.compute_loss(batch, model(batch))
+
+    named = ["classification", "sparsity", "contiguity", "discrepancy"]
+    model.monitored_losses = named
+    total, monitored = model.compute_loss(batch, model(batch))
+
+    assert set(monitored) == set(losses)
+    weights = {loss.name: loss.coefficient for loss in model.losses}
+    assert th.allclose(total, sum(losses[name] * weights[name] for name in named))
+    assert th.allclose(
+        everything - total,
+        losses["full_classification"] * weights["full_classification"],
+    )
+
+
+def test_a_monitored_loss_must_name_a_loss():
+    with pytest.raises(ValueError, match="name no loss"):
+        Registry.from_key(GRU_MCD, monitored_losses=["classificaton"])
+
+
 def test_a_validation_epoch_reports_the_loss_it_scored():
     model = Registry.from_key(GRU_MCD)
     trainer = L.Trainer(

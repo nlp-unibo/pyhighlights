@@ -101,3 +101,5 @@ class PhasedSPPModelConfig(SPPShapeConfig):
     shared_losses: List[RegistrationKey[Loss]] = Param([SPARSITY_LOSS, CONTIGUITY_LOSS])
     predictor_losses: List[RegistrationKey[Loss]] = Param([])
     generator_losses: List[RegistrationKey[Loss]] = Param([])
+    #: Names of the losses evaluation sums into ``loss``. ``None`` sums all.
+    monitored_losses: List[str] | None = Param(None)
