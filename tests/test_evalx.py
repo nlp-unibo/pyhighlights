@@ -13,6 +13,7 @@ import pyhighlights
 from pyhighlights.components.codes import (
     SelectionCodeAnalyzer,
     evaluator_readings,
+    replay_predictions,
     replayed,
 )
 from pyhighlights.components.models.spp.evalx import RandomSelector
@@ -213,3 +214,22 @@ def test_the_analyzer_reads_a_toy_run_with_a_trained_evaluator(tmp_path):
     assert (readings["documents"] > 0).all()
     for column in ("on_selection", "p_selection", "agrees", "on_full", "on_highlight"):
         assert readings[column].between(0, 1).all()
+
+
+def test_a_replayed_run_reads_as_the_run_that_stored_its_predictions(tmp_path):
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+    Registry.from_key(
+        TOY_TASK,
+        save_path=str(tmp_path),
+        seeds=[0],
+        store_predictions=True,
+        trainer_args={"accelerator": "cpu", "max_epochs": 1},
+    ).run()
+    (run,) = (tmp_path / "toy").iterdir()
+    stored = SelectionCodeAnalyzer(tmp_path).analyze()
+    (run / "predictions-seed=0.pkl").unlink()
+
+    assert replay_predictions(run) == [run / "predictions-seed=0.pkl"]
+    pd.testing.assert_frame_equal(SelectionCodeAnalyzer(tmp_path).analyze(), stored)
+    with pytest.raises(FileExistsError):
+        replay_predictions(run)
