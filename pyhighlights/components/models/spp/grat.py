@@ -15,6 +15,7 @@ from pyhighlights.components.models.spp.base import (
     SPPSelector,
 )
 from pyhighlights.components.models.spp.data import SPPOutput
+from pyhighlights.components.models.spp.implementations import GRUBackbone
 from pyhighlights.utility import diagnostics
 from pyhighlights.utility.losses import Loss, build_losses, compute_losses
 
@@ -79,14 +80,105 @@ class AttentionGuider(GRATGuider):
         scores = self.attention(states).squeeze(-1)
         if self.training and self.noise_sigma:
             scores = scores + th.randn_like(scores).abs() * self.noise_sigma
-        scores = scores.masked_fill(~valid, -th.inf)
-        scores = th.where(valid.any(dim=1, keepdim=True), scores, th.zeros_like(scores))
-        attention = th.softmax(scores, dim=1) * valid.to(scores.dtype)
+        attention = masked_softmax(scores, valid)
         pooled = (states * attention.unsqueeze(-1)).sum(dim=1)
         return GRATGuiderOutput(
             attention=attention,
             class_logits=self.predictor(pooled),
         )
+
+
+class GuidanceGuider(GRATGuider):
+    """The guider of the original G-RAT, over a recurrent encoder.
+
+    ``GuidanceModule`` of <https://github.com/shuaibo919/g-rat>, layer for
+    layer. The embeddings ``e`` of the valid positions pass through a
+    bidirectional GRU, and its states ``h`` are added to ``Linear(e)`` and
+    normalised. A two-layer GELU network scores each position from the
+    normalised states after dropout, and the scores become the attention
+    after noise and a softmax. The attended states pass through a projection,
+    a GELU and the same normalisation again. An attention-pooling block, a
+    linear score with its own normalisation and GELU, reduces them to one
+    state, which reaches the predictor after dropout.
+
+    The original runs its GRU over the padded batch, while this one packs it,
+    as every recurrent encoder in the library does. The noise is
+    ``|N(0, noise_sigma)|`` in training, as in the original.
+    """
+
+    def __init__(
+        self,
+        vocab_size: int,
+        embedding_dim: int,
+        hidden_size: int,
+        predictor: RegistrationKey[SPPPredictor],
+        noise_sigma: float = 1.0,
+        dropout_rate: float = 0.0,
+        freeze_embeddings: bool | None = None,
+    ):
+        super().__init__()
+        if not math.isfinite(noise_sigma) or noise_sigma < 0:
+            raise ValueError("noise_sigma must be finite and non-negative")
+        # The embedding table, its loading and the packed recurrence are the
+        # library's own. Normalisation happens here, after the residual.
+        self.backbone = GRUBackbone(
+            vocab_size=vocab_size,
+            embedding_dim=embedding_dim,
+            hidden_size=hidden_size,
+            freeze_embeddings=freeze_embeddings,
+            layer_norm=False,
+        )
+        width = self.backbone.output_size
+        self.convert = th.nn.Linear(embedding_dim, width)
+        self.layer_norm = th.nn.LayerNorm(width)
+        self.attention = th.nn.Sequential(
+            th.nn.Linear(width, width), th.nn.GELU(), th.nn.Linear(width, 1)
+        )
+        self.projection = th.nn.Linear(width, width)
+        self.pooling = th.nn.Sequential(
+            th.nn.Linear(width, width),
+            th.nn.LayerNorm(width),
+            th.nn.GELU(),
+            th.nn.Linear(width, 1),
+        )
+        self.dropout = th.nn.Dropout(dropout_rate)
+        self.predictor = Registry.from_key(
+            predictor, expected_type=SPPPredictor, input_size=width
+        )
+        self.noise_sigma = noise_sigma
+
+    def load_embeddings(self, matrix: th.Tensor) -> None:
+        self.backbone.load_embeddings(matrix)
+
+    def forward(self, data: InputData, mask: th.Tensor) -> GRATGuiderOutput:
+        valid = mask.bool()
+        embeddings = self.backbone.embedding(data.features) * mask.unsqueeze(-1)
+        states = self.layer_norm(
+            self.backbone.encode(data.features, mask) + self.convert(embeddings)
+        )
+        scores = self.attention(self.dropout(states)).squeeze(-1)
+        if self.training and self.noise_sigma:
+            scores = scores + th.randn_like(scores).abs() * self.noise_sigma
+        attention = masked_softmax(scores, valid)
+        states = self.layer_norm(
+            th.nn.functional.gelu(self.projection(attention.unsqueeze(-1) * states))
+        )
+        weights = masked_softmax(self.pooling(states).squeeze(-1), valid)
+        pooled = (weights.unsqueeze(-1) * states).sum(dim=1)
+        return GRATGuiderOutput(
+            attention=attention,
+            class_logits=self.predictor(self.dropout(pooled)),
+        )
+
+
+def masked_softmax(scores: th.Tensor, valid: th.Tensor) -> th.Tensor:
+    """A softmax over the valid positions of each row, zero elsewhere.
+
+    A row with no valid position is all zeros rather than ``nan``.
+    """
+    scores = scores.masked_fill(~valid, -th.inf)
+    scores = th.where(valid.any(dim=1, keepdim=True), scores, th.zeros_like(scores))
+    return th.softmax(scores, dim=1) * valid.to(scores.dtype)
 
 
 class GRAT(SPP):

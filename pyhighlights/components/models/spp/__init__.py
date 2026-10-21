@@ -13,6 +13,7 @@ from pyhighlights.components.models.spp.grat import (
     AttentionGuider,
     GRATGuider,
     GRATGuiderOutput,
+    GuidanceGuider,
 )
 from pyhighlights.components.models.spp.grounded import (
     EntailmentComparer,
@@ -42,6 +43,7 @@ __all__ = [
     "GRAT",
     "GRATGuider",
     "GRATGuiderOutput",
+    "GuidanceGuider",
     "GroundedSPP",
     "GroundedSPPOutput",
     "GRUBackbone",
