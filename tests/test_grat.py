@@ -13,6 +13,11 @@ from pyhighlights.configurations.keys import GRU_GRAT
 from tests.data_parallel import processes_agree
 
 
+@pytest.fixture(scope="module", autouse=True)
+def registry():
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+
+
 def batch() -> InputData:
     return InputData(
         features=th.tensor([[1, 2, 3, 0], [4, 5, 0, 0]]),
@@ -24,7 +29,6 @@ def batch() -> InputData:
 
 
 def test_registered_gru_grat_guidance_and_staged_training():
-    Registry.build(directory=Path(pyhighlights.__file__).parent)
     data = batch()
     model = Registry.from_key(GRU_GRAT, pretrain_epochs=1, guide_decay=0.2)
     assert isinstance(model, GRAT)
@@ -132,7 +136,6 @@ def test_grat_guides_a_selection_over_words_from_attention_over_subtokens():
     wanted the subtoken one, so the run died inside attention rather than
     reporting a number.
     """
-    Registry.build(directory=Path(pyhighlights.__file__).parent)
     data = subword_batch()
     model = Registry.from_key(GRU_GRAT, pretrain_epochs=0)
 
@@ -159,7 +162,6 @@ def test_grat_guides_a_selection_over_words_from_attention_over_subtokens():
 @pytest.mark.parametrize("field", ["guide_loss", "jsd_loss"])
 def test_an_annealed_term_must_name_a_loss(field):
     """A name matching no loss scales nothing, so the run would not anneal."""
-    Registry.build(directory=Path(pyhighlights.__file__).parent)
     with pytest.raises(ValueError, match=f"{field} 'guidance' names no loss"):
         Registry.from_key(GRU_GRAT, **{field: "guidance"})
 
