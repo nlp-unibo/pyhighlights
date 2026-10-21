@@ -157,3 +157,10 @@ def test_the_predictor_phase_also_steps_the_generator():
     }
     assert predictor_gradient is not None and predictor_gradient.abs().sum() > 0
     assert selector_gradient is not None and selector_gradient.abs().sum() > 0
+
+
+def test_mcd_normalises_its_generator_and_not_its_predictor():
+    """``Sp_norm_model`` of the original: ``layernorm1`` in the generator only."""
+    model = Registry.from_key(GRU_MCD)
+    assert isinstance(model.selector_backbone.layer_norm, th.nn.LayerNorm)
+    assert isinstance(model.predictor_backbone.layer_norm, th.nn.Identity)

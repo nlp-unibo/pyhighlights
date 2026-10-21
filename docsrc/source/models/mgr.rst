@@ -97,6 +97,9 @@ A model that also sets ``encoder_lr`` therefore splits each group in two and kee
 Three conditions are declared on the configuration: one backbone per generator, at least two generators, and an ``inference_head`` that exists.
 Since the registry validates conditions while it expands keys, a grid over the generator count drops the impossible combinations before anything trains.
 
+``GRU_MGR`` normalises the recurrent states of each generator and not those of the predictor, as ``Multi_gen`` of the reference does.
+Its predictor reads through ``UNNORMALISED_GRU_BACKBONE``.
+
 Differences from the reference implementation
 ---------------------------------------------
 

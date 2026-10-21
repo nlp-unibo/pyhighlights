@@ -67,6 +67,9 @@ The generator therefore takes two steps per batch on them and one on its own ter
 Each phase also draws its own selection, since ``phase_forward`` selects once per phase.
 The two phases of a batch therefore optimise different masks of it.
 
+``GRU_MCD`` normalises the generator's recurrent states and not the predictor's, as ``Sp_norm_model`` of the reference does.
+Its predictor reads through ``UNNORMALISED_GRU_BACKBONE``.
+
 Evaluation scores every criterion once, on one selection, and logs their weighted sum as ``loss``.
 ``monitored_losses`` restricts that sum to the criteria it names, and every criterion is still logged under its own name.
 The reference implementation keeps the epoch with the best development accuracy and monitors no loss, so the default sums every criterion.

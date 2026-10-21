@@ -209,6 +209,7 @@ class GRAT(SPP):
         guider_losses: List[RegistrationKey[Loss]],
         pretrain_epochs: int = 10,
         guide_decay: float = 1e-4,
+        share_layer_norm: bool = False,
         guide_loss: str = "guide",
         jsd_loss: str = "jsd",
         **kwargs,
@@ -237,6 +238,8 @@ class GRAT(SPP):
                     f"{field} {loss_name!r} names no loss of this model, "
                     f"whose losses are {names}"
                 )
+        if share_layer_norm:
+            self.share_layer_norm()
         self.guider = Registry.from_key(guider, expected_type=GRATGuider)
         self.guider_losses = th.nn.ModuleList(build_losses(guider_losses))
         self.pretrain_epochs = pretrain_epochs
@@ -245,6 +248,40 @@ class GRAT(SPP):
         self.jsd_loss = jsd_loss
         self.register_buffer("_model_steps", th.zeros((), dtype=th.long))
         self.automatic_optimization = False
+
+    def share_layer_norm(self) -> None:
+        """Normalise the predictor's states with the selector's own module.
+
+        The original ``RNPSTModel`` encodes the selection and the prediction
+        with separate GRUs and one ``LayerNorm`` over both. Both backbones need
+        a ``LayerNorm`` of the same width to share.
+        """
+        selector = getattr(self.selector_backbone, "layer_norm", None)
+        predictor = getattr(self.predictor_backbone, "layer_norm", None)
+        if not (
+            isinstance(selector, th.nn.LayerNorm)
+            and isinstance(predictor, th.nn.LayerNorm)
+            and selector.normalized_shape == predictor.normalized_shape
+        ):
+            raise ValueError(
+                "share_layer_norm needs a LayerNorm of the same width in the "
+                "selector's and the predictor's backbones"
+            )
+        self.predictor_backbone.layer_norm = selector
+
+    def rationalizer_parameters(self) -> List[th.nn.Parameter]:
+        """The generator's and the predictor's parameters, each once.
+
+        A shared normalisation belongs to both halves.
+        """
+        unique = {
+            id(parameter): parameter
+            for parameter in (
+                *self.generator_parameters(),
+                *self.predictor_parameters(),
+            )
+        }
+        return list(unique.values())
 
     def load_embeddings(self, matrix: th.Tensor) -> None:
         # The guider reads the same ids through a backbone of its own.
@@ -357,10 +394,7 @@ class GRAT(SPP):
         return super().encoder_ids() | self.guider_encoder_ids()
 
     def configure_optimizers(self):
-        model_parameters = [
-            *self.generator_parameters(),
-            *self.predictor_parameters(),
-        ]
+        model_parameters = self.rationalizer_parameters()
         # Two optimizers, as the reference implementation has: the guider is
         # stepped before the rationalizer and on its own loss. Both are built
         # through `build_optimizer`, so `encoder_lr` reaches the guider's
@@ -410,10 +444,7 @@ class GRAT(SPP):
 
         if self.current_epoch >= self.pretrain_epochs:
             model_optimizer.zero_grad()
-            self.backward_and_average(
-                model_total,
-                [*self.generator_parameters(), *self.predictor_parameters()],
-            )
+            self.backward_and_average(model_total, self.rationalizer_parameters())
             model_optimizer.step()
             model_optimizer.zero_grad()
             self._model_steps.add_(1)
