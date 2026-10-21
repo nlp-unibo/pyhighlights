@@ -138,6 +138,34 @@ def test_summarize_reports_accuracy_and_completeness_per_run_and_seed():
     assert exclusive["complete_in_order"] == pytest.approx(2 / 4)
 
 
+def test_summarize_scores_positions_and_splits_accuracy_by_what_was_selected():
+    frame = toy(
+        [
+            ("xabcx", [1, 2, 3], [1, 2, 3], 1, 0),  # complete, wrong
+            ("xabcx", [2], [1, 2, 3], 1, 1),  # partial, right
+            ("xabcx", [0, 4], [1, 2, 3], 1, 1),  # missed, right
+            ("xabcx", [], [1, 2, 3], 1, 0),  # empty, wrong
+            # Unannotated: its selection is no false positive.
+            ("xxxxx", [0, 1, 2, 3, 4], None, 0, 0),
+        ]
+    )
+    row = summarize(frame).iloc[0]
+    assert row["empty"] == pytest.approx(1 / 5)
+    assert row["highlight_precision"] == pytest.approx(4 / 6)
+    assert row["highlight_recall"] == pytest.approx(4 / 12)
+    assert row["highlight_f1"] == pytest.approx(8 / 18)
+    assert row["missed"] == pytest.approx(1 / 4)
+    assert row["accuracy_complete"] == 0
+    assert row["accuracy_partial"] == 1
+    assert row["accuracy_missed"] == 1
+
+
+def test_summarize_reports_nan_where_nothing_is_annotated():
+    row = summarize(toy([("xxxxx", [0], None, 0, 0)])).iloc[0]
+    for column in ("highlight_precision", "highlight_f1", "accuracy_missed"):
+        assert math.isnan(row[column])
+
+
 def test_codes_report_the_most_frequent_selection_of_each_class():
     frame = toy(
         [

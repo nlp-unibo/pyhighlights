@@ -28,15 +28,16 @@ Work items, results, and initializer data cross the process boundary as `pickle`
 
 ## pyhighlights/components/codes.py
 
-The module depends on `pyhighlights.components.analyzers`, `cinnamon.registry`, `pandas`, and `torch`.
+The module depends on `pyhighlights.components.analyzers`, `cinnamon.registry`, `lightning`, `pandas`, and `torch`.
 `SelectionCodeAnalyzer` extends `PredictionAnalyzer`; its `analyze` calls `summarize`, its `codes` calls `codes`, its `probes` calls `mask_probes`, its `kept` calls `kept_by_label`, and its `entropy` calls `selection_entropy`.
-Its `evaluated` calls `evaluators`, `_check_corpus`, and `evaluator_readings`.
-`evaluators` calls `replayed` and rebuilds an evaluator run's task with `Registry.from_key`, then calls its `splits`, `loaders`, and `build_model`.
+Its `evaluated` calls `checkpoints`, `_check_corpus`, and `evaluator_readings`.
+`checkpoints` calls `replayed` and rebuilds a trained run's task with `Registry.from_key`, then calls its `splits`, `loaders`, and `build_model`.
+`replay_predictions` calls `checkpoints` and scores each seed with `lightning.Trainer.test`.
 `evaluator_readings` calls the evaluator's `selection_valid` and `predict`.
 
 `selection_entropy` calls `_entropy`.
 `mask_probes` calls `mask_features`, `_probeable` and `_probe`, which depends on `scikit-learn` from the `analysis` extra.
-`summarize` calls `_rivals`, `complete`, `complete_in_order`, `gold_recall`, `codes`, and `_mean`.
+`summarize` calls `_rivals`, `complete`, `complete_in_order`, `gold_recall`, `_highlight_scores`, `_where`, `codes`, and `_mean`.
 `_rivals` calls `class_highlights`.
 `complete` calls `runs` and `contains`.
 `complete_in_order` calls `contains`.

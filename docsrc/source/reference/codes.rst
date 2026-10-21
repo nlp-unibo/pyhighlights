@@ -20,6 +20,20 @@ It is the only view available for a source that stores the selected tokens witho
 
 **Gold recall** is the share of annotated positions that were selected.
 
+**Highlight precision, recall and F1** pool annotated positions over the annotated documents before dividing.
+A document without annotation adds nothing to them.
+They therefore differ from the ``highlight_f1`` metric of a run, which scores every position of a document whose targets are all zero as a negative.
+On HateXplain, the metric counts every token selected in a ``normal`` document as a false positive, and this measure does not.
+Restricting the frame to one class answers the question for that class alone.
+
+**Split accuracy** reads the model's accuracy on annotated documents in three groups.
+A complete selection holds every annotated position.
+A partial selection holds some of them.
+A missed selection is non-empty and holds none of them, and ``missed`` is the share of such selections.
+A model that stays accurate on missed selections decides from something that the annotation does not mark.
+That is either a code or evidence that the annotators left out.
+``empty`` is the share of all documents with an empty selection.
+
 **Code** is the most frequent selection of each class, with its length in tokens and the share of the class's documents that selected exactly it.
 Its length summed over classes compares runs that settled on codes of different size.
 
@@ -99,6 +113,15 @@ Reading a run
 -------------
 
 A run stores the predictions this module reads only when its task sets ``store_predictions``.
+:func:`~pyhighlights.components.codes.replay_predictions` stores them afterwards for a run that kept its checkpoints.
+It rebuilds each seed from the run's manifest and scores it on the test split again.
+Keyword arguments replace the manifest's build arguments, such as an ``embeddings`` path that only held on the machine that trained the run.
+
+.. code-block:: python
+
+   from pyhighlights.components.codes import replay_predictions
+
+   replay_predictions("results/<task>/<started>", embeddings="glove.twitter.27B.25d.txt")
 
 .. code-block:: python
 

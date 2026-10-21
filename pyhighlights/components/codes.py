@@ -36,6 +36,11 @@ their positions. It asks whether the annotated tokens appear among them as a
 contiguous sequence. It is the only view available for a source that stores
 the selected tokens without their positions.
 
+**Highlight precision, recall and F1** count annotated positions over
+annotated documents only. A class without annotation, such as HateXplain's
+``normal``, adds no false positive. The accuracy is also split by whether a
+selection is complete, partial, or misses every annotated position.
+
 **Code** is the most frequent selection of each class, in tokens. Its length
 summed over classes compares runs that settled on codes of different size.
 
@@ -79,6 +84,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Mapping, Sequence, Tuple
 
+import lightning as L
 import numpy as np
 import pandas as pd
 import torch as th
@@ -89,13 +95,14 @@ from pyhighlights.utility.manifest import KEY_FIELD
 
 __all__ = [
     "SelectionCodeAnalyzer",
+    "checkpoints",
     "class_highlights",
     "codes",
     "complete",
     "complete_in_order",
     "contains",
     "evaluator_readings",
-    "evaluators",
+    "replay_predictions",
     "replayed",
     "gold_recall",
     "kept_by_label",
@@ -221,10 +228,24 @@ def class_highlights(frame: pd.DataFrame) -> Dict[int, Tuple[str, ...]]:
 def summarize(frame: pd.DataFrame, exclusive: bool = False) -> pd.DataFrame:
     """One row per run and seed.
 
-    ``accuracy`` is the model's own accuracy over every document. The three
-    selection measures average over annotated documents only, and
-    ``annotated`` counts them. ``code_size`` is the length of the most
-    frequent selection, summed over classes.
+    ``accuracy`` is the model's own accuracy over every document, and
+    ``empty`` the share of documents with an empty selection. Every other
+    measure averages over annotated documents only, and ``annotated`` counts
+    them. ``code_size`` is the length of the most frequent selection, summed
+    over classes.
+
+    ``highlight_precision``, ``highlight_recall`` and ``highlight_f1`` count
+    positions over the annotated documents, pooled before dividing. A
+    document without annotation adds nothing to them, so selections on a
+    class that is never annotated are not false positives.
+
+    The last three columns split the accuracy on annotated documents by what
+    the selection holds. ``accuracy_complete`` reads the complete selections.
+    ``accuracy_partial`` reads the incomplete ones that hold an annotated
+    position. ``accuracy_missed`` reads the non-empty ones that hold none,
+    and ``missed`` is their share. A model that stays accurate on missed
+    selections decides from something the annotation does not mark: a code,
+    or evidence its annotators left out.
     """
     rivals = _rivals(frame, exclusive)
     rows = []
@@ -234,6 +255,14 @@ def summarize(frame: pd.DataFrame, exclusive: bool = False) -> pd.DataFrame:
         triples = list(
             zip(annotated["tokens"], annotated["selected"], annotated["highlights"])
         )
+        whole = [complete(*triple, rival) for triple, rival in zip(triples, others)]
+        recall = [
+            gold_recall(selected, highlights) for _, selected, highlights in triples
+        ]
+        right = (annotated["predicted"] == annotated["label"]).tolist()
+        empty = [not selected for _, selected, _ in triples]
+        partial = [not w and r > 0 for w, r in zip(whole, recall)]
+        missed = [r == 0 and not e for r, e in zip(recall, empty)]
         rows.append(
             {
                 "run": run,
@@ -241,17 +270,18 @@ def summarize(frame: pd.DataFrame, exclusive: bool = False) -> pd.DataFrame:
                 "samples": len(group),
                 "annotated": len(annotated),
                 "accuracy": float((group["predicted"] == group["label"]).mean()),
-                "complete": _mean(
-                    complete(*triple, rival) for triple, rival in zip(triples, others)
-                ),
+                "empty": float((group["selected"].map(len) == 0).mean()),
+                "complete": _mean(whole),
                 "complete_in_order": _mean(
                     complete_in_order(*triple, rival)
                     for triple, rival in zip(triples, others)
                 ),
-                "gold_recall": _mean(
-                    gold_recall(selected, highlights)
-                    for _, selected, highlights in triples
-                ),
+                "gold_recall": _mean(recall),
+                **_highlight_scores(triples),
+                "missed": _mean(missed),
+                "accuracy_complete": _mean(_where(right, whole)),
+                "accuracy_partial": _mean(_where(right, partial)),
+                "accuracy_missed": _mean(_where(right, missed)),
                 "code_size": int(codes(group)["size"].sum()),
             }
         )
@@ -547,36 +577,69 @@ def replayed(build_args: Mapping[str, Any] | None) -> Dict[str, Any]:
     }
 
 
-def evaluators(
-    run: str | Path, split: str = "test"
+def checkpoints(
+    run: str | Path, split: str = "test", **overrides: Any
 ) -> Iterator[Tuple[str, object, object]]:
-    """Every seed of a trained evaluator run, with a loader of ``split``.
+    """Every seed of a trained run, with a loader of ``split``.
 
     Yields ``(seed, model, loader)``. The run's ``manifest.json`` names the
-    task, which is rebuilt to rebuild the model and the corpus it read. Each
-    seed directory has to hold exactly one checkpoint, so the run needs
+    task, which is rebuilt to rebuild the model and the corpus it read.
+    ``overrides`` replace the manifest's ``build_args``, such as an
+    ``embeddings`` path that only held on the machine that trained the run.
+    Each seed directory has to hold exactly one checkpoint, so the run needs
     ``keep_checkpoints``. The registry has to be built.
     """
     run = Path(run)
     manifest = json.loads((run / "manifest.json").read_text())
     task = Registry.from_key(
         RegistrationKey.parse(registration_key=manifest["key"]),
-        **replayed(manifest.get("build_args")),
+        **{**replayed(manifest.get("build_args")), **overrides},
     )
     splits = task.splits()
     if split not in splits:
-        raise KeyError(f"the evaluator's corpus has no {split!r} split")
+        raise KeyError(f"the run's corpus has no {split!r} split")
     loader = task.loaders(splits)[split]
     for directory in sorted(run.glob("seed=*")):
-        checkpoints = sorted(directory.glob("*.ckpt"))
-        if len(checkpoints) != 1:
+        found = sorted(directory.glob("*.ckpt"))
+        if len(found) != 1:
             raise ValueError(
-                f"{directory} holds {len(checkpoints)} checkpoints, expected one"
+                f"{directory} holds {len(found)} checkpoints, expected one"
             )
         model = task.build_model()
-        state = th.load(checkpoints[0], map_location="cpu", weights_only=False)
+        # Weights-only, as `HighlightTask.train` loads a checkpoint: its
+        # hyperparameters hold registration keys, whose tags are a frozenset.
+        with th.serialization.safe_globals([RegistrationKey, frozenset, set]):
+            state = th.load(found[0], map_location="cpu", weights_only=True)
         model.load_state_dict(state["state_dict"], strict=True)
         yield directory.name.partition("=")[2], model, loader
+
+
+def replay_predictions(run: str | Path, **overrides: Any) -> List[Path]:
+    """Store the test predictions of a run trained without ``store_predictions``.
+
+    Each seed's checkpoint is rebuilt through :func:`checkpoints`, which
+    ``overrides`` reach, and scored on the test split. Its predictions are
+    written to ``predictions-seed=<seed>.pkl`` in the run directory, in the
+    format a run that stored them writes. :class:`SelectionCodeAnalyzer` and
+    :class:`~pyhighlights.components.analyzers.PredictionAnalyzer` then read
+    the run as if it had. Returns the written files.
+
+    A predictions file that already exists is refused rather than replaced.
+    """
+    run = Path(run)
+    written = []
+    for seed, model, loader in checkpoints(run, "test", **overrides):
+        path = run / f"predictions-seed={seed}.pkl"
+        if path.exists():
+            raise FileExistsError(f"{path} exists, remove it to replay the run")
+        model.store_predictions = True
+        trainer = L.Trainer(
+            logger=False, enable_checkpointing=False, enable_progress_bar=False
+        )
+        trainer.test(model, dataloaders=loader, verbose=False)
+        pd.to_pickle(model.predictions, path)
+        written.append(path)
+    return written
 
 
 class SelectionCodeAnalyzer(PredictionAnalyzer):
@@ -632,7 +695,7 @@ class SelectionCodeAnalyzer(PredictionAnalyzer):
         if frame.empty:
             return frame
         readings = []
-        for evaluator_seed, model, loader in evaluators(evaluator, self.split):
+        for evaluator_seed, model, loader in checkpoints(evaluator, self.split):
             if not readings:
                 _check_corpus(frame, loader)
             readings.append(
@@ -670,6 +733,27 @@ def _rivals(frame: pd.DataFrame, exclusive: bool) -> Dict[int, List[Tuple[str, .
         label: [sequence for other, sequence in highlights.items() if other != label]
         for label in highlights
     }
+
+
+def _highlight_scores(
+    triples: Sequence[Tuple[Sequence[str], Iterable[int], Sequence[int]]],
+) -> Dict[str, float]:
+    """Pooled position precision, recall and F1 of selections against annotations."""
+    hits = chosen = gold = 0
+    for _, selected, highlights in triples:
+        selected, highlights = set(selected), set(highlights)
+        hits += len(selected & highlights)
+        chosen += len(selected)
+        gold += len(highlights)
+    return {
+        "highlight_precision": hits / chosen if chosen else float("nan"),
+        "highlight_recall": hits / gold if gold else float("nan"),
+        "highlight_f1": 2 * hits / (chosen + gold) if chosen + gold else float("nan"),
+    }
+
+
+def _where(values: Sequence, keep: Sequence[bool]) -> List:
+    return [value for value, kept in zip(values, keep) if kept]
 
 
 def _mean(values: Iterable[float]) -> float:
