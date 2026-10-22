@@ -66,11 +66,6 @@ class SPPShapeConfig(Configuration):
     #: Sample the hard Gumbel selection at validation and test as in training,
     #: rather than take the argmax. The original FR, MCD and MGR do.
     sample_at_evaluation: bool = Param(False)
-    #: Max-pool the predictor's states over every valid position rather than
-    #: over the selected ones. A dropped position reads a zeroed embedding,
-    #: but its recurrent state is not zero. The original FR, MCD, MGR and
-    #: G-RAT pool this way. Incompatible with ``compact``.
-    pool_dropped: bool = Param(False)
     #: Keep the highest-scoring word of a selection that kept none. The
     #: original FR, MCD, MGR and G-RAT have no such repair.
     repair_empty_selections: bool = Param(True)

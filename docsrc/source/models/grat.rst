@@ -115,7 +115,7 @@ The method then averages the gradients of the half that pass trains across proce
 Differences from the reference implementation
 ---------------------------------------------
 
-``GRU_GRAT`` pools and leaves empty selections as the reference does, as :ref:`selection-rules` describes.
+``GRU_GRAT`` leaves empty selections as the reference does, as :ref:`selection-rules` describes.
 Its evaluation threshold of 0.5 on the selection probability is the argmax, so it does not sample.
 
 Three details differ from the reference, and all three remove a dependence on padding.
