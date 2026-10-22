@@ -29,11 +29,18 @@ The backbone's ``freeze_embeddings`` decides.
 ``None``, the default, freezes a loaded table and trains a randomly initialised one.
 ``True`` freezes either table, and ``False`` trains either.
 
-``vocabulary_from`` decides which tokens are read, and the two answers are different experiments rather than a tidiness choice.
+``vocabulary_from`` decides which tokens are read, and the three answers are different experiments rather than a tidiness choice.
 
 ``"corpus"``, the default, reads only the tokens the **training split** uses.
 A token the training split never saw is unknown at evaluation whatever the file covers, and ``pretrained_tokens_only`` decides what happens to a training token the file has no vector for, dropped by default, so every row is a released vector, since a random row inside a frozen table is noise nothing can learn away.
-Set it to ``False`` to keep the token with a random row instead.
+Set it to ``False`` to keep the token with a row of its own drawn from uniform(-0.05, 0.05) instead.
+Random rows are drawn from one fixed seed under every option, so every seed of a task reads the same table.
+
+``"splits"`` reads the tokens of every split.
+With ``pretrained_tokens_only=False``, a token the file covers gets its vector and every other token gets a random row of its own, so no token is unknown and no two tokens share a row.
+This is not a leak while the table is frozen.
+A random row says nothing about the split it came from, and a row that no training token uses is never trained.
+It needs ``embeddings`` and refuses to build without it, because a learned table over every split would read the evaluation text.
 
 ``"vectors"`` takes the file's own vocabulary whole.
 Nothing the file covers is ever unknown.
