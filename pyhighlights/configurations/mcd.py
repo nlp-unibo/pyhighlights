@@ -27,6 +27,11 @@ MCD_COMPONENT = "pyhighlights.components.models.spp.mcd.MCD"
 )
 class GRUMCDConfig(PhasedSPPModelConfig):
     name: str = Param("mcd")
+    #: As the original implementation: a sampled selection at evaluation,
+    #: pooling over every valid position, and no empty-selection repair.
+    sample_at_evaluation: bool = Param(True)
+    pool_dropped: bool = Param(True)
+    repair_empty_selections: bool = Param(False)
     #: MCD reads the highlight and the full input with separate encoders, so
     #: the predictor's backbone is required rather than optional.
     #: Unnormalised, as the original implementation's predictor encoder.
@@ -44,5 +49,8 @@ class GRUMCDConfig(PhasedSPPModelConfig):
     component=MCD_COMPONENT,
 )
 class TransformerMCDConfig(GRUMCDConfig):
+    #: A transformer's dropped positions are masked out of its attention, so
+    #: their states carry nothing to pool. No original pools them.
+    pool_dropped: bool = Param(False)
     selector_backbones: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)
     predictor_backbone: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)

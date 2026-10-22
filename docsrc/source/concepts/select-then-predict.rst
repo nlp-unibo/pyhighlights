@@ -78,12 +78,13 @@ It is unbiased and it has the variance such estimators are known for, which is w
 
 The second answer is a continuous relaxation.
 The library samples the mask with a hard Gumbel-softmax during training and takes the argmax during evaluation, so the forward pass is always a genuine binary mask while the backward pass runs through the relaxation.
+A model configured with ``sample_at_evaluation`` samples during evaluation as well, as the original FR, MCD and MGR do.
 
 .. code-block:: python
 
    # pyhighlights/components/models/spp/base.py
    def select_activation(self, highlight_logits):
-       if self.training:
+       if self.training or self.sample_at_evaluation:
            return th.nn.functional.gumbel_softmax(
                highlight_logits, tau=self.temperature, hard=True, dim=-1
            )[..., 1]

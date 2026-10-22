@@ -115,11 +115,15 @@ The method then averages the gradients of the half that pass trains across proce
 Differences from the reference implementation
 ---------------------------------------------
 
+``GRU_GRAT`` pools and leaves empty selections as the reference does, as :ref:`selection-rules` describes.
+Its evaluation threshold of 0.5 on the selection probability is the argmax, so it does not sample.
+
 Three details differ from the reference, and all three remove a dependence on padding.
 Numbers from this implementation therefore do not reproduce the reference's exactly.
 
 The reference's guider runs its GRU over the padded batch, so the backward direction reads the padding first.
 ``GuidanceGuider`` packs the batch, as every recurrent encoder in the library does.
+The rationalizer's two GRUs run over the padded batch in the reference too, as :ref:`penalty-differences` on the FR page describes.
 
 The per-word target divides each word's attention by the mean attention plus :math:`1 / (1 + n)`, over the :math:`n` valid words.
 This implementation takes that mean over the valid words.

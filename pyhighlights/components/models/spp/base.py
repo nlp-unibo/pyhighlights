@@ -126,6 +126,9 @@ class SPP(Model[SPPOutput]):
         predictor_backbone: RegistrationKey[SPPBackbone] | None = None,
         temperature: float = 1.0,
         compact: bool = False,
+        sample_at_evaluation: bool = False,
+        pool_dropped: bool = False,
+        repair_empty_selections: bool = True,
         select_over: Literal["word", "subtoken"] = "word",
         encoder_lr: float | None = None,
         supervise_highlights: bool = False,
@@ -154,6 +157,12 @@ class SPP(Model[SPPOutput]):
             raise ValueError("select_over must be 'word' or 'subtoken'")
         if encoder_lr is not None and not encoder_lr > 0:
             raise ValueError("encoder_lr must be positive")
+        # Compaction removes the dropped positions, so there is nothing left
+        # to pool them from.
+        if compact and pool_dropped:
+            raise ValueError(
+                "pool_dropped needs the dropped positions, which compact removes"
+            )
         if supervise_highlights and highlight_loss is None:
             raise ValueError(
                 "supervise_highlights needs a highlight loss to supervise with"
@@ -172,6 +181,12 @@ class SPP(Model[SPPOutput]):
         # Off by default: it changes what the predictor is handed, so a run
         # with it on is a different experiment rather than a better one.
         self.compact = compact
+        # The three choices where the original implementations of FR, MCD, MGR
+        # and G-RAT disagree with each other or with this library. Each model's
+        # configuration sets them as its own original does.
+        self.sample_at_evaluation = sample_at_evaluation
+        self.pool_dropped = pool_dropped
+        self.repair_empty_selections = repair_empty_selections
 
         # Supervision is a setting, not a variant: the same model key runs
         # unsupervised or guided by the annotation. The guided run is the
@@ -424,7 +439,7 @@ class SPP(Model[SPPOutput]):
             backbone.load_embeddings(matrix)
 
     def select_activation(self, highlight_logits: th.Tensor) -> th.Tensor:
-        if self.training:
+        if self.training or self.sample_at_evaluation:
             return th.nn.functional.gumbel_softmax(
                 highlight_logits, tau=self.temperature, hard=True, dim=-1
             )[..., 1]
@@ -470,7 +485,8 @@ class SPP(Model[SPPOutput]):
         with an empty input, so one is selected instead. Straight-through, so
         the gradient path to the selector stays open. GenSPP overrides
         :meth:`select`: its search scores empty selections rather than
-        repairing them.
+        repairing them. ``repair_empty_selections=False`` turns the repair off,
+        as the original FR, MCD, MGR and G-RAT have none.
 
         The position axis is the last one and everything before it is batch, so
         this serves one selection per sample and one per ``(sample, knowledge
@@ -487,7 +503,9 @@ class SPP(Model[SPPOutput]):
         # forward pass to answer a question nobody asked.
         if diagnostics.active():
             diagnostics.record("repair", rows=int(needs_fallback.sum()))
-        if not needs_fallback.any():
+        # Counted above even when off: the rows are then the empty selections
+        # the predictor reads as they are.
+        if not self.repair_empty_selections or not needs_fallback.any():
             return highlight_mask
         scores = th.softmax(highlight_logits / self.temperature, dim=-1)[..., 1]
         scores = scores * valid.to(scores.dtype)
@@ -529,7 +547,12 @@ class SPP(Model[SPPOutput]):
         states = backbone.encode(
             data.features, attention, selection_mask=prediction_mask
         )
-        pooled = backbone.pool(states, attention * prediction_mask)
+        # Over the selection alone, or over every valid position as the
+        # original FR, MCD, MGR and G-RAT pool, where a dropped position is
+        # read from zeroed embeddings but its state is not zero.
+        pooled = backbone.pool(
+            states, attention if self.pool_dropped else attention * prediction_mask
+        )
         diagnostics.record(
             "predictor",
             selection=selection,
@@ -579,9 +602,9 @@ class SPP(Model[SPPOutput]):
         # that invariant holding forever.
         counts = keep.detach().sum(dim=1).round()
         # `max(1, ...)` because a width of zero indexes nothing, and an empty
-        # batch has no maximum to take. A row that kept nothing cannot occur,
-        # because `repair_empty` runs first. A width of one is a valid sequence
-        # either way, where a width of zero is not.
+        # batch has no maximum to take. A row that kept nothing occurs only
+        # with `repair_empty_selections` off. A width of one is a valid
+        # sequence either way, where a width of zero is not.
         width = max(1, int(counts.max().item()) if keep.numel() else 0)
         index = order[:, :width]
         return features.gather(1, index), keep.gather(1, index)

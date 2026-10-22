@@ -55,9 +55,18 @@ class SubwordTokenizer:
         return TokenizedExample(ids, words)
 
 
+#: The library's own selection rules, where FR, MCD and MGR register their
+#: originals'. These tests are about the mechanisms, not about those models.
+LIBRARY_RULES = {
+    "sample_at_evaluation": False,
+    "pool_dropped": False,
+    "repair_empty_selections": True,
+}
+
+
 def model(**kwargs):
     build_registry()
-    return Registry.from_key(GRU_FR, **kwargs)
+    return Registry.from_key(GRU_FR, **{**LIBRARY_RULES, **kwargs})
 
 
 def batch(examples, tokenizer=None, **kwargs):
@@ -573,6 +582,53 @@ def test_an_empty_selection_is_repaired_to_exactly_one_position():
     assert repaired.argmax(dim=-1).tolist() == [1, 1]
     # The repair never reaches an invalid position.
     assert not repaired[~valid.bool()].any()
+
+
+def test_without_the_repair_an_empty_selection_stays_empty():
+    """The original FR, MCD, MGR and G-RAT hand the predictor what was selected."""
+    spp = model(repair_empty_selections=False)
+    empty = th.zeros(1, 3)
+
+    assert th.equal(spp.repair_empty(th.zeros(1, 3, 2), empty, th.ones(1, 3)), empty)
+
+
+def test_the_predictor_pools_the_dropped_positions_when_asked():
+    """A dropped word reads a zeroed embedding, but its state is not zero.
+
+    The original FR, MCD, MGR and G-RAT max-pool over every valid position,
+    so those states reach the predictor. This library pools the kept ones.
+    """
+    data = batch([HighlightExample(0, ["a", "b", "c"], 1)])
+    keep = th.tensor([[1.0, 0.0, 0.0]])
+    spp = model()
+    spp.eval()
+    spp.predictor = th.nn.Identity()
+    with th.no_grad():
+        states = spp.predictor_backbone.encode(
+            data.features, data.attention(), selection_mask=keep
+        )
+        kept = spp.predict(data, keep)
+        spp.pool_dropped = True
+        every = spp.predict(data, keep)
+
+    assert th.allclose(kept, states[:, :1].amax(dim=1))
+    assert th.allclose(every, states.amax(dim=1))
+    assert not th.allclose(kept, every)
+
+
+def test_a_model_can_sample_its_selection_at_evaluation():
+    """The original FR, MCD and MGR draw a hard Gumbel sample in evaluation too."""
+    logits = th.zeros(1, 200, 2)
+    sampled = model(sample_at_evaluation=True).eval().select_activation(logits)
+    argmax = model().eval().select_activation(logits)
+
+    assert 0 < sampled.sum() < 200
+    assert not argmax.any()
+
+
+def test_compaction_leaves_no_dropped_position_to_pool():
+    with pytest.raises(ValueError, match="pool_dropped"):
+        model(compact=True, pool_dropped=True)
 
 
 def test_the_repair_keeps_the_gradient_path_to_the_selector_open():

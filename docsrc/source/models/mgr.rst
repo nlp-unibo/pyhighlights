@@ -113,7 +113,9 @@ The test selection is therefore random.
 This library reports the selection of ``inference_head`` alone, as the paper does when it keeps only the first generator.
 The reference implementation does the same under ``--average_test 0``.
 
-The sparsity and contiguity penalties also differ from the reference implementation, as :ref:`penalty-differences` on the FR page describes.
+The sparsity and contiguity penalties also differ from the reference implementation, as :ref:`penalty-differences` on the FR page describes, and so does the recurrence over padding.
+``GRU_MGR`` samples, pools and leaves empty selections as the reference does, as :ref:`selection-rules` describes.
+Its ``inference_head`` therefore draws a Gumbel sample at evaluation, as the reference's ``test_one_head`` does.
 
 Configuration
 -------------

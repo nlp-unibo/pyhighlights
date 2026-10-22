@@ -651,7 +651,11 @@ class SPPTask(Task):
         model, trainer = self.train(seed, loaders, directory, meter)
 
         scores = self.score(
-            trainer, model, loaders, self.directory / f"predictions-seed={seed}.pkl"
+            trainer,
+            model,
+            loaders,
+            self.directory / f"predictions-seed={seed}.pkl",
+            seed,
         )
         meter.stop()
         if not self.keep_checkpoints:
@@ -749,6 +753,7 @@ class SPPTask(Task):
         model: Model,
         loaders: Mapping[str, DataLoader],
         predictions: Path,
+        seed: int,
     ) -> Dict[str, float]:
         """Score a trained model on whichever evaluation splits exist.
 
@@ -763,7 +768,7 @@ class SPPTask(Task):
         timer = cost.InferenceTimer()
         trainer.callbacks.append(timer)
         try:
-            return self.scored(trainer, model, loaders, predictions, timer)
+            return self.scored(trainer, model, loaders, predictions, timer, seed)
         finally:
             # Removed again, so a second scoring pass over the same trainer
             # times once rather than reporting the newest of two timers.
@@ -776,6 +781,7 @@ class SPPTask(Task):
         loaders: Mapping[str, DataLoader],
         predictions: Path,
         timer: cost.InferenceTimer,
+        seed: int,
     ) -> Dict[str, float]:
         """The scoring pass itself, with the timer already installed."""
         results: Dict[str, float] = {}
@@ -783,6 +789,10 @@ class SPPTask(Task):
             results.update(trainer.validate(model, dataloaders=loaders["val"])[0])
         if "test" in loaders:
             model.store_predictions = self.store_predictions
+            # Reseeded, so a model that samples its selection at evaluation
+            # draws the masks `replay_predictions` draws again from the
+            # checkpoint.
+            seed_everything(seed=seed, workers=True)
             results.update(trainer.test(model, dataloaders=loaders["test"])[0])
             if self.store_predictions:
                 pd.to_pickle(model.predictions, predictions)

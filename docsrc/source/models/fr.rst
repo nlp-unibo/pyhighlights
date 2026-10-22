@@ -111,8 +111,8 @@ One optimizer, one step per batch, and no phases.
 
 1. The shared encoder encodes the full input.
 2. The selector reads those states and emits two logits per word.
-3. During training a hard Gumbel-softmax turns the logits into a binary highlight and evaluation takes the argmax instead, and under either rule a sample that selected nothing keeps its highest-scoring word.
-4. The same encoder encodes the input again with the dropped words masked out, and pools what remains.
+3. A hard Gumbel-softmax turns the logits into a binary highlight. Under ``GRU_FR`` it does so in evaluation too, and a sample that selected nothing is left empty, as :ref:`selection-rules` describes.
+4. The same encoder encodes the input again with the embeddings of the dropped words zeroed, and max-pools its states. Under ``GRU_FR`` the pool runs over every valid word, the dropped ones included.
 5. The predictor reads the pooled vector and emits class logits.
 6. The classification, sparsity and contiguity terms are summed, and one backward pass updates the encoder, the selector and the predictor together.
 
@@ -152,10 +152,47 @@ Two invariants hold for every FR instance, and ``tests/test_fr.py`` asserts both
 First, ``self.predictor_backbone is self.selector_backbones[0]``.
 Second, exactly one selector is allowed, since folding is defined for a pair and says nothing about several selectors sharing one encoder.
 
+.. _selection-rules:
+
+Selection and pooling
+---------------------
+
+The reference implementations of FR, MCD, MGR and G-RAT agree on three rules where the library's defaults differ, and their configurations set each rule as their reference does.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 40 35
+
+   * - Field
+     - Reference implementations
+     - Library default
+   * - ``sample_at_evaluation``
+     - FR, MCD and MGR draw a hard Gumbel sample at evaluation too, since ``F.gumbel_softmax`` ignores ``eval()``. G-RAT thresholds the probability at 0.5, which is the argmax.
+     - ``False``, the argmax
+   * - ``pool_dropped``
+     - The predictor max-pools over every valid position. A dropped word reads a zeroed embedding, but its recurrent state is not zero.
+     - ``False``, over the selected positions
+   * - ``repair_empty_selections``
+     - None. An empty selection reaches the predictor as it is.
+     - ``True``, keeps the highest-scoring word
+
+The GRU configurations, ``GRU_FR``, ``GRU_MCD``, ``GRU_MGR`` and ``GRU_GRAT``, set all three as their reference does.
+The transformer configurations keep ``pool_dropped`` off, because a transformer masks a dropped word out of its attention and no reference pools one.
+``pool_dropped`` cannot be combined with ``compact``, which removes the dropped positions.
+
+A selection sampled at evaluation makes the test predictions random.
+The test pass is therefore seeded with the run's seed, and ``replay_predictions`` seeds its own pass the same way.
+A replay draws the same masks only on the device type the run tested on, since CPU and CUDA draw different numbers from one seed.
+
 .. _penalty-differences:
 
 Differences from the reference implementation
 ---------------------------------------------
+
+The reference implementations run their GRUs over the padded batch.
+The backward direction then reads the padding before the last word, so a word's state depends on how far the widest document in its batch pads it.
+This library packs every recurrent encoder, so a document is encoded alike in any batch.
+The difference applies to FR, MCD, MGR and G-RAT, and to the guider of G-RAT.
 
 The reference implementation computes the two penalties over padding as well as over words.
 Its sampled mask is not masked at padding positions, and its encoder's output there is not zero.

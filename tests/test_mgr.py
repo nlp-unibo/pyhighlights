@@ -67,7 +67,8 @@ def test_training_scores_every_generator_and_inference_scores_one():
 
 
 def test_inference_reads_the_head_it_was_configured_with():
-    model = Registry.from_key(GRU_MGR, inference_head=1)
+    # Argmax at evaluation, so the reported head and the named one agree.
+    model = Registry.from_key(GRU_MGR, inference_head=1, sample_at_evaluation=False)
     model.eval()
     batch = batch_of()
 
