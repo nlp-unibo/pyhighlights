@@ -297,6 +297,28 @@ class MLPSelector(SPPSelector):
         return [self.selector[-1].bias]
 
 
+class SigmoidSelector(SPPSelector):
+    """One sigmoid unit per position, kept at a probability of 0.5 or more.
+
+    GenSPP's reference generator ends in ``Linear(width, 1)`` and a sigmoid,
+    and keeps a position when ``floor(p + 0.5)`` is one. The logits here are
+    ``[0, z]``, so their softmax is ``sigmoid(z)`` and the selection is
+    ``z >= 0``, the same rule. One unit, so one output bias: the decision
+    threshold is a single gene, and the chromosome has the reference's layout.
+    """
+
+    def __init__(self, input_size: int, hidden_sizes: List[int]):
+        super().__init__()
+        self.selector = mlp([input_size, *hidden_sizes, 1])
+
+    def forward(self, states: th.Tensor) -> th.Tensor:
+        score = self.selector(states)
+        return th.cat([th.zeros_like(score), score], dim=-1)
+
+    def threshold_parameters(self) -> List[th.nn.Parameter]:
+        return [self.selector[-1].bias]
+
+
 class MLPPredictor(SPPPredictor):
     """A feed-forward head mapping a pooled state to class logits."""
 

@@ -24,6 +24,7 @@ from pyhighlights.components.models.spp.implementations import (
     GRUBackbone,
     MLPPredictor,
     MLPSelector,
+    SigmoidSelector,
     StackedBackbone,
     TransformerBackbone,
 )
@@ -54,6 +55,7 @@ __all__ = [
     "PhasedSPP",
     "MLPPredictor",
     "MLPSelector",
+    "SigmoidSelector",
     "SPPOutput",
     "SPPBackbone",
     "SPPComparer",
