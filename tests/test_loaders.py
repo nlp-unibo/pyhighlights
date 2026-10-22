@@ -2,6 +2,7 @@ import json
 import zipfile
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 from cinnamon.registry import Registry
@@ -402,6 +403,33 @@ def test_a_flat_corpus_is_divided_by_the_ratios(tmp_path):
     # Seeded, so two reads agree on which rows are validation.
     again = ToyLoader(url=str(path)).load()
     assert splits["val"]["text"].tolist() == again["val"]["text"].tolist()
+
+
+def test_a_flat_corpus_holds_out_the_rows_the_baselines_hold_out(tmp_path):
+    """The released baselines call ``train_df.sample(n)`` after
+    ``seed_everything(15000)``, which seeds numpy's global generator.
+    """
+    path = tmp_path / "flat.pkl"
+    rows = 50
+    pd.DataFrame(
+        {
+            "sample_id": range(rows),
+            "text": [f"aa{index:04d}" for index in range(rows)],
+            "tokens": [list(f"aa{index:04d}") for index in range(rows)],
+            "label": [index % 2 for index in range(rows)],
+            "highlights": [[1, 1, 0, 0, 0, 0] for _ in range(rows)],
+        }
+    ).to_pickle(path)
+    frame = pd.read_pickle(path)
+    np.random.seed(15000)
+    released = frame[:40].sample(n=8)
+
+    splits = ToyLoader(url=str(path), split_seed=15000).load()
+
+    assert splits["val"]["text"].tolist() == released["text"].tolist()
+    assert set(splits["train"]["text"]) == set(frame[:40]["text"]) - set(
+        released["text"]
+    )
 
 
 def test_a_downloaded_corpus_is_pinned_or_refused(tmp_path):
