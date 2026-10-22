@@ -6,7 +6,7 @@ import torch as th
 from cinnamon.configuration import Configuration, Param
 from cinnamon.registry import RegistrationKey, register_class
 
-from pyhighlights.components.models.spp.base import SPPBackbone
+from pyhighlights.components.models.spp.base import SPPBackbone, SPPSelector
 from pyhighlights.components.models.spp.genspp import GenSPP
 from pyhighlights.configurations.backbones import (
     GRUBackboneConfig,
@@ -20,6 +20,7 @@ from pyhighlights.configurations.keys import (
     GENSPP_TRANSFORMER_BACKBONE,
     GRU_GENSPP,
     NAMESPACE,
+    SIGMOID_SELECTOR,
     TRANSFORMER_GENSPP,
 )
 from pyhighlights.configurations.optimizers import AdamConfig
@@ -72,6 +73,9 @@ class GenSPPAdamConfig(AdamConfig):
 class GRUGenSPPConfig(SPPModelConfig):
     name: str = Param("genspp")
     selector_backbones: RegistrationKey[SPPBackbone] = Param(GENSPP_GRU_BACKBONE)
+    #: One sigmoid unit, as the reference generator ends, so the threshold is
+    #: one gene.
+    selectors: RegistrationKey[SPPSelector] = Param(SIGMOID_SELECTOR)
     predictor_backbone: RegistrationKey[SPPBackbone] = Param(GENSPP_GRU_BACKBONE)
     losses: List[RegistrationKey[Loss]] = Param([CLASSIFICATION_LOSS])
     optimizer: RegistrationKey[th.optim.Optimizer] = Param(GENSPP_ADAM)

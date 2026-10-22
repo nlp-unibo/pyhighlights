@@ -176,10 +176,17 @@ One deviation is deliberate.
 The reference implementation mutates the selector's output bias at ``0.10`` while every other gene takes ``0.05``, which its paper does not report: the paper gives a single ``N(0.0, 0.05)``.
 The default here follows the paper, and ``threshold_mutation_std`` sets the threshold's own deviation for a reproduction that needs the reference implementation's behaviour.
 It names the deviation of the threshold rather than of one gene, since a head emitting two logits decides on their difference and two genes perturbed at ``s`` give that difference ``s * sqrt(2)``.
+The default selector has one gene there, as the reference does, so the two coincide.
 
 Which genes those are is asked of the selector rather than read off the end of the chromosome.
 :meth:`~pyhighlights.components.models.spp.base.SPPSelector.threshold_parameters` returns them, and a selector that declares none is searched with a single deviation throughout.
 :class:`~pyhighlights.components.models.spp.implementations.MLPSelector` declares the bias of its output layer; only parameters that land at the end of the flattened chromosome are counted, because the deviation is given to a trailing slice of it.
+
+``GRU_GENSPP`` and ``TRANSFORMER_GENSPP`` select with :class:`~pyhighlights.components.models.spp.implementations.SigmoidSelector`, the reference generator's head.
+The reference ends its generator in ``Linear(width, 1)`` and a sigmoid.
+It keeps a word when ``floor(p + 0.5)`` is one, which is a probability of 0.5 or more.
+The selector emits the logits ``[0, z]``, whose softmax is ``sigmoid(z)``, and ``GenSPP.select`` keeps a word when ``z >= 0``.
+Its output bias is the last gene of the chromosome and the only threshold gene, which is the layout the reference mutates.
 
 .. code-block:: python
 

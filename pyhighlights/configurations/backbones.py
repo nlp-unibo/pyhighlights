@@ -122,6 +122,16 @@ class MLPSelectorConfig(Configuration):
 
 
 @register_class(
+    name="selector",
+    tags={"sigmoid"},
+    namespace=NAMESPACE,
+    component="pyhighlights.components.models.spp.implementations.SigmoidSelector",
+)
+class SigmoidSelectorConfig(Configuration):
+    hidden_sizes: List[int] = Param([])
+
+
+@register_class(
     name="predictor",
     tags={"mlp"},
     namespace=NAMESPACE,

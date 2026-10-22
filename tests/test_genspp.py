@@ -28,6 +28,7 @@ from pyhighlights.components.models.spp import (
     GenSPP,
     GenSPPTrainer,
     MLPSelector,
+    SigmoidSelector,
     SPPBackbone,
     SPPPredictor,
     SPPSelector,
@@ -863,6 +864,36 @@ def test_threshold_genes_come_from_the_selector_not_from_position():
     # its output layer, which the head's two logits are read off.
     shipped = MLPSelector(input_size=4, hidden_sizes=[3])
     assert shipped.threshold_parameters() == [shipped.selector[-1].bias]
+
+
+def test_the_selector_is_the_reference_generator_s_one_sigmoid_unit():
+    """One unit kept at p >= 0.5, so the threshold is one trailing gene.
+
+    The reference generator ends in ``Linear(width, 1)`` and a sigmoid, keeps
+    a position at ``floor(p + 0.5)``, and mutates the last gene of the
+    chromosome, that unit's bias, with a deviation of its own.
+    """
+    selector = SigmoidSelector(input_size=4, hidden_sizes=[])
+    states = th.randn(2, 5, 4)
+    logits = selector(states)
+    score = selector.selector(states)
+
+    assert th.allclose(th.softmax(logits, dim=-1)[..., 1:], th.sigmoid(score))
+    assert selector.threshold_parameters() == [selector.selector[-1].bias]
+
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+    model = Registry.from_key(GRU_GENSPP)
+    assert isinstance(model.selectors[0], SigmoidSelector)
+    assert GenSPPTrainer._count_threshold_genes(model) == 1
+    assert model.generator_parameters()[-1] is model.selectors[0].selector[-1].bias
+
+    # p = 0.5 is kept, as `floor(0.5 + 0.5)` keeps it.
+    with th.no_grad():
+        for parameter in model.selectors[0].parameters():
+            parameter.zero_()
+    data = batch()
+    _, mask = model.select(data, model.selectors[0], model.selector_backbone)
+    assert th.equal(mask, data.mask)
 
 
 def test_search_is_reproducible_and_keeps_only_candidate_chromosomes():

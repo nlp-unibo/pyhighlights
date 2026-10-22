@@ -100,7 +100,10 @@ class GenSPP(SPP):
             backbone.encode(data.features, self.encoder_mask(data)), data
         )
         highlight_logits = selector(states)
-        highlight_mask = highlight_logits.argmax(dim=-1).to(highlight_logits.dtype)
+        # Kept on a tie, as the reference's `floor(p + 0.5)` keeps p = 0.5.
+        highlight_mask = (highlight_logits[..., 1] >= highlight_logits[..., 0]).to(
+            highlight_logits.dtype
+        )
         valid = self.selection_valid(data).to(highlight_mask.dtype)
         highlight_mask = highlight_mask * valid
         diagnostics.record(
