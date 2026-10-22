@@ -603,9 +603,9 @@ class ToyLoader(HighlightLoader):
         A flat corpus has no such column. It is divided the way the GenSPP
         baselines divide theirs: the first ``train_ratio`` is train, the rest
         test, and ``val_ratio`` of train is sampled off it under
-        ``split_seed``. The draw is :class:`random.Random`, the generator this
-        loader samples everything else with, so one seed family explains a
-        corpus and its division.
+        ``split_seed``. The draw is the baselines' own, ``DataFrame.sample``
+        on numpy's legacy generator seeded with ``split_seed``, so the same
+        seed holds out the same rows in the same order.
         """
         if "split" in frame:
             return {
@@ -614,11 +614,12 @@ class ToyLoader(HighlightLoader):
             }
         train_count = int(len(frame) * self.train_ratio)
         train, test = frame[:train_count], frame[train_count:]
-        held_out = random.Random(self.split_seed).sample(
-            list(train.index), k=int(train_count * self.val_ratio)
+        # `random_state` as an integer is `np.random.RandomState(seed)`, the
+        # stream `np.random.seed(seed)` starts the global generator on.
+        val = train.sample(
+            n=int(train_count * self.val_ratio), random_state=self.split_seed
         )
-        val = train.loc[sorted(held_out)]
-        train = train.drop(index=held_out)
+        train = train.drop(index=val.index)
         return {
             name: part.reset_index(drop=True)
             for name, part in (("train", train), ("val", val), ("test", test))
