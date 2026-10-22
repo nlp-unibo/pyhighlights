@@ -12,6 +12,7 @@ against the md5 Zenodo reports.
 | Movies | [10.5281/zenodo.22711411](https://doi.org/10.5281/zenodo.22711411) | `10.5281/zenodo.22711410` |
 | GenSPP toy (v1) | [10.5281/zenodo.22711449](https://doi.org/10.5281/zenodo.22711449) | `10.5281/zenodo.22711448` |
 | GenSPP toy (v2) | [10.5281/zenodo.22828019](https://doi.org/10.5281/zenodo.22828019) | `10.5281/zenodo.22711448` |
+| GenSPP toy (v3) | [10.5281/zenodo.23570345](https://doi.org/10.5281/zenodo.23570345) | `10.5281/zenodo.22711448` |
 
 **Cite the version DOI in code, the concept DOI in prose.** A default URL baked
 into a loader has to name the version record, because the digest beside it pins
