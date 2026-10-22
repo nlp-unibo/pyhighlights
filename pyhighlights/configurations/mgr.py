@@ -15,6 +15,7 @@ from pyhighlights.configurations.keys import (
     MLP_SELECTOR,
     NAMESPACE,
     TRANSFORMER_BACKBONE,
+    UNNORMALISED_GRU_BACKBONE,
 )
 
 MGR_COMPONENT = "pyhighlights.components.models.spp.mgr.MGR"
@@ -36,7 +37,8 @@ class GRUMGRConfig(SPPModelConfig):
     )
     #: The generators share one predictor, and it encodes with its own
     #: backbone, so this is required rather than optional.
-    predictor_backbone: RegistrationKey[SPPBackbone] = Param(GRU_BACKBONE)
+    #: Unnormalised, as the original implementation's predictor encoder.
+    predictor_backbone: RegistrationKey[SPPBackbone] = Param(UNNORMALISED_GRU_BACKBONE)
     inference_head: int = Param(0, ge=0)
     #: How the heads' losses combine. ``"mean"`` divides them by the number of
     #: heads, which rescales the logged loss. Under Adam it barely changes

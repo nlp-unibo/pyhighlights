@@ -32,6 +32,22 @@ class GRUBackboneConfig(Configuration):
 
 @register_class(
     name="backbone",
+    tags={"gru", "unnormalised"},
+    namespace=NAMESPACE,
+    component="pyhighlights.components.models.spp.implementations.GRUBackbone",
+)
+class UnnormalisedGRUBackboneConfig(GRUBackboneConfig):
+    """The GRU backbone without layer normalisation.
+
+    The predictors of the original MCD and MGR encode this way, while their
+    generators normalise.
+    """
+
+    layer_norm: bool = Param(False)
+
+
+@register_class(
+    name="backbone",
     tags={"transformer"},
     namespace=NAMESPACE,
     component="pyhighlights.components.models.spp.implementations.TransformerBackbone",

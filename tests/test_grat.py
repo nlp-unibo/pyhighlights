@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 import pyhighlights
 from pyhighlights.components.models import InputData
 from pyhighlights.components.models.spp import GRAT, GuidanceGuider
-from pyhighlights.configurations.keys import GRU_GRAT
+from pyhighlights.configurations.keys import GRU_GRAT, UNNORMALISED_GRU_BACKBONE
 from tests.data_parallel import processes_agree
 
 
@@ -220,3 +220,27 @@ def test_every_process_trains_the_same_model(tmp_path):
     epoch that steps the rationalizer as well.
     """
     assert processes_agree("GRU_GRAT", tmp_path, pretrain_epochs=1)
+
+
+def test_the_selector_and_the_predictor_share_one_layer_norm():
+    """``RNPSTModel`` of the original: two GRUs and one ``LayerNorm`` over both."""
+    model = Registry.from_key(GRU_GRAT)
+    assert model.selector_backbone is not model.predictor_backbone
+    assert model.predictor_backbone.layer_norm is model.selector_backbone.layer_norm
+
+    ids = [id(parameter) for parameter in model.rationalizer_parameters()]
+    assert len(ids) == len(set(ids))
+    expected = {
+        id(parameter)
+        for parameter in (*model.generator_parameters(), *model.predictor_parameters())
+    }
+    assert set(ids) == expected
+
+
+def test_sharing_needs_a_layer_norm_in_both_backbones():
+    with pytest.raises(ValueError, match="share_layer_norm"):
+        Registry.from_key(GRU_GRAT, predictor_backbone=UNNORMALISED_GRU_BACKBONE)
+    model = Registry.from_key(
+        GRU_GRAT, predictor_backbone=UNNORMALISED_GRU_BACKBONE, share_layer_norm=False
+    )
+    assert isinstance(model.predictor_backbone.layer_norm, th.nn.Identity)

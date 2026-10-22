@@ -13,9 +13,9 @@ from pyhighlights.configurations.keys import (
     CLASSIFICATION_LOSS,
     DISCREPANCY_LOSS,
     FULL_CLASSIFICATION_LOSS,
-    GRU_BACKBONE,
     NAMESPACE,
     TRANSFORMER_BACKBONE,
+    UNNORMALISED_GRU_BACKBONE,
 )
 from pyhighlights.utility.losses import Loss
 
@@ -29,7 +29,8 @@ class GRUMCDConfig(PhasedSPPModelConfig):
     name: str = Param("mcd")
     #: MCD reads the highlight and the full input with separate encoders, so
     #: the predictor's backbone is required rather than optional.
-    predictor_backbone: RegistrationKey[SPPBackbone] = Param(GRU_BACKBONE)
+    #: Unnormalised, as the original implementation's predictor encoder.
+    predictor_backbone: RegistrationKey[SPPBackbone] = Param(UNNORMALISED_GRU_BACKBONE)
     predictor_losses: List[RegistrationKey[Loss]] = Param(
         [CLASSIFICATION_LOSS, FULL_CLASSIFICATION_LOSS]
     )

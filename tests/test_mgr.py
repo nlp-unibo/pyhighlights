@@ -126,3 +126,11 @@ def test_the_arrangement_mgr_needs_is_refused_when_it_is_not_there(overrides, me
     """Each is a run that would train something other than MGR."""
     with pytest.raises(ValueError, match=message):
         Registry.from_key(GRU_MGR, **overrides)
+
+
+def test_mgr_normalises_its_generators_and_not_its_predictor():
+    """``Multi_gen`` of the original: a ``LayerNorm`` per generator, none in ``cls``."""
+    model = Registry.from_key(GRU_MGR)
+    for backbone in model.selector_backbones:
+        assert isinstance(backbone.layer_norm, th.nn.LayerNorm)
+    assert isinstance(model.predictor_backbone.layer_norm, th.nn.Identity)

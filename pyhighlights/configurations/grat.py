@@ -88,6 +88,9 @@ class GRUGRATConfig(SPPModelConfig):
     guider_losses: List[RegistrationKey[Loss]] = Param([CLASSIFICATION_LOSS])
     pretrain_epochs: int = Param(10, ge=0)
     guide_decay: float = Param(1e-4, ge=0.0)
+    #: One ``LayerNorm`` over the selector's and the predictor's states, as
+    #: the original ``RNPSTModel`` has.
+    share_layer_norm: bool = Param(True)
     guide_loss: str = Param("guide")
     jsd_loss: str = Param("jsd")
 
@@ -102,3 +105,5 @@ class TransformerGRATConfig(GRUGRATConfig):
     selector_backbones: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)
     predictor_backbone: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)
     guider: RegistrationKey[GRATGuider] = Param(TRANSFORMER_GUIDER)
+    #: A transformer backbone has no normalisation of its states to share.
+    share_layer_norm: bool = Param(False)

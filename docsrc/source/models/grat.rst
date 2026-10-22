@@ -98,6 +98,9 @@ The guider attends over subtokens, since that is what its encoder reads, while t
 The fold sums rather than averages, because attention is a distribution and averaging would report a long word as less attended than the short one beside it.
 Both guiders add positive noise to their scores during training, which is the reference implementation's way of keeping the attention from collapsing onto a handful of words.
 
+``GRU_GRAT`` encodes the selection and the prediction with separate GRU backbones and one ``LayerNorm`` over both, as the reference's ``RNPSTModel`` does.
+``share_layer_norm`` sets this, and ``TRANSFORMER_GRAT`` turns it off, since a transformer backbone has no normalisation of its states to share.
+
 ``GuidanceGuider`` is the reference's ``GuidanceModule`` layer for layer, and ``GRU_GRAT`` uses it.
 The GRU states are added to a linear map of the embeddings and normalised.
 A two-layer GELU network scores each position, and the attended states pass through a projection, a GELU, the same normalisation and an attention-pooling block.
