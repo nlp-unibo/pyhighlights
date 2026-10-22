@@ -109,7 +109,7 @@ Differences from the reference implementation
 ---------------------------------------------
 
 The sparsity and contiguity penalties also differ from the reference implementation, as :ref:`penalty-differences` on the FR page describes, and so does the recurrence over padding.
-``GRU_MCD`` samples, pools and leaves empty selections as the reference does, as :ref:`selection-rules` describes.
+``GRU_MCD`` samples and leaves empty selections as the reference does, as :ref:`selection-rules` describes.
 
 Configuration
 -------------

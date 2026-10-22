@@ -26,10 +26,9 @@ MGR_COMPONENT = "pyhighlights.components.models.spp.mgr.MGR"
 )
 class GRUMGRConfig(SPPModelConfig):
     name: str = Param("mgr")
-    #: As the original implementation: a sampled selection at evaluation,
-    #: pooling over every valid position, and no empty-selection repair.
+    #: As the original implementation: a sampled selection at evaluation and
+    #: no empty-selection repair.
     sample_at_evaluation: bool = Param(True)
-    pool_dropped: bool = Param(True)
     repair_empty_selections: bool = Param(False)
     #: One backbone and one selector *per generator*, where every other
     #: architecture has one of each. That is the whole of MGR, so the base
@@ -86,9 +85,6 @@ class GRUMGRConfig(SPPModelConfig):
     component=MGR_COMPONENT,
 )
 class TransformerMGRConfig(GRUMGRConfig):
-    #: A transformer's dropped positions are masked out of its attention, so
-    #: their states carry nothing to pool. No original pools them.
-    pool_dropped: bool = Param(False)
     selector_backbones: List[RegistrationKey[SPPBackbone]] = Param(
         [TRANSFORMER_BACKBONE, TRANSFORMER_BACKBONE, TRANSFORMER_BACKBONE]
     )

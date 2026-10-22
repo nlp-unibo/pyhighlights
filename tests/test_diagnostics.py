@@ -45,7 +45,6 @@ class Poisoned:
 #: originals'. These tests are about the mechanisms, not about those models.
 LIBRARY_RULES = {
     "sample_at_evaluation": False,
-    "pool_dropped": False,
     "repair_empty_selections": True,
 }
 

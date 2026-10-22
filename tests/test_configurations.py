@@ -19,10 +19,6 @@ from pyhighlights.configurations.keys import (
     GRU_MGR,
     MLP_PREDICTOR,
     MLP_SELECTOR,
-    TRANSFORMER_FR,
-    TRANSFORMER_GRAT,
-    TRANSFORMER_MCD,
-    TRANSFORMER_MGR,
 )
 from pyhighlights.configurations.mgr import GRUMGRConfig
 from pyhighlights.configurations.tasks import ToyTaskConfig
@@ -77,10 +73,9 @@ def test_registered_gru_fr_forward_backward_and_optimizer():
     Registry.build(directory=Path(pyhighlights.__file__).parent)
     model = Registry.from_key(GRU_FR)
     assert isinstance(model, FR)
-    # The original FR's rules: a sampled selection at evaluation, pooling
-    # over every valid position, and no empty-selection repair.
+    # The original FR's rules: a sampled selection at evaluation and no
+    # empty-selection repair.
     assert model.sample_at_evaluation
-    assert model.pool_dropped
     assert not model.repair_empty_selections
 
     batch = InputData(
@@ -460,10 +455,9 @@ def test_an_invalid_model_is_refused_before_a_backbone_is_built(monkeypatch, upd
         )
 
 
-def test_the_baselines_select_and_pool_as_their_originals_do():
+def test_the_baselines_select_as_their_originals_do():
     """FR, MCD and MGR sample at evaluation, and G-RAT thresholds at 0.5, its
-    argmax. None of the four repairs an empty selection, and their GRU
-    variants pool over every valid position.
+    argmax. None of the four repairs an empty selection.
     """
     Registry.build(directory=Path(pyhighlights.__file__).parent)
     for key, samples in (
@@ -474,7 +468,4 @@ def test_the_baselines_select_and_pool_as_their_originals_do():
     ):
         config = Registry.retrieve_configuration(key)
         assert config.sample_at_evaluation is samples
-        assert config.pool_dropped
         assert not config.repair_empty_selections
-    for key in (TRANSFORMER_FR, TRANSFORMER_MCD, TRANSFORMER_MGR, TRANSFORMER_GRAT):
-        assert not Registry.retrieve_configuration(key).pool_dropped
