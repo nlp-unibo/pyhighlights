@@ -227,7 +227,7 @@ class SPPTask(Task):
         add_special_tokens: bool = True,
         embeddings: str | Path | None = None,
         pretrained_tokens_only: bool = True,
-        vocabulary_from: Literal["corpus", "vectors"] = "corpus",
+        vocabulary_from: Literal["corpus", "splits", "vectors"] = "corpus",
         requires_embeddings: bool = False,
         one_hot_embeddings: int | None = None,
         callbacks: List[RegistrationKey[Callback]] | None = None,
@@ -261,14 +261,16 @@ class SPPTask(Task):
         self.add_special_tokens = add_special_tokens
         self.embeddings = Path(embeddings) if embeddings is not None else None
         self.pretrained_tokens_only = pretrained_tokens_only
-        if vocabulary_from not in ("corpus", "vectors"):
+        if vocabulary_from not in ("corpus", "splits", "vectors"):
             raise ValueError(
-                f"vocabulary_from is 'corpus' or 'vectors', not {vocabulary_from!r}"
+                "vocabulary_from is 'corpus', 'splits' or 'vectors', "
+                f"not {vocabulary_from!r}"
             )
         #: Where the token ids come from when a vector file is read. ``corpus``
-        #: keeps the training vocabulary and lets the file cover it; ``vectors``
-        #: takes the file's own vocabulary whole, so a token absent from
-        #: training still has its vector. See :meth:`tokenizer`.
+        #: keeps the training vocabulary and lets the file cover it; ``splits``
+        #: takes every split's tokens; ``vectors`` takes the file's own
+        #: vocabulary whole, so a token absent from training still has its
+        #: vector. See :meth:`tokenizer`.
         self.vocabulary_from = vocabulary_from
         #: Whether the task is meaningless without ``embeddings``. A
         #: reproduction of a run that embeds from a released vector file is:
@@ -408,6 +410,12 @@ class SPPTask(Task):
         - ``"corpus"`` keeps the training vocabulary and drops the tokens the
           file has no vector for. A token the training split never saw is
           unknown at evaluation whatever the file covers.
+        - ``"splits"`` takes every token of every split. With
+          ``pretrained_tokens_only=False`` each one has a row of its own, its
+          vector or a random one, so nothing is unknown and no two tokens the
+          file lacks share a row. It is not a leak while the table is frozen:
+          a random row says nothing about the split it came from, and a row
+          no training token uses is never trained.
         - ``"vectors"`` takes the file's vocabulary whole. Nothing is unknown
           that the file covers, which is what a released implementation
           embedding from a fixed pretrained vocabulary does. It is not a leak,
@@ -426,12 +434,15 @@ class SPPTask(Task):
         # corpus has none: a vocabulary that saw the evaluation text leaks it.
         training = [splits["train"]] if "train" in splits else []
         if self.embeddings is not None:
+            read = (
+                list(splits.values()) if self.vocabulary_from == "splits" else training
+            )
             words = (
                 None
                 if self.vocabulary_from == "vectors"
                 else {
                     token
-                    for frame in training
+                    for frame in read
                     for tokens in frame["tokens"]
                     for token in tokens
                 }
@@ -440,6 +451,9 @@ class SPPTask(Task):
                 self.embeddings,
                 tokens=words,
                 pretrained_only=self.pretrained_tokens_only,
+                # Seeded apart from the run, so every seed of a task reads one
+                # table and a token's random row is the same across runs.
+                generator=th.Generator().manual_seed(0),
             )
             return VocabularyTokenizer(table)
         if self.one_hot_embeddings is not None:
