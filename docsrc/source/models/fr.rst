@@ -193,6 +193,8 @@ The reference predictors max-pool over every valid position, ``outputs * masks +
 A dropped word reads a zeroed embedding, but its recurrent state carries the context around it.
 That state is not zero, so the predictor reads dropped positions.
 This library pools over the kept positions alone, in every model, so the predictor reads the highlight and nothing else.
+An empty selection, which the four models leave unrepaired, therefore pools to a zero vector, and the predictor reads its bias alone.
+The reference predictors read every valid state of that document instead.
 
 The reference implementation computes the two penalties over padding as well as over words.
 Its sampled mask is not masked at padding positions, and its encoder's output there is not zero.
