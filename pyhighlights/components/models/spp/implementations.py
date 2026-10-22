@@ -47,9 +47,10 @@ def recurrent_states(
 def max_pool(states: th.Tensor, mask: th.Tensor) -> th.Tensor:
     """The largest value each dimension takes over the unmasked positions.
 
-    A row with nothing unmasked pools to zeros rather than to ``-inf``. That
-    row is the empty complement of a model that kept everything, and ``-inf``
-    would propagate through the predictor.
+    A row with nothing unmasked pools to zeros rather than to ``-inf``, which
+    would propagate through the predictor. That row is the empty complement
+    of a model that kept everything, or an empty selection that no repair
+    filled.
     """
     valid = mask.bool()
     pooled = states.masked_fill(~valid.unsqueeze(-1), -th.inf).amax(dim=1)

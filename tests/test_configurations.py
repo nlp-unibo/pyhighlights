@@ -87,6 +87,9 @@ def test_registered_gru_fr_forward_backward_and_optimizer():
     )
 
     model.train()
+    # Seeded, because an unrepaired sample can drop every word, and an empty
+    # selection pools to zeros and gives the predictor's weight no gradient.
+    th.manual_seed(0)
     output = model(batch)
     loss, losses = model.compute_loss(batch, output)
     loss.backward()

@@ -612,6 +612,18 @@ def test_the_predictor_pools_the_selected_positions_alone():
     assert not th.allclose(pooled, states.amax(dim=1))
 
 
+def test_an_unrepaired_empty_selection_pools_to_zeros():
+    """The predictor of an empty selection reads its bias alone."""
+    data = batch([HighlightExample(0, ["a", "b", "c"], 1)])
+    spp = model(repair_empty_selections=False)
+    spp.eval()
+    spp.predictor = th.nn.Identity()
+    with th.no_grad():
+        pooled = spp.predict(data, th.zeros(1, 3))
+
+    assert th.equal(pooled, th.zeros_like(pooled))
+
+
 def test_a_model_can_sample_its_selection_at_evaluation():
     """The original FR, MCD and MGR draw a hard Gumbel sample in evaluation too."""
     logits = th.zeros(1, 200, 2)
