@@ -614,7 +614,9 @@ def checkpoints(
         yield directory.name.partition("=")[2], model, loader
 
 
-def replay_predictions(run: str | Path, **overrides: Any) -> List[Path]:
+def replay_predictions(
+    run: str | Path, trainer_args: Dict[str, Any] | None = None, **overrides: Any
+) -> List[Path]:
     """Store the test predictions of a run trained without ``store_predictions``.
 
     Each seed's checkpoint is rebuilt through :func:`checkpoints`, which
@@ -625,6 +627,11 @@ def replay_predictions(run: str | Path, **overrides: Any) -> List[Path]:
     the run as if it had. Returns the written files.
 
     A predictions file that already exists is refused rather than replaced.
+
+    The test pass is seeded as the run seeded its own, so a model that samples
+    its selection at evaluation draws the same masks again. Only on the device
+    type the run tested on, though: CPU and CUDA draw different numbers from
+    one seed. ``trainer_args`` reach the ``Trainer``, which names the device.
     """
     run = Path(run)
     written = []
@@ -634,8 +641,12 @@ def replay_predictions(run: str | Path, **overrides: Any) -> List[Path]:
             raise FileExistsError(f"{path} exists, remove it to replay the run")
         model.store_predictions = True
         trainer = L.Trainer(
-            logger=False, enable_checkpointing=False, enable_progress_bar=False
+            logger=False,
+            enable_checkpointing=False,
+            enable_progress_bar=False,
+            **(trainer_args or {}),
         )
+        L.seed_everything(seed=int(seed), workers=True)
         trainer.test(model, dataloaders=loader, verbose=False)
         pd.to_pickle(model.predictions, path)
         written.append(path)

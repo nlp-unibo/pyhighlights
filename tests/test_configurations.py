@@ -14,10 +14,15 @@ from pyhighlights.configurations.keys import (
     ADAM,
     GRU_BACKBONE,
     GRU_FR,
+    GRU_GRAT,
     GRU_MCD,
     GRU_MGR,
     MLP_PREDICTOR,
     MLP_SELECTOR,
+    TRANSFORMER_FR,
+    TRANSFORMER_GRAT,
+    TRANSFORMER_MCD,
+    TRANSFORMER_MGR,
 )
 from pyhighlights.configurations.mgr import GRUMGRConfig
 from pyhighlights.configurations.tasks import ToyTaskConfig
@@ -72,6 +77,11 @@ def test_registered_gru_fr_forward_backward_and_optimizer():
     Registry.build(directory=Path(pyhighlights.__file__).parent)
     model = Registry.from_key(GRU_FR)
     assert isinstance(model, FR)
+    # The original FR's rules: a sampled selection at evaluation, pooling
+    # over every valid position, and no empty-selection repair.
+    assert model.sample_at_evaluation
+    assert model.pool_dropped
+    assert not model.repair_empty_selections
 
     batch = InputData(
         features=th.tensor([[1, 2, 3, 0], [4, 5, 0, 0]]),
@@ -102,6 +112,8 @@ def test_registered_gru_fr_forward_backward_and_optimizer():
     optimizer.step()
     assert not th.equal(previous_weight, predictor_weight)
 
+    # The argmax, so two passes select alike.
+    model.sample_at_evaluation = False
     model.eval()
     with th.no_grad():
         first = model(batch).highlight_mask
@@ -191,7 +203,7 @@ def test_registered_gru_mcd_alternates_generator_and_predictor_updates():
 
 def test_registered_gru_mgr_has_independent_generators_and_head_policy():
     Registry.build(directory=Path(pyhighlights.__file__).parent)
-    model = Registry.from_key(GRU_MGR)
+    model = Registry.from_key(GRU_MGR, sample_at_evaluation=False)
     assert isinstance(model, MGR)
     assert len(model.selectors) == len(model.selector_backbones) == 3
     assert len({id(backbone) for backbone in model.selector_backbones}) == 3
@@ -446,3 +458,23 @@ def test_an_invalid_model_is_refused_before_a_backbone_is_built(monkeypatch, upd
             predictor=MLP_PREDICTOR,
             **update,
         )
+
+
+def test_the_baselines_select_and_pool_as_their_originals_do():
+    """FR, MCD and MGR sample at evaluation, and G-RAT thresholds at 0.5, its
+    argmax. None of the four repairs an empty selection, and their GRU
+    variants pool over every valid position.
+    """
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+    for key, samples in (
+        (GRU_FR, True),
+        (GRU_MCD, True),
+        (GRU_MGR, True),
+        (GRU_GRAT, False),
+    ):
+        config = Registry.retrieve_configuration(key)
+        assert config.sample_at_evaluation is samples
+        assert config.pool_dropped
+        assert not config.repair_empty_selections
+    for key in (TRANSFORMER_FR, TRANSFORMER_MCD, TRANSFORMER_MGR, TRANSFORMER_GRAT):
+        assert not Registry.retrieve_configuration(key).pool_dropped

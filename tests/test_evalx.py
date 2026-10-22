@@ -229,7 +229,10 @@ def test_a_replayed_run_reads_as_the_run_that_stored_its_predictions(tmp_path):
     stored = SelectionCodeAnalyzer(tmp_path).analyze()
     (run / "predictions-seed=0.pkl").unlink()
 
-    assert replay_predictions(run) == [run / "predictions-seed=0.pkl"]
+    # On the device the run tested on, where a sampled selection is drawn again.
+    assert replay_predictions(run, trainer_args={"accelerator": "cpu"}) == [
+        run / "predictions-seed=0.pkl"
+    ]
     pd.testing.assert_frame_equal(SelectionCodeAnalyzer(tmp_path).analyze(), stored)
     with pytest.raises(FileExistsError):
         replay_predictions(run)

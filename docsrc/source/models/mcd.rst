@@ -108,7 +108,8 @@ It has to name the phase it belongs to and go in ``shared_losses``.
 Differences from the reference implementation
 ---------------------------------------------
 
-The sparsity and contiguity penalties also differ from the reference implementation, as :ref:`penalty-differences` on the FR page describes.
+The sparsity and contiguity penalties also differ from the reference implementation, as :ref:`penalty-differences` on the FR page describes, and so does the recurrence over padding.
+``GRU_MCD`` samples, pools and leaves empty selections as the reference does, as :ref:`selection-rules` describes.
 
 Configuration
 -------------

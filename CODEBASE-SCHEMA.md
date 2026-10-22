@@ -32,7 +32,7 @@ The module depends on `pyhighlights.components.analyzers`, `cinnamon.registry`, 
 `SelectionCodeAnalyzer` extends `PredictionAnalyzer`; its `analyze` calls `summarize`, its `codes` calls `codes`, its `probes` calls `mask_probes`, its `kept` calls `kept_by_label`, and its `entropy` calls `selection_entropy`.
 Its `evaluated` calls `checkpoints`, `_check_corpus`, and `evaluator_readings`.
 `checkpoints` calls `replayed` and rebuilds a trained run's task with `Registry.from_key`, then calls its `splits`, `loaders`, and `build_model`.
-`replay_predictions` calls `checkpoints` and scores each seed with `lightning.Trainer.test`.
+`replay_predictions` calls `checkpoints`, seeds each seed with `lightning.seed_everything`, and scores it with `lightning.Trainer.test`.
 `evaluator_readings` calls the evaluator's `selection_valid` and `predict`.
 
 `selection_entropy` calls `_entropy`.

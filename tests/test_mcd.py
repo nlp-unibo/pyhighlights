@@ -62,7 +62,8 @@ def test_the_monitored_total_sums_only_the_losses_it_names():
     """Every loss is still reported, and ``loss`` sums the named ones."""
     th.manual_seed(0)
     batch = batch_of()
-    model = Registry.from_key(GRU_MCD)
+    # Argmax at evaluation, so both passes read one selection.
+    model = Registry.from_key(GRU_MCD, sample_at_evaluation=False)
     model.eval()
     everything, losses = model.compute_loss(batch, model(batch))
 

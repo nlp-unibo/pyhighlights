@@ -41,6 +41,15 @@ class Poisoned:
         raise AssertionError("a stage was described while diagnostics were off")
 
 
+#: The library's own selection rules, where FR, MCD and MGR register their
+#: originals'. These tests are about the mechanisms, not about those models.
+LIBRARY_RULES = {
+    "sample_at_evaluation": False,
+    "pool_dropped": False,
+    "repair_empty_selections": True,
+}
+
+
 def test_nothing_is_described_while_nothing_is_listening():
     assert not diagnostics.active()
     diagnostics.record("stage", value=Poisoned())
@@ -294,7 +303,7 @@ def test_a_phased_model_says_which_phase_a_line_belongs_to(tmp_path, caplog):
     """
     from pyhighlights.configurations.keys import GRU_MCD
 
-    model = Registry.from_key(GRU_MCD)
+    model = Registry.from_key(GRU_MCD, **LIBRARY_RULES)
     batch = InputData(
         features=th.randint(1, 8, (2, 5)),
         mask=th.ones((2, 5)),
@@ -355,7 +364,7 @@ def test_the_repaired_rows_are_reported_under_the_selection_they_repaired(caplog
     """
     from pyhighlights.configurations.keys import GRU_FR
 
-    model = Registry.from_key(GRU_FR)
+    model = Registry.from_key(GRU_FR, **LIBRARY_RULES)
     batch = InputData(
         features=th.randint(1, 8, (2, 5)),
         mask=th.ones((2, 5)),
