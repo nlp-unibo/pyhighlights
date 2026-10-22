@@ -59,7 +59,6 @@ class SubwordTokenizer:
 #: originals'. These tests are about the mechanisms, not about those models.
 LIBRARY_RULES = {
     "sample_at_evaluation": False,
-    "pool_dropped": False,
     "repair_empty_selections": True,
 }
 
@@ -592,11 +591,11 @@ def test_without_the_repair_an_empty_selection_stays_empty():
     assert th.equal(spp.repair_empty(th.zeros(1, 3, 2), empty, th.ones(1, 3)), empty)
 
 
-def test_the_predictor_pools_the_dropped_positions_when_asked():
+def test_the_predictor_pools_the_selected_positions_alone():
     """A dropped word reads a zeroed embedding, but its state is not zero.
 
     The original FR, MCD, MGR and G-RAT max-pool over every valid position,
-    so those states reach the predictor. This library pools the kept ones.
+    so those states reach their predictor. This library pools the kept ones.
     """
     data = batch([HighlightExample(0, ["a", "b", "c"], 1)])
     keep = th.tensor([[1.0, 0.0, 0.0]])
@@ -607,13 +606,10 @@ def test_the_predictor_pools_the_dropped_positions_when_asked():
         states = spp.predictor_backbone.encode(
             data.features, data.attention(), selection_mask=keep
         )
-        kept = spp.predict(data, keep)
-        spp.pool_dropped = True
-        every = spp.predict(data, keep)
+        pooled = spp.predict(data, keep)
 
-    assert th.allclose(kept, states[:, :1].amax(dim=1))
-    assert th.allclose(every, states.amax(dim=1))
-    assert not th.allclose(kept, every)
+    assert th.allclose(pooled, states[:, :1].amax(dim=1))
+    assert not th.allclose(pooled, states.amax(dim=1))
 
 
 def test_a_model_can_sample_its_selection_at_evaluation():
@@ -624,11 +620,6 @@ def test_a_model_can_sample_its_selection_at_evaluation():
 
     assert 0 < sampled.sum() < 200
     assert not argmax.any()
-
-
-def test_compaction_leaves_no_dropped_position_to_pool():
-    with pytest.raises(ValueError, match="pool_dropped"):
-        model(compact=True, pool_dropped=True)
 
 
 def test_the_repair_keeps_the_gradient_path_to_the_selector_open():

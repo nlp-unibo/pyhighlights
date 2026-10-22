@@ -15,10 +15,9 @@ FR_COMPONENT = "pyhighlights.components.models.spp.fr.FR"
 )
 class GRUFRConfig(SPPModelConfig):
     name: str = Param("fr")
-    #: As the original implementation: a sampled selection at evaluation,
-    #: pooling over every valid position, and no empty-selection repair.
+    #: As the original implementation: a sampled selection at evaluation and
+    #: no empty-selection repair.
     sample_at_evaluation: bool = Param(True)
-    pool_dropped: bool = Param(True)
     repair_empty_selections: bool = Param(False)
 
 
@@ -29,7 +28,4 @@ class GRUFRConfig(SPPModelConfig):
     component=FR_COMPONENT,
 )
 class TransformerFRConfig(GRUFRConfig):
-    #: A transformer's dropped positions are masked out of its attention, so
-    #: their states carry nothing to pool. No original pools them.
-    pool_dropped: bool = Param(False)
     selector_backbones: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)
