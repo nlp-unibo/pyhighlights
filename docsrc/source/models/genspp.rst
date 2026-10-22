@@ -145,6 +145,10 @@ It stores those weights with ``state_dict()``, whose tensors share storage with 
 The reset therefore restores nothing, and a slot's predictor keeps its training across every candidate that occupies it.
 A candidate's predictor in the reference implementation depends on the slot it was given and on that slot's history.
 
+The predictor max-pools over the kept words alone.
+The reference classifier multiplies its states by the selection and takes the maximum over every position, so a dropped or padding position contributes a zero.
+A dimension whose kept states are all negative therefore pools to zero there, which with recurrent states in :math:`(-1, 1)` and a short highlight is frequent.
+
 Configuration
 -------------
 

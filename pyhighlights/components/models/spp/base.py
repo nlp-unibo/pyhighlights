@@ -127,7 +127,6 @@ class SPP(Model[SPPOutput]):
         temperature: float = 1.0,
         compact: bool = False,
         sample_at_evaluation: bool = False,
-        pool_dropped: bool = False,
         repair_empty_selections: bool = True,
         select_over: Literal["word", "subtoken"] = "word",
         encoder_lr: float | None = None,
@@ -157,12 +156,6 @@ class SPP(Model[SPPOutput]):
             raise ValueError("select_over must be 'word' or 'subtoken'")
         if encoder_lr is not None and not encoder_lr > 0:
             raise ValueError("encoder_lr must be positive")
-        # Compaction removes the dropped positions, so there is nothing left
-        # to pool them from.
-        if compact and pool_dropped:
-            raise ValueError(
-                "pool_dropped needs the dropped positions, which compact removes"
-            )
         if supervise_highlights and highlight_loss is None:
             raise ValueError(
                 "supervise_highlights needs a highlight loss to supervise with"
@@ -181,11 +174,10 @@ class SPP(Model[SPPOutput]):
         # Off by default: it changes what the predictor is handed, so a run
         # with it on is a different experiment rather than a better one.
         self.compact = compact
-        # The three choices where the original implementations of FR, MCD, MGR
-        # and G-RAT disagree with each other or with this library. Each model's
-        # configuration sets them as its own original does.
+        # The two choices where the original implementations of FR, MCD, MGR
+        # and G-RAT differ from this library. Each model's configuration sets
+        # them as its own original does.
         self.sample_at_evaluation = sample_at_evaluation
-        self.pool_dropped = pool_dropped
         self.repair_empty_selections = repair_empty_selections
 
         # Supervision is a setting, not a variant: the same model key runs
@@ -547,12 +539,7 @@ class SPP(Model[SPPOutput]):
         states = backbone.encode(
             data.features, attention, selection_mask=prediction_mask
         )
-        # Over the selection alone, or over every valid position as the
-        # original FR, MCD, MGR and G-RAT pool, where a dropped position is
-        # read from zeroed embeddings but its state is not zero.
-        pooled = backbone.pool(
-            states, attention if self.pool_dropped else attention * prediction_mask
-        )
+        pooled = backbone.pool(states, attention * prediction_mask)
         diagnostics.record(
             "predictor",
             selection=selection,

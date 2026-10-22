@@ -78,10 +78,9 @@ class GuidanceGuiderConfig(Configuration):
 )
 class GRUGRATConfig(SPPModelConfig):
     name: str = Param("grat")
-    #: As the original implementation: pooling over every valid position and
-    #: no empty-selection repair. Its evaluation threshold of 0.5 is the
-    #: argmax, so the selection is not sampled.
-    pool_dropped: bool = Param(True)
+    #: As the original implementation: no empty-selection repair. Its
+    #: evaluation threshold of 0.5 is the argmax, so the selection is not
+    #: sampled.
     repair_empty_selections: bool = Param(False)
     #: G-RAT encodes the highlight with its own backbone, so the predictor's
     #: is required rather than optional.
@@ -107,9 +106,6 @@ class GRUGRATConfig(SPPModelConfig):
     component=GRAT_COMPONENT,
 )
 class TransformerGRATConfig(GRUGRATConfig):
-    #: A transformer's dropped positions are masked out of its attention, so
-    #: their states carry nothing to pool. No original pools them.
-    pool_dropped: bool = Param(False)
     selector_backbones: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)
     predictor_backbone: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)
     guider: RegistrationKey[GRATGuider] = Param(TRANSFORMER_GUIDER)
