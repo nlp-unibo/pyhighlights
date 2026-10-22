@@ -39,6 +39,7 @@ from pyhighlights.components.loaders import (
     BeerLoader,
     HotelLoader,
     MoviesLoader,
+    ToyLoader,
 )
 from pyhighlights.components.preprocessors import PRIORITY, remove_leakage
 from pyhighlights.utility.io import download
@@ -58,6 +59,12 @@ def configure(work_dir: Path) -> None:
 
 
 VERSION = "v2"
+#: The toy corpus moves on alone: v3 stores its splits, and the R2A and
+#: Movies manifests are unchanged.
+GENSPP_TOY_VERSION = "v3"
+#: The released baselines' split: the first 80% train, a fifth of it held out
+#: under ``seed_everything(15000)``, the rest test.
+GENSPP_TOY_SPLIT = {"train_ratio": 0.8, "val_ratio": 0.2, "split_seed": 15000}
 
 # Pinned upstream sources. The R2A digest is the one the library's loaders and
 # the previous build both verified against.
@@ -276,12 +283,15 @@ def genspp_toy_corpus(pickle: Path) -> pd.DataFrame:
     are the same rows, and a difference in serialisation should not need a
     class of its own to survive.
 
-    No ``split`` column, deliberately. The released baselines derive their
-    splits from a scheme rather than storing them, so storing them here would
-    freeze one reading of that scheme into the data.
+    With a ``split`` column, so the rows each split holds are data rather
+    than whatever a version of pandas draws. They are the released
+    baselines' rows, as :meth:`ToyLoader.divide` draws them, and the frame is
+    in the order :meth:`ToyLoader.save` writes: train in the release's order,
+    validation in the order it was drawn, then test. ``sample_id`` is the
+    row's position in the release.
     """
     released = pd.read_pickle(pickle)
-    return pd.DataFrame(
+    converted = pd.DataFrame(
         {
             "sample_id": range(len(released)),
             "text": released["text"],
@@ -293,11 +303,16 @@ def genspp_toy_corpus(pickle: Path) -> pd.DataFrame:
             ],
         }
     )
+    splits = ToyLoader(**GENSPP_TOY_SPLIT).divide(converted)
+    return pd.concat(
+        [part.assign(split=name) for name, part in splits.items()],
+        ignore_index=True,
+    )
 
 
 def genspp_toy_artifact() -> Tuple[str, List[Tuple[str, bytes]]]:
     """The complete toy corpus -- the one artifact that redistributes data."""
-    name = f"pyhighlights-genspp-toy-{VERSION}"
+    name = f"pyhighlights-genspp-toy-{GENSPP_TOY_VERSION}"
     pickle = download(GENSPP_TOY_URL, SOURCES / "genspp-toy_dataset.pkl")
     released = pickle.read_bytes()
     corpus = genspp_toy_corpus(pickle)
@@ -314,8 +329,10 @@ def genspp_toy_artifact() -> Tuple[str, List[Tuple[str, bytes]]]:
         "contents": (
             "the complete dataset, converted to the library's columns: "
             "`structure_indexes` becomes a `highlights` vector and `tokens` "
-            "is the text a character at a time. The rows, their order and "
-            "their labels are the release's, unchanged."
+            "is the text a character at a time, and `split` names the split "
+            "each row belongs to. The rows and their labels are the "
+            "release's; they are grouped by split, and `sample_id` is each "
+            "row's position in the release."
         ),
         "rows": int(len(corpus)),
         "label_counts": {
@@ -325,20 +342,19 @@ def genspp_toy_artifact() -> Tuple[str, List[Tuple[str, bytes]]]:
         "tokens": "characters; the vocabulary is the lowercase alphabet",
         "split_scheme": {
             "note": (
-                "Splits are not stored: the loader derives them from the "
-                "released baselines' scheme, so the artifact is the corpus "
-                "and the split is code. A corpus ToyLoader.save() writes does "
-                "carry a `split` column; this one is converted from a release "
-                "that had none. The held-out rows are drawn with "
-                "`random.Random(split_seed)` in the pyhighlights version "
-                "this manifest records; versions before the switch drew them "
-                "with `numpy.random.RandomState`, so they divided the same "
-                "corpus differently."
+                "Splits are stored in the `split` column, so ToyLoader reads "
+                "them rather than drawing them. They are the released "
+                "baselines' split: the first 80% of the release is train and "
+                "the rest test, and the validation rows are "
+                "`train.sample(n, random_state=15000)`, the rows "
+                "`seed_everything(15000)` followed by `train_df.sample(n)` "
+                "holds out."
             ),
-            "train_ratio": 0.8,
-            "val_ratio": 0.2,
-            "split_seed": 15000,
-            "generator": "random.Random",
+            **GENSPP_TOY_SPLIT,
+            "counts": {
+                name: int(count)
+                for name, count in corpus["split"].value_counts().items()
+            },
         },
         "citation": GENSPP_CITATION,
         "license": GENSPP_TOY_LICENSE,
@@ -383,9 +399,10 @@ def readme(name, url, sha256, citation, summary) -> bytes:
         ]
     else:
         body += [
-            "**The complete corpus**, `toy_dataset.pkl`, as released, plus a",
-            "`manifest.json` recording its checksum, row count and the split",
-            "scheme the loader derives.",
+            "**The complete corpus**, `toy_dataset.pkl` as released, converted",
+            "to the library's columns with a `split` column naming each row's",
+            "split, plus a `manifest.json` recording its checksum, row count",
+            "and the split scheme.",
         ]
     body += [
         "",
