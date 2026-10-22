@@ -277,7 +277,10 @@ class SPPTask(Task):
         #: the file is a download the task is given rather than fetches, and
         #: forgetting it otherwise trains on whatever vocabulary the corpus
         #: happens to produce and reports numbers for it.
-        self.requires_embeddings = requires_embeddings or vocabulary_from == "vectors"
+        self.requires_embeddings = requires_embeddings or vocabulary_from in (
+            "splits",
+            "vectors",
+        )
         if self.requires_embeddings and self.embeddings is None:
             raise ValueError(
                 f"{self.name}: this task embeds from a vector file and was "
@@ -431,7 +434,8 @@ class SPPTask(Task):
                 add_special_tokens=self.add_special_tokens,
             )
         # Fitted on the training split alone, and on nothing at all when a
-        # corpus has none: a vocabulary that saw the evaluation text leaks it.
+        # corpus has none: a learned table over the evaluation text leaks it.
+        # Only a vector file may read every split, through ``"splits"``.
         training = [splits["train"]] if "train" in splits else []
         if self.embeddings is not None:
             read = (

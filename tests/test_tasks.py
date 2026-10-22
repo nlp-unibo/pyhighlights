@@ -395,6 +395,8 @@ def test_a_task_that_embeds_from_a_file_refuses_to_run_without_one():
     with pytest.raises(ValueError, match="given none"):
         SPPTask(loader=TOY, model=GRU_FR, vocabulary_from="vectors")
     with pytest.raises(ValueError, match="given none"):
+        SPPTask(loader=TOY, model=GRU_FR, vocabulary_from="splits")
+    with pytest.raises(ValueError, match="given none"):
         SPPTask(loader=TOY, model=GRU_FR, requires_embeddings=True)
     with pytest.raises(ValueError, match="'corpus', 'splits' or 'vectors'"):
         SPPTask(loader=TOY, model=GRU_FR, vocabulary_from="glove")
