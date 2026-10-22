@@ -81,13 +81,14 @@ class TaskConfig(Configuration):
     embeddings: str | None = Param(None)
     pretrained_tokens_only: bool = Param(True)
     #: ``"corpus"`` fits the vocabulary on the training split and looks its
-    #: tokens up in the vector file; ``"vectors"`` takes the file's own
-    #: vocabulary whole, so nothing the file covers is ever unknown. The
-    #: second needs ``embeddings`` and refuses to build without it.
+    #: tokens up in the vector file; ``"splits"`` does the same over every
+    #: split; ``"vectors"`` takes the file's own vocabulary whole, so nothing
+    #: the file covers is ever unknown. The last two need ``embeddings`` and
+    #: refuse to build without them.
     vocabulary_from: str = Param("corpus")
     #: Refuse to build without ``embeddings``, for a reproduction whose
     #: numbers are a released vector file's. Implied by
-    #: ``vocabulary_from="vectors"``.
+    #: ``vocabulary_from="splits"`` and ``vocabulary_from="vectors"``.
     requires_embeddings: bool = Param(False)
     #: Build a one-hot table of this width instead of reading or learning one,
     #: for a corpus whose tokens are symbols. See

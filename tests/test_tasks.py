@@ -352,6 +352,40 @@ def test_a_task_can_take_the_vector_file_s_own_vocabulary(tmp_path):
     assert whole.build_model().selector_backbone.embedding.num_embeddings == 4
 
 
+def test_every_token_of_every_split_gets_a_row_of_its_own(tmp_path):
+    """A token the file lacks is not collapsed onto another, in any split.
+
+    Under ``vocabulary_from="splits"`` an evaluation token keeps its vector
+    when the file has one, and any token the file lacks gets a random row of
+    its own, drawn from one fixed seed.
+    """
+    build_registry()
+    vectors = tmp_path / "vectors.txt"
+    vectors.write_text("e 0.5 0.5\nq 0.25 0.25\n")
+    splits = {
+        "train": pd.DataFrame({"tokens": [["e", "y"]]}),
+        "test": pd.DataFrame({"tokens": [["q", "w"]]}),
+    }
+
+    def built():
+        task = SPPTask(
+            loader=TOY,
+            model=GRU_FR,
+            save_path=str(tmp_path),
+            embeddings=str(vectors),
+            vocabulary_from="splits",
+            pretrained_tokens_only=False,
+        )
+        return task.tokenizer(splits).vocabulary, task._embedding_matrix
+
+    vocabulary, matrix = built()
+    assert set(vocabulary) == {"e", "q", "w", "y"}
+    assert th.equal(matrix[vocabulary["q"]], th.tensor([0.25, 0.25]))
+    invented = matrix[[vocabulary["w"], vocabulary["y"]]]
+    assert invented.abs().max() <= 0.05 and not th.equal(invented[0], invented[1])
+    assert th.equal(built()[1], matrix)
+
+
 def test_a_task_that_embeds_from_a_file_refuses_to_run_without_one():
     """Forgetting the vector file is a run, not a crash, unless this refuses.
 
@@ -361,8 +395,10 @@ def test_a_task_that_embeds_from_a_file_refuses_to_run_without_one():
     with pytest.raises(ValueError, match="given none"):
         SPPTask(loader=TOY, model=GRU_FR, vocabulary_from="vectors")
     with pytest.raises(ValueError, match="given none"):
+        SPPTask(loader=TOY, model=GRU_FR, vocabulary_from="splits")
+    with pytest.raises(ValueError, match="given none"):
         SPPTask(loader=TOY, model=GRU_FR, requires_embeddings=True)
-    with pytest.raises(ValueError, match="'corpus' or 'vectors'"):
+    with pytest.raises(ValueError, match="'corpus', 'splits' or 'vectors'"):
         SPPTask(loader=TOY, model=GRU_FR, vocabulary_from="glove")
 
 

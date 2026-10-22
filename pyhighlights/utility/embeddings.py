@@ -73,7 +73,10 @@ def load_vectors(
     vector for. ``True`` drops it, so every row is a released vector and the
     unknown id absorbs the rest. A reproduction usually wants this, since a
     randomly initialised row inside a frozen table is noise nothing can learn
-    away. ``False`` keeps the token and gives it a random row.
+    away. ``False`` keeps the token and gives it a row of its own drawn from
+    ``uniform(-0.05, 0.05)``, the scale GenSPP's reference gives a word GloVe
+    lacks. Rows are drawn in sorted token order, so one ``generator`` seed
+    gives one table.
 
     Rows ``0`` and ``1`` are zeros and belong to the padding and unknown ids,
     matching :class:`~pyhighlights.components.data.VocabularyTokenizer`, so the
@@ -116,6 +119,6 @@ def load_vectors(
     )
     for token in missing:
         vocabulary[token] = len(vectors) + 2
-        vectors.append(th.randn(width, generator=generator))
+        vectors.append(th.empty(width).uniform_(-0.05, 0.05, generator=generator))
 
     return vocabulary, th.stack([th.zeros(width), th.zeros(width), *vectors])
