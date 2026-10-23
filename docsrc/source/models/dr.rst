@@ -46,7 +46,7 @@ As the selection settles and becomes informative, the factor rises, so the restr
    \qquad
    \eta_{\text{predictor}} = \eta \cdot \max\!\left( \frac{\sum_{i,t} h^{(i)}_t}{\sum_{i,t} m^{(i)}_t},\; \texttt{scale\_floor} \right)
 
-The floor comes from the reference implementation, and so does one exception: a step that kept no word at all trains the predictor at the selector's rate.
+The floor comes from the reference implementation.
 A selection keeping almost nothing would otherwise stop the predictor entirely.
 A predictor that never moves cannot tell the selector which words were worth keeping.
 
@@ -101,6 +101,16 @@ Differences from the reference implementation
 The reference implementation divides the selected positions of a batch, padding included, by its valid words.
 A selection drawn over padding therefore raises its predictor's rate.
 Here only valid words are counted, as the formula above states.
+
+The reference implementation sets the rate factor to one when a batch's selection rate is exactly zero.
+A batch that kept no word therefore trains the predictor at the selector's full rate.
+This library treats that as an error and floors that batch like any other sparse one.
+
+The method's premise is that a predictor reading uninformative text should learn slowly, so that it cannot overfit what an untrained selector hands it.
+An empty selection is the least informative input there is, since the predictor reads no word.
+Its only learnable response is to move its output bias toward the labels of the batch.
+Training it at the full rate there does the opposite of what the method prescribes.
+The rule is also discontinuous: a selection rate of 0.001 trains the predictor at 0.05 of the selector's rate, and a selection rate of 0 at the full rate.
 
 The reference implementation's predictor encoder is not normalised: its ``layernorm2`` is built and never applied.
 ``GRU_DR`` uses an unnormalised predictor backbone to match, and its selector backbone normalises, as the reference generator does.

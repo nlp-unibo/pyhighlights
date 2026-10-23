@@ -102,14 +102,14 @@ def test_a_selection_that_keeps_almost_nothing_hits_the_floor():
     assert predictor == [BASE_LR * 0.5]
 
 
-def test_a_step_that_kept_nothing_trains_the_predictor_at_the_selector_rate():
-    """The reference implementation sets the factor to one at zero sparsity."""
+def test_a_step_that_kept_nothing_is_floored_like_any_sparse_one():
+    """The reference trains the predictor at the full rate there; an error."""
     model = Registry.from_key(GRU_DR)
     optimizer = model.configure_optimizers()
 
     step_after(model, optimizer, 0)
     predictor, _ = rates(model, optimizer)
-    assert predictor == [BASE_LR]
+    assert predictor == [BASE_LR * model.scale_floor]
 
 
 def test_the_predictor_encodes_without_layer_normalisation():

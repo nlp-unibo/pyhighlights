@@ -119,10 +119,10 @@ class DR(SPP):
         if th.distributed.is_available() and th.distributed.is_initialized():
             th.distributed.all_reduce(counts)
         kept, valid = counts.tolist()
-        # A step that kept nothing trains the predictor at the selector's
-        # rate, as the reference implementation does: its rate factor is the
-        # batch sparsity, except that a sparsity of zero sets it to one.
-        scale = 1.0 if kept == 0 else max(kept / max(valid, 1.0), self.scale_floor)
+        # A step that kept nothing is floored like any sparse one. The
+        # reference implementation trains the predictor at the selector's
+        # rate there instead, which `dr.rst` documents as an error.
+        scale = max(kept / max(valid, 1.0), self.scale_floor)
         for index, base in self.predictor_rates.items():
             optimizer.param_groups[index]["lr"] = base * scale
 
