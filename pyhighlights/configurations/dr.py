@@ -6,9 +6,9 @@ from cinnamon.registry import RegistrationKey, register_class
 from pyhighlights.components.models.spp.base import SPPBackbone
 from pyhighlights.configurations.base import SPPModelConfig
 from pyhighlights.configurations.keys import (
-    GRU_BACKBONE,
     NAMESPACE,
     TRANSFORMER_BACKBONE,
+    UNNORMALISED_GRU_BACKBONE,
 )
 
 DR_COMPONENT = "pyhighlights.components.models.spp.dr.DR"
@@ -19,9 +19,14 @@ DR_COMPONENT = "pyhighlights.components.models.spp.dr.DR"
 )
 class GRUDRConfig(SPPModelConfig):
     name: str = Param("dr")
+    #: As the original implementation: a sampled selection at evaluation and
+    #: no empty-selection repair.
+    sample_at_evaluation: bool = Param(True)
+    repair_empty_selections: bool = Param(False)
     #: Separate encoders: DR decouples the two rates, and a shared encoder
-    #: would take both of them.
-    predictor_backbone: RegistrationKey[SPPBackbone] = Param(GRU_BACKBONE)
+    #: would take both of them. Unnormalised, as the original implementation's
+    #: predictor encoder, whose `layernorm2` is built and never applied.
+    predictor_backbone: RegistrationKey[SPPBackbone] = Param(UNNORMALISED_GRU_BACKBONE)
     #: The floor under the predictor's rate, as a fraction of the selector's.
     #: The reference implementation's value. Below it a sparse selection stops
     #: the predictor outright, and a predictor that never moves teaches the

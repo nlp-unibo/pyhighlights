@@ -46,7 +46,7 @@ As the selection settles and becomes informative, the factor rises, so the restr
    \qquad
    \eta_{\text{predictor}} = \eta \cdot \max\!\left( \frac{\sum_{i,t} h^{(i)}_t}{\sum_{i,t} m^{(i)}_t},\; \texttt{scale\_floor} \right)
 
-The floor comes from the reference implementation.
+The floor comes from the reference implementation, and so does one exception: a step that kept no word at all trains the predictor at the selector's rate.
 A selection keeping almost nothing would otherwise stop the predictor entirely.
 A predictor that never moves cannot tell the selector which words were worth keeping.
 
@@ -97,6 +97,16 @@ Nothing in the library configures one.
 
 Differences from the reference implementation
 ---------------------------------------------
+
+The reference implementation divides the selected positions of a batch, padding included, by its valid words.
+A selection drawn over padding therefore raises its predictor's rate.
+Here only valid words are counted, as the formula above states.
+
+The reference implementation's predictor encoder is not normalised: its ``layernorm2`` is built and never applied.
+``GRU_DR`` uses an unnormalised predictor backbone to match, and its selector backbone normalises, as the reference generator does.
+
+The reference implementation draws a hard Gumbel sample at evaluation as well as in training, and leaves an empty selection empty.
+``GRU_DR`` and ``TRANSFORMER_DR`` do the same, as :ref:`selection-rules` on the FR page lists for the other baselines.
 
 The sparsity and contiguity penalties also differ from the reference implementation, as :ref:`penalty-differences` on the FR page describes.
 

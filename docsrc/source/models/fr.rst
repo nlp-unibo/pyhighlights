@@ -157,7 +157,7 @@ Second, exactly one selector is allowed, since folding is defined for a pair and
 Selection rules
 ---------------
 
-The reference implementations of FR, MCD, MGR, G-RAT and DAR agree on two rules where the library's defaults differ, and their configurations set each rule as their reference does.
+The reference implementations of FR, MCD, MGR, G-RAT, DAR and DR agree on two rules where the library's defaults differ, and their configurations set each rule as their reference does.
 
 .. list-table::
    :header-rows: 1
@@ -167,13 +167,13 @@ The reference implementations of FR, MCD, MGR, G-RAT and DAR agree on two rules 
      - Reference implementations
      - Library default
    * - ``sample_at_evaluation``
-     - FR, MCD, MGR and DAR draw a hard Gumbel sample at evaluation too, since ``F.gumbel_softmax`` ignores ``eval()``. G-RAT thresholds the probability at 0.5, which is the argmax.
+     - FR, MCD, MGR, DAR and DR draw a hard Gumbel sample at evaluation too, since ``F.gumbel_softmax`` ignores ``eval()``. G-RAT thresholds the probability at 0.5, which is the argmax.
      - ``False``, the argmax
    * - ``repair_empty_selections``
      - None. An empty selection reaches the predictor as it is.
      - ``True``, keeps the highest-scoring word
 
-The GRU and transformer configurations of the five models set both as their reference does.
+The GRU and transformer configurations of the six models set both as their reference does.
 
 A selection sampled at evaluation makes the test predictions random.
 The test pass is therefore seeded with the run's seed, and ``replay_predictions`` seeds its own pass the same way.

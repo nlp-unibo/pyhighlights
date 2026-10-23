@@ -14,6 +14,7 @@ from pyhighlights.configurations.keys import (
     ADAM,
     GRU_BACKBONE,
     GRU_DAR,
+    GRU_DR,
     GRU_FR,
     GRU_GRAT,
     GRU_MCD,
@@ -460,8 +461,8 @@ def test_an_invalid_model_is_refused_before_a_backbone_is_built(monkeypatch, upd
 
 
 def test_the_baselines_select_as_their_originals_do():
-    """FR, MCD, MGR and DAR sample at evaluation, and G-RAT thresholds at 0.5,
-    its argmax. None of the five repairs an empty selection.
+    """FR, MCD, MGR, DAR and DR sample at evaluation, and G-RAT thresholds at
+    0.5, its argmax. None of the six repairs an empty selection.
     """
     Registry.build(directory=Path(pyhighlights.__file__).parent)
     for key, samples in (
@@ -470,6 +471,7 @@ def test_the_baselines_select_as_their_originals_do():
         (GRU_MGR, True),
         (GRU_GRAT, False),
         (GRU_DAR, True),
+        (GRU_DR, True),
     ):
         config = Registry.retrieve_configuration(key)
         assert config.sample_at_evaluation is samples

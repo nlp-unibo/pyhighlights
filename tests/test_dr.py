@@ -102,6 +102,24 @@ def test_a_selection_that_keeps_almost_nothing_hits_the_floor():
     assert predictor == [BASE_LR * 0.5]
 
 
+def test_a_step_that_kept_nothing_trains_the_predictor_at_the_selector_rate():
+    """The reference implementation sets the factor to one at zero sparsity."""
+    model = Registry.from_key(GRU_DR)
+    optimizer = model.configure_optimizers()
+
+    step_after(model, optimizer, 0)
+    predictor, _ = rates(model, optimizer)
+    assert predictor == [BASE_LR]
+
+
+def test_the_predictor_encodes_without_layer_normalisation():
+    """The reference builds a predictor `LayerNorm` and never applies it."""
+    model = Registry.from_key(GRU_DR)
+
+    assert isinstance(model.selector_backbones[0].layer_norm, th.nn.LayerNorm)
+    assert isinstance(model.predictor_backbone.layer_norm, th.nn.Identity)
+
+
 def test_accumulated_batches_are_one_rate_for_one_step():
     """A step is the unit, not a batch: four batches, one rate over their tokens."""
     model = Registry.from_key(GRU_DR)
