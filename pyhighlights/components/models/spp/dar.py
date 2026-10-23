@@ -152,38 +152,36 @@ class DAR(SPP):
             self.aligner.eval()
         return self
 
-    def aligner_f1(self, loader) -> float:
-        """The aligner's F1 on the full input of ``loader``.
+    def aligner_validation_loss(self, loader) -> float:
+        """The aligner's loss on the full input of ``loader``, per example.
 
-        Two classes score the F1 of class ``1``, as the reference
-        implementation does, and more classes score the macro F1. The counts
-        are summed across processes, so every process reads the same score.
-        A class with no predictions and no examples scores zero.
+        The loss it is pretrained on, ``aligner_loss``, averaged over examples
+        rather than over batch means, so a short last batch weighs what it
+        holds. The sums are reduced across processes, so every process reads
+        the same value.
         """
         limit = self.trainer.num_val_batches[0]
         batches = loader if limit == float("inf") else islice(loader, int(limit))
-        counts = None
+        totals = None
         with th.no_grad():
             for batch in batches:
                 batch = self.transfer_batch_to_device(batch, self.device, 0)
-                logits = self.align_full(batch)
-                classes = logits.shape[-1]
-                predicted = th.nn.functional.one_hot(logits.argmax(-1), classes)
-                actual = th.nn.functional.one_hot(batch.y_true.long(), classes)
+                loss, _ = compute_losses(
+                    [self.aligner_loss],
+                    {**batch.as_dict(), "aligner_class_logits": self.align_full(batch)},
+                )
+                size = batch.y_true.shape[0]
                 found = th.stack(
                     [
-                        (predicted * actual).sum(0),
-                        (predicted * (1 - actual)).sum(0),
-                        ((1 - predicted) * actual).sum(0),
+                        loss.detach().double() * size,
+                        loss.new_tensor(size, dtype=th.double),
                     ]
                 )
-                counts = found if counts is None else counts + found
-        if counts is None:
+                totals = found if totals is None else totals + found
+        if totals is None:
             raise RuntimeError("DAR scores its aligner on at least one batch")
-        counts = self.trainer.strategy.reduce(counts, reduce_op="sum")
-        hits, false_alarms, misses = counts.double()
-        f1 = 2 * hits / (2 * hits + false_alarms + misses).clamp(min=1)
-        return float(f1[1] if len(f1) == 2 else f1.mean())
+        total, examples = self.trainer.strategy.reduce(totals, reduce_op="sum")
+        return float(total / examples)
 
     def pretrain_aligner(self) -> None:
         """Train the aligner on the full input, then freeze it.
@@ -193,10 +191,12 @@ class DAR(SPP):
         could co-adapt to the highlight, which is the thing it exists not to
         do.
 
-        With a validation loader, the aligner of the epoch with the highest
-        :meth:`aligner_f1` on it is the one kept, as in the reference
-        implementation. The first such epoch wins a tie. Without one, or with
-        ``limit_val_batches=0``, the aligner of the last epoch is kept.
+        With a validation loader, the aligner of the epoch with the lowest
+        :meth:`aligner_validation_loss` on it is the one kept. The reference
+        implementation keeps the epoch of the highest F1 of class ``1``
+        instead. A loss is what the aligner is trained on, and it reads every
+        class. The first such epoch wins a tie. Without a validation loader,
+        or with ``limit_val_batches=0``, the aligner of the last epoch is kept.
         """
         loader = self.trainer.train_dataloader
         if loader is None:
@@ -204,7 +204,7 @@ class DAR(SPP):
         validation = self.trainer.val_dataloaders
         if validation is not None and not self.trainer.num_val_batches[0]:
             validation = None
-        best_f1, best = -1.0, None
+        best_loss, best = float("inf"), None
         for parameter in self._aligner_trainable:
             parameter.requires_grad_(True)
         optimizer = self.build_optimizer([(self._aligner_trainable, 1.0)])
@@ -245,27 +245,27 @@ class DAR(SPP):
                 optimizer.step()
                 total += loss.item()
                 batches += 1
-            f1 = float("nan")
+            validation_loss = float("nan")
             if validation is not None:
                 mode = self.aligner.training
                 self.aligner_backbone.eval()
                 self.aligner.eval()
-                f1 = self.aligner_f1(validation)
+                validation_loss = self.aligner_validation_loss(validation)
                 self.aligner_backbone.train(mode)
                 self.aligner.train(mode)
-                if f1 > best_f1:
-                    best_f1 = f1
+                if validation_loss < best_loss:
+                    best_loss = validation_loss
                     best = [
                         parameter.detach().clone()
                         for parameter in self._aligner_trainable
                     ]
             logger.info(
-                "%s: aligner pretraining epoch %s/%s, loss %.4f, validation F1 %.4f",
+                "%s: aligner pretraining epoch %s/%s, loss %.4f, validation loss %.4f",
                 self.name,
                 epoch + 1,
                 self.pretrain_epochs,
                 total / max(batches, 1),
-                f1,
+                validation_loss,
             )
         if best is not None:
             with th.no_grad():

@@ -56,7 +56,7 @@ Training
 Pretraining first, then an ordinary single-optimizer loop.
 
 1. Before the first rationalization epoch, the aligner is trained on the full input for ``pretrain_epochs`` epochs, in a loop the model drives itself.
-   After each epoch, its F1 on the full input of the validation split is computed, and the aligner of the best epoch is kept, as in the reference implementation.
+   After each epoch, its loss on the full input of the validation split is computed, and the aligner of the epoch with the lowest loss is kept.
 2. Its parameters are frozen and it is set to evaluation mode. A flag in a buffer records this, so a resumed run finds it trained rather than pretraining a second one.
 3. Every batch afterwards selects, predicts from the highlight, and asks the frozen aligner to predict from the same highlight.
 4. The four terms are summed and one backward pass updates the generator and the predictor, never the aligner.
@@ -96,6 +96,13 @@ Its dropout therefore runs on every highlight the aligner scores, and the alignm
 This library treats that as an error in the reference.
 Once frozen, the aligner stays in evaluation mode, and the alignment term is a fixed function of the highlight.
 
+The reference implementation keeps the aligner of the epoch with the highest F1 of class ``1`` on the validation split.
+This library keeps the epoch with the lowest validation loss instead, the loss the aligner is trained on.
+A loss reads every class and every prediction's confidence, and it is the quantity the rationalizer's own checkpoints are chosen on.
+
+The reference implementation draws a hard Gumbel sample at evaluation as well as in training, and leaves an empty selection empty.
+``GRU_DAR`` and ``TRANSFORMER_DAR`` do the same, as :ref:`selection-rules` on the FR page lists for the other baselines.
+
 The sparsity and contiguity penalties also differ from the reference implementation, as :ref:`penalty-differences` on the FR page describes.
 
 Configuration
@@ -121,7 +128,7 @@ Configuration
    Registry.from_key(GRU_DAR, pretrain_epochs=50)
 
 ``pretrain_epochs`` sets the length of the pretraining.
-The aligner of the epoch with the highest validation F1 is kept: the F1 of class ``1`` for two classes, and the macro F1 for more.
+The aligner of the epoch with the lowest validation loss is kept, averaged over examples.
 Without a validation loader, or with ``limit_val_batches=0``, the aligner of the last epoch is kept.
 ``aligner_backbone`` is the aligner's own encoder and its head is built from ``predictor``, since the two modules answer the same question about the same labels.
 The alignment term is appended to ``losses`` by the model rather than declared in the list, so a registration cannot forget the term the method is.
