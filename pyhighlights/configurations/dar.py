@@ -21,6 +21,10 @@ DAR_COMPONENT = "pyhighlights.components.models.spp.dar.DAR"
 )
 class GRUDARConfig(SPPModelConfig):
     name: str = Param("dar")
+    #: As the original implementation: a sampled selection at evaluation and
+    #: no empty-selection repair.
+    sample_at_evaluation: bool = Param(True)
+    repair_empty_selections: bool = Param(False)
     #: Separate encoders: the predictor reads highlights and the aligner reads
     #: full text, and one encoder trained on both is the drift DAR is about.
     predictor_backbone: RegistrationKey[SPPBackbone] = Param(GRU_BACKBONE)
@@ -32,8 +36,8 @@ class GRUDARConfig(SPPModelConfig):
     #: registration cannot forget the term the method is.
     aligner_loss: RegistrationKey[Loss] = Param(ALIGNMENT_CLASSIFICATION_LOSS)
     #: Epochs the aligner spends on the full input before the first
-    #: rationalization epoch. The aligner of the epoch with the highest
-    #: validation F1 is kept, or that of the last epoch without validation.
+    #: rationalization epoch. The aligner of the epoch with the lowest
+    #: validation loss is kept, or that of the last epoch without validation.
     pretrain_epochs: int = Param(20, ge=1)
 
 
