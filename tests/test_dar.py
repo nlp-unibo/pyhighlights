@@ -269,11 +269,11 @@ def test_every_process_pretrains_the_same_aligner(tmp_path):
     assert processes_agree("GRU_DAR", tmp_path)
 
 
-def test_the_aligner_of_the_best_validation_epoch_is_kept(tmp_path):
-    """The reference implementation reloads the aligner of its best epoch."""
+def test_the_aligner_of_the_lowest_validation_loss_is_kept(tmp_path):
+    """The aligner is selected on its loss, not on an F1 of one class."""
     model = Registry.from_key(GRU_DAR, pretrain_epochs=3)
     loader = toy_loader(tmp_path)
-    scores = iter([0.2, 0.9, 0.5])
+    scores = iter([0.9, 0.2, 0.5])
     snapshots = []
 
     def score(validation):
@@ -282,7 +282,7 @@ def test_the_aligner_of_the_best_validation_epoch_is_kept(tmp_path):
         )
         return next(scores)
 
-    model.aligner_f1 = score
+    model.aligner_validation_loss = score
     L.Trainer(
         accelerator="cpu",
         max_epochs=1,
@@ -305,27 +305,22 @@ def test_the_aligner_of_the_best_validation_epoch_is_kept(tmp_path):
     )
 
 
-@pytest.mark.parametrize(
-    "logits, expected",
-    [
-        # Class 1: two hits, one false alarm, one miss.
-        ([[0, 1], [0, 1], [0, 1], [1, 0], [1, 0]], 2 * 2 / (2 * 2 + 1 + 1)),
-        # Three classes, one of them never predicted: the macro F1.
-        (
-            [[1, 0, 0], [0, 1, 0], [0, 1, 0], [1, 0, 0], [1, 0, 0]],
-            (0.8 + 1.0 + 0.0) / 3,
-        ),
-    ],
-)
-def test_the_aligner_is_scored_by_f1_on_the_full_input(logits, expected):
-    labels = [1, 1, 0, 1, 0] if len(logits[0]) == 2 else [0, 1, 1, 2, 0]
+def test_the_aligner_is_scored_by_its_loss_per_example():
+    """Averaged over examples, so a short last batch weighs what it holds."""
     model = Registry.from_key(GRU_DAR)
     model._trainer = SimpleNamespace(
         num_val_batches=[float("inf")],
-        strategy=SimpleNamespace(reduce=lambda counts, reduce_op: counts),
+        strategy=SimpleNamespace(reduce=lambda totals, reduce_op: totals),
     )
-    model.align_full = lambda batch: th.tensor(logits, dtype=th.float)
-    batch = batch_of(size=len(labels))
-    batch.y_true = th.tensor(labels)
+    logits = {3: th.tensor([[2.0, 0.0]] * 3), 1: th.tensor([[0.0, 3.0]])}
+    model.align_full = lambda batch: logits[batch.y_true.shape[0]]
+    batches = []
+    for labels in ([0, 0, 1], [0]):
+        batch = batch_of(size=len(labels))
+        batch.y_true = th.tensor(labels)
+        batches.append(batch)
 
-    assert model.aligner_f1([batch]) == pytest.approx(expected)
+    every = th.nn.functional.cross_entropy(
+        th.cat([logits[3], logits[1]]), th.tensor([0, 0, 1, 0]), reduction="none"
+    )
+    assert model.aligner_validation_loss(batches) == pytest.approx(float(every.mean()))
