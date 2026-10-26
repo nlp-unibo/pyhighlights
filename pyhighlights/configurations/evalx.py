@@ -11,8 +11,8 @@ from pyhighlights.configurations.base import SPPShapeConfig
 from pyhighlights.configurations.keys import (
     CLASSIFICATION_LOSS,
     GRU_EVALX,
-    NAMESPACE,
     RANDOM_SELECTOR,
+    TOY_EVALX_TASK,
 )
 from pyhighlights.configurations.tasks import ToyTaskConfig
 from pyhighlights.utility.losses import Loss
@@ -21,9 +21,7 @@ EVALX_COMPONENT = "pyhighlights.components.models.spp.evalx.EvalX"
 
 
 @register_class(
-    name="selector",
-    tags={"random"},
-    namespace=NAMESPACE,
+    key=RANDOM_SELECTOR,
     component="pyhighlights.components.models.spp.evalx.RandomSelector",
 )
 class RandomSelectorConfig(Configuration):
@@ -35,9 +33,7 @@ class RandomSelectorConfig(Configuration):
     max_keep: float = Param(1.0, ge=0.0, le=1.0)
 
 
-@register_class(
-    name="model", tags={"evalx", "gru"}, namespace=NAMESPACE, component=EVALX_COMPONENT
-)
+@register_class(key=GRU_EVALX, component=EVALX_COMPONENT)
 class GRUEvalXConfig(SPPShapeConfig):
     name: str = Param("evalx")
     selectors: RegistrationKey[SPPSelector] = Param(RANDOM_SELECTOR)
@@ -47,9 +43,7 @@ class GRUEvalXConfig(SPPShapeConfig):
 
 
 @register_class(
-    name="task",
-    tags={"evalx", "toy"},
-    namespace=NAMESPACE,
+    key=TOY_EVALX_TASK,
     component="pyhighlights.components.tasks.SPPTask",
     run_method="run",
 )

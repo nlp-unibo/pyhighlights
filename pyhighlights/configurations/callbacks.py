@@ -14,16 +14,20 @@ not the one its stopping rule chose.
 from cinnamon.configuration import Configuration, Param
 from cinnamon.registry import register_class
 
-from pyhighlights.configurations.keys import NAMESPACE
+from pyhighlights.configurations.keys import (
+    GENERALIZATION_LOSS_SCORE,
+    LOSS_CHECKPOINT,
+    LOSS_EARLY_STOPPING,
+    SCORE_CHECKPOINT,
+    SCORE_EARLY_STOPPING,
+)
 
 EARLY_STOPPING = "pyhighlights.components.callbacks.WarmupEarlyStopping"
 CHECKPOINT = "pyhighlights.components.callbacks.WarmupModelCheckpoint"
 
 
 @register_class(
-    name="callback",
-    tags={"score", "generalization_loss"},
-    namespace=NAMESPACE,
+    key=GENERALIZATION_LOSS_SCORE,
     component="pyhighlights.components.callbacks.GeneralizationLossScore",
 )
 class GeneralizationLossScoreConfig(Configuration):
@@ -39,12 +43,7 @@ class GeneralizationLossScoreConfig(Configuration):
     name: str = Param("val_score")
 
 
-@register_class(
-    name="callback",
-    tags={"early_stopping", "loss"},
-    namespace=NAMESPACE,
-    component=EARLY_STOPPING,
-)
+@register_class(key=LOSS_EARLY_STOPPING, component=EARLY_STOPPING)
 class LossEarlyStoppingConfig(Configuration):
     """Stop when the validation loss stops falling."""
 
@@ -53,12 +52,7 @@ class LossEarlyStoppingConfig(Configuration):
     patience: int = Param(5, ge=0)
 
 
-@register_class(
-    name="callback",
-    tags={"checkpoint", "loss"},
-    namespace=NAMESPACE,
-    component=CHECKPOINT,
-)
+@register_class(key=LOSS_CHECKPOINT, component=CHECKPOINT)
 class LossCheckpointConfig(Configuration):
     """Keep the epoch with the lowest validation loss."""
 
@@ -66,12 +60,7 @@ class LossCheckpointConfig(Configuration):
     mode: str = Param("min")
 
 
-@register_class(
-    name="callback",
-    tags={"early_stopping", "score"},
-    namespace=NAMESPACE,
-    component=EARLY_STOPPING,
-)
+@register_class(key=SCORE_EARLY_STOPPING, component=EARLY_STOPPING)
 class ScoreEarlyStoppingConfig(Configuration):
     """Stop when the combined score stops rising."""
 
@@ -80,12 +69,7 @@ class ScoreEarlyStoppingConfig(Configuration):
     patience: int = Param(5, ge=0)
 
 
-@register_class(
-    name="callback",
-    tags={"checkpoint", "score"},
-    namespace=NAMESPACE,
-    component=CHECKPOINT,
-)
+@register_class(key=SCORE_CHECKPOINT, component=CHECKPOINT)
 class ScoreCheckpointConfig(Configuration):
     """Keep the epoch with the highest combined score."""
 

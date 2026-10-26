@@ -29,12 +29,14 @@ from pyhighlights.configurations.keys import (
     HIGHLIGHT_RECALL_METRIC,
     LOSS_CHECKPOINT,
     LOSS_EARLY_STOPPING,
-    NAMESPACE,
     SELECTION_RATE_METRIC,
     SELECTION_SIZE_METRIC,
     SELECTION_SPANS_METRIC,
     TOY,
+    TOY_CLASS_WEIGHTS_TASK,
+    TOY_GENSPP_TASK,
     TOY_GENSPP_TRAINER,
+    TOY_TASK,
 )
 from pyhighlights.utility.losses import Loss
 from pyhighlights.utility.metrics import BoundMetric
@@ -154,11 +156,7 @@ class TaskConfig(Configuration):
 
 
 @register_class(
-    name="task",
-    tags={"toy"},
-    namespace=NAMESPACE,
-    component="pyhighlights.components.tasks.SPPTask",
-    run_method="run",
+    key=TOY_TASK, component="pyhighlights.components.tasks.SPPTask", run_method="run"
 )
 class ToyTaskConfig(TaskConfig):
     """The synthetic corpus against FR: a smoke test that trains in seconds."""
@@ -192,9 +190,7 @@ class ClassWeightsTaskConfig(Configuration):
 
 
 @register_class(
-    name="task",
-    tags={"class_weights", "toy"},
-    namespace=NAMESPACE,
+    key=TOY_CLASS_WEIGHTS_TASK,
     component="pyhighlights.components.tasks.ClassWeightsTask",
     run_method="run",
 )
@@ -222,9 +218,7 @@ class GenSPPTaskConfig(TaskConfig):
 
 
 @register_class(
-    name="task",
-    tags={"genspp", "toy"},
-    namespace=NAMESPACE,
+    key=TOY_GENSPP_TASK,
     component="pyhighlights.components.tasks.GenSPPTask",
     run_method="run",
 )

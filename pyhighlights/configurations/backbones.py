@@ -5,13 +5,20 @@ from typing import List
 from cinnamon.configuration import Configuration, Param
 from cinnamon.registry import register_class
 
-from pyhighlights.configurations.keys import NAMESPACE
+from pyhighlights.configurations.keys import (
+    FROZEN_TRANSFORMER_BACKBONE,
+    GRU_BACKBONE,
+    MLP_PREDICTOR,
+    MLP_SELECTOR,
+    SIGMOID_SELECTOR,
+    STACKED_BACKBONE,
+    TRANSFORMER_BACKBONE,
+    UNNORMALISED_GRU_BACKBONE,
+)
 
 
 @register_class(
-    name="backbone",
-    tags={"gru"},
-    namespace=NAMESPACE,
+    key=GRU_BACKBONE,
     component="pyhighlights.components.models.spp.implementations.GRUBackbone",
 )
 class GRUBackboneConfig(Configuration):
@@ -31,9 +38,7 @@ class GRUBackboneConfig(Configuration):
 
 
 @register_class(
-    name="backbone",
-    tags={"gru", "unnormalised"},
-    namespace=NAMESPACE,
+    key=UNNORMALISED_GRU_BACKBONE,
     component="pyhighlights.components.models.spp.implementations.GRUBackbone",
 )
 class UnnormalisedGRUBackboneConfig(GRUBackboneConfig):
@@ -47,9 +52,7 @@ class UnnormalisedGRUBackboneConfig(GRUBackboneConfig):
 
 
 @register_class(
-    name="backbone",
-    tags={"transformer"},
-    namespace=NAMESPACE,
+    key=TRANSFORMER_BACKBONE,
     component="pyhighlights.components.models.spp.implementations.TransformerBackbone",
 )
 class TransformerBackboneConfig(Configuration):
@@ -59,9 +62,7 @@ class TransformerBackboneConfig(Configuration):
 
 
 @register_class(
-    name="backbone",
-    tags={"transformer", "frozen"},
-    namespace=NAMESPACE,
+    key=FROZEN_TRANSFORMER_BACKBONE,
     component="pyhighlights.components.models.spp.implementations.TransformerBackbone",
 )
 class FrozenTransformerBackboneConfig(TransformerBackboneConfig):
@@ -83,9 +84,7 @@ class FrozenTransformerBackboneConfig(TransformerBackboneConfig):
 
 
 @register_class(
-    name="backbone",
-    tags={"transformer", "gru"},
-    namespace=NAMESPACE,
+    key=STACKED_BACKBONE,
     component="pyhighlights.components.models.spp.implementations.StackedBackbone",
 )
 class StackedBackboneConfig(Configuration):
@@ -112,9 +111,7 @@ class StackedBackboneConfig(Configuration):
 
 
 @register_class(
-    name="selector",
-    tags={"mlp"},
-    namespace=NAMESPACE,
+    key=MLP_SELECTOR,
     component="pyhighlights.components.models.spp.implementations.MLPSelector",
 )
 class MLPSelectorConfig(Configuration):
@@ -122,9 +119,7 @@ class MLPSelectorConfig(Configuration):
 
 
 @register_class(
-    name="selector",
-    tags={"sigmoid"},
-    namespace=NAMESPACE,
+    key=SIGMOID_SELECTOR,
     component="pyhighlights.components.models.spp.implementations.SigmoidSelector",
 )
 class SigmoidSelectorConfig(Configuration):
@@ -132,9 +127,7 @@ class SigmoidSelectorConfig(Configuration):
 
 
 @register_class(
-    name="predictor",
-    tags={"mlp"},
-    namespace=NAMESPACE,
+    key=MLP_PREDICTOR,
     component="pyhighlights.components.models.spp.implementations.MLPPredictor",
 )
 class MLPPredictorConfig(Configuration):

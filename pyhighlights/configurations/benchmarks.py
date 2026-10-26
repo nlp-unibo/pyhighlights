@@ -7,7 +7,14 @@ from cinnamon.registry import RegistrationKey, register_class
 
 from pyhighlights.components.analyzers import PREDICTIONS
 from pyhighlights.components.tasks import Task
-from pyhighlights.configurations.keys import NAMESPACE, TOY_TASK
+from pyhighlights.configurations.keys import (
+    HIGHLIGHT_POSITION_ANALYZER,
+    LABEL_STUDIO_EXPORTER,
+    METRICS_ANALYZER,
+    PREDICTION_ANALYZER,
+    TOY_BENCHMARK,
+    TOY_TASK,
+)
 
 
 class BenchmarkConfig(Configuration):
@@ -26,9 +33,7 @@ class BenchmarkConfig(Configuration):
 
 
 @register_class(
-    name="benchmark",
-    tags={"toy"},
-    namespace=NAMESPACE,
+    key=TOY_BENCHMARK,
     component="pyhighlights.components.benchmarks.Benchmark",
     run_method="run",
 )
@@ -39,9 +44,7 @@ class ToyBenchmarkConfig(BenchmarkConfig):
 
 
 @register_class(
-    name="analyzer",
-    tags={"metrics"},
-    namespace=NAMESPACE,
+    key=METRICS_ANALYZER,
     component="pyhighlights.components.analyzers.MetricsAnalyzer",
     run_method="run",
 )
@@ -57,9 +60,7 @@ class MetricsAnalyzerConfig(Configuration):
 
 
 @register_class(
-    name="analyzer",
-    tags={"highlight", "position"},
-    namespace=NAMESPACE,
+    key=HIGHLIGHT_POSITION_ANALYZER,
     component="pyhighlights.components.analyzers.HighlightPositionAnalyzer",
     run_method="run",
 )
@@ -76,9 +77,7 @@ class HighlightPositionAnalyzerConfig(Configuration):
 
 
 @register_class(
-    name="analyzer",
-    tags={"prediction"},
-    namespace=NAMESPACE,
+    key=PREDICTION_ANALYZER,
     component="pyhighlights.components.analyzers.PredictionAnalyzer",
     run_method="run",
 )
@@ -96,9 +95,7 @@ class PredictionAnalyzerConfig(Configuration):
 
 
 @register_class(
-    name="analyzer",
-    tags={"label-studio"},
-    namespace=NAMESPACE,
+    key=LABEL_STUDIO_EXPORTER,
     component="pyhighlights.components.analyzers.LabelStudioExporter",
     run_method="run",
 )

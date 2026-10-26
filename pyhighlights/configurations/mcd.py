@@ -13,8 +13,9 @@ from pyhighlights.configurations.keys import (
     CLASSIFICATION_LOSS,
     DISCREPANCY_LOSS,
     FULL_CLASSIFICATION_LOSS,
-    NAMESPACE,
+    GRU_MCD,
     TRANSFORMER_BACKBONE,
+    TRANSFORMER_MCD,
     UNNORMALISED_GRU_BACKBONE,
 )
 from pyhighlights.utility.losses import Loss
@@ -22,9 +23,7 @@ from pyhighlights.utility.losses import Loss
 MCD_COMPONENT = "pyhighlights.components.models.spp.mcd.MCD"
 
 
-@register_class(
-    name="model", tags={"gru", "mcd"}, namespace=NAMESPACE, component=MCD_COMPONENT
-)
+@register_class(key=GRU_MCD, component=MCD_COMPONENT)
 class GRUMCDConfig(PhasedSPPModelConfig):
     name: str = Param("mcd")
     #: As the original implementation: a sampled selection at evaluation and
@@ -41,12 +40,7 @@ class GRUMCDConfig(PhasedSPPModelConfig):
     generator_losses: List[RegistrationKey[Loss]] = Param([DISCREPANCY_LOSS])
 
 
-@register_class(
-    name="model",
-    tags={"mcd", "transformer"},
-    namespace=NAMESPACE,
-    component=MCD_COMPONENT,
-)
+@register_class(key=TRANSFORMER_MCD, component=MCD_COMPONENT)
 class TransformerMCDConfig(GRUMCDConfig):
     selector_backbones: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)
     predictor_backbone: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)

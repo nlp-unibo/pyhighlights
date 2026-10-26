@@ -12,11 +12,12 @@ from pyhighlights.configurations.keys import (
     CLASSIFICATION_LOSS,
     CONTIGUITY_LOSS,
     ENTAILMENT_COMPARER,
+    GRU_GROUNDED,
     KNOWLEDGE_LOSS,
     KNOWLEDGE_SPARSITY_LOSS,
-    NAMESPACE,
     SPARSITY_LOSS,
     TRANSFORMER_BACKBONE,
+    TRANSFORMER_GROUNDED,
 )
 from pyhighlights.utility.losses import Loss
 
@@ -24,9 +25,7 @@ GROUNDED_COMPONENT = "pyhighlights.components.models.spp.grounded.GroundedSPP"
 
 
 @register_class(
-    name="comparer",
-    tags={"entailment"},
-    namespace=NAMESPACE,
+    key=ENTAILMENT_COMPARER,
     component="pyhighlights.components.models.spp.grounded.EntailmentComparer",
 )
 class EntailmentComparerConfig(Configuration):
@@ -39,12 +38,7 @@ class EntailmentComparerConfig(Configuration):
     hidden_sizes: List[int] = Param([128])
 
 
-@register_class(
-    name="model",
-    tags={"grounded", "gru"},
-    namespace=NAMESPACE,
-    component=GROUNDED_COMPONENT,
-)
+@register_class(key=GRU_GROUNDED, component=GROUNDED_COMPONENT)
 class GRUGroundedConfig(SPPModelConfig):
     """Select-then-predict grounded in a corpus's knowledge base.
 
@@ -68,12 +62,7 @@ class GRUGroundedConfig(SPPModelConfig):
     )
 
 
-@register_class(
-    name="model",
-    tags={"grounded", "transformer"},
-    namespace=NAMESPACE,
-    component=GROUNDED_COMPONENT,
-)
+@register_class(key=TRANSFORMER_GROUNDED, component=GROUNDED_COMPONENT)
 class TransformerGroundedConfig(GRUGroundedConfig):
     selector_backbones: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)
 

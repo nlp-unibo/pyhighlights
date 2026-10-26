@@ -13,18 +13,17 @@ from pyhighlights.configurations.keys import (
     COMPLEMENT_CLASSIFICATION_LOSS,
     FULL_CLASSIFICATION_LOSS,
     GRU_BACKBONE,
-    NAMESPACE,
+    GRU_MRD,
     REMAINING_DISCREPANCY_LOSS,
     TRANSFORMER_BACKBONE,
+    TRANSFORMER_MRD,
 )
 from pyhighlights.utility.losses import Loss
 
 MRD_COMPONENT = "pyhighlights.components.models.spp.mrd.MRD"
 
 
-@register_class(
-    name="model", tags={"gru", "mrd"}, namespace=NAMESPACE, component=MRD_COMPONENT
-)
+@register_class(key=GRU_MRD, component=MRD_COMPONENT)
 class GRUMRDConfig(PhasedSPPModelConfig):
     name: str = Param("mrd")
     #: The predictor reads the complement and the full input with its own
@@ -38,12 +37,7 @@ class GRUMRDConfig(PhasedSPPModelConfig):
     generator_losses: List[RegistrationKey[Loss]] = Param([REMAINING_DISCREPANCY_LOSS])
 
 
-@register_class(
-    name="model",
-    tags={"mrd", "transformer"},
-    namespace=NAMESPACE,
-    component=MRD_COMPONENT,
-)
+@register_class(key=TRANSFORMER_MRD, component=MRD_COMPONENT)
 class TransformerMRDConfig(GRUMRDConfig):
     selector_backbones: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)
     predictor_backbone: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)

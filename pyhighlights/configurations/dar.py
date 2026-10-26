@@ -8,17 +8,16 @@ from pyhighlights.configurations.base import SPPModelConfig
 from pyhighlights.configurations.keys import (
     ALIGNMENT_CLASSIFICATION_LOSS,
     GRU_BACKBONE,
-    NAMESPACE,
+    GRU_DAR,
     TRANSFORMER_BACKBONE,
+    TRANSFORMER_DAR,
 )
 from pyhighlights.utility.losses import Loss
 
 DAR_COMPONENT = "pyhighlights.components.models.spp.dar.DAR"
 
 
-@register_class(
-    name="model", tags={"dar", "gru"}, namespace=NAMESPACE, component=DAR_COMPONENT
-)
+@register_class(key=GRU_DAR, component=DAR_COMPONENT)
 class GRUDARConfig(SPPModelConfig):
     name: str = Param("dar")
     #: Separate encoders: the predictor reads highlights and the aligner reads
@@ -37,12 +36,7 @@ class GRUDARConfig(SPPModelConfig):
     pretrain_epochs: int = Param(20, ge=1)
 
 
-@register_class(
-    name="model",
-    tags={"dar", "transformer"},
-    namespace=NAMESPACE,
-    component=DAR_COMPONENT,
-)
+@register_class(key=TRANSFORMER_DAR, component=DAR_COMPONENT)
 class TransformerDARConfig(GRUDARConfig):
     selector_backbones: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)
     predictor_backbone: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)

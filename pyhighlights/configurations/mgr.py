@@ -12,18 +12,17 @@ from pyhighlights.components.models.spp.base import (
 from pyhighlights.configurations.base import SPPModelConfig
 from pyhighlights.configurations.keys import (
     GRU_BACKBONE,
+    GRU_MGR,
     MLP_SELECTOR,
-    NAMESPACE,
     TRANSFORMER_BACKBONE,
+    TRANSFORMER_MGR,
     UNNORMALISED_GRU_BACKBONE,
 )
 
 MGR_COMPONENT = "pyhighlights.components.models.spp.mgr.MGR"
 
 
-@register_class(
-    name="model", tags={"gru", "mgr"}, namespace=NAMESPACE, component=MGR_COMPONENT
-)
+@register_class(key=GRU_MGR, component=MGR_COMPONENT)
 class GRUMGRConfig(SPPModelConfig):
     name: str = Param("mgr")
     #: As the original implementation: a sampled selection at evaluation and
@@ -78,12 +77,7 @@ class GRUMGRConfig(SPPModelConfig):
         return config
 
 
-@register_class(
-    name="model",
-    tags={"mgr", "transformer"},
-    namespace=NAMESPACE,
-    component=MGR_COMPONENT,
-)
+@register_class(key=TRANSFORMER_MGR, component=MGR_COMPONENT)
 class TransformerMGRConfig(GRUMGRConfig):
     selector_backbones: List[RegistrationKey[SPPBackbone]] = Param(
         [TRANSFORMER_BACKBONE, TRANSFORMER_BACKBONE, TRANSFORMER_BACKBONE]

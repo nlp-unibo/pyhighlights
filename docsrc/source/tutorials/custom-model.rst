@@ -73,28 +73,41 @@ A criterion is an ordinary ``th.nn.Module`` over tensors, and it knows nothing a
            kept = (selection * opening).sum()
            return kept / selection.sum().clamp_min(1)
 
-Two registrations turn that into something a model can be given, and the split between them is the point.
+Every key the method registers is declared once, in ``keys.py``, from a ``Namespace`` of its own.
+A registration then passes that key with ``key=``.
+The registered key and the constant other configurations refer to therefore cannot disagree.
+
+.. code-block:: python
+
+   # mymethod/configurations/keys.py
+   from cinnamon.registry import Namespace
+
+   NAMESPACE = Namespace("mymethod")
+
+   LEAD_BIAS_CRITERION = NAMESPACE.key("criterion", "lead_bias")
+   LEAD_BIAS_LOSS = NAMESPACE.key("loss", "lead_bias")
+   CONSISTENCY_LOSS = NAMESPACE.key("loss", "consistency")
+   GRU_CONSISTENCY = NAMESPACE.key("model", "consistency", "gru")
+
+``Registry.build`` reads the namespace behind each key before it imports anything.
+It follows only a ``Namespace("literal")`` bound at module level and keys built from it with ``NAMESPACE.key(...)``.
+A key computed any other way is skipped, and its registration does not exist.
+
+Two registrations turn the criterion into something a model can be given, and the split between them is the point.
 A ``criterion`` is the scoring object and a ``loss`` binds it to the fields it reads, so the same criterion scores different tensors by being registered twice with different ``inputs``.
 
 .. code-block:: python
 
    # mymethod/configurations/registrations.py
    @register_class(
-       name="criterion",
-       tags={"lead_bias"},
-       namespace=NAMESPACE,
+       key=LEAD_BIAS_CRITERION,
        component="mymethod.components.criteria.LeadBiasPenalty",
    )
    class LeadBiasPenaltyConfig(Configuration):
        head: float = Param(0.1, gt=0.0, lt=1.0)
 
 
-   @register_class(
-       name="loss",
-       tags={"lead_bias"},
-       namespace=NAMESPACE,
-       component="pyhighlights.utility.losses.Loss",
-   )
+   @register_class(key=LEAD_BIAS_LOSS, component="pyhighlights.utility.losses.Loss")
    class LeadBiasLossConfig(Configuration):
        name: str = Param("lead_bias")
        loss: RegistrationKey[th.nn.Module] = Param(LEAD_BIAS_CRITERION)
@@ -151,21 +164,14 @@ Second, ``self.reported`` returns the reported head without the head axis, which
 Third, ``head_namespace`` is what a loss binds to, and the keyword arguments handed to it are added to it, so ``thinned_class_logits`` becomes a field a registered loss can name.
 Fourth, the constructor validates what the method assumes rather than trusting the configuration, which is why every library model refuses a shape it cannot mean.
 
-The consistency term needs no new criterion, since a divergence between two class distributions is already registered:
+The consistency term needs no new criterion, since a divergence between two class distributions is already registered as ``JS_DIV`` in ``pyhighlights.configurations.keys``:
 
 .. code-block:: python
 
-   @register_class(
-       name="loss",
-       tags={"consistency"},
-       namespace=NAMESPACE,
-       component="pyhighlights.utility.losses.Loss",
-   )
+   @register_class(key=CONSISTENCY_LOSS, component="pyhighlights.utility.losses.Loss")
    class ConsistencyLossConfig(LeadBiasLossConfig):
        name: str = Param("consistency")
-       loss: RegistrationKey[th.nn.Module] = Param(
-           RegistrationKey(name="criterion", tags={"js_div"}, namespace="pyhighlights")
-       )
+       loss: RegistrationKey[th.nn.Module] = Param(JS_DIV)
        inputs: List[str] = Param(["class_logits", "thinned_class_logits"])
        coefficient: float = Param(0.5, ge=0.0)
 
@@ -174,9 +180,7 @@ Then the model itself, which inherits every field an SPP model has from :class:`
 .. code-block:: python
 
    @register_class(
-       name="model",
-       tags={"consistency", "gru"},
-       namespace=NAMESPACE,
+       key=GRU_CONSISTENCY,
        component="mymethod.components.models.DropoutConsistencySPP",
    )
    class GRUConsistencyConfig(SPPModelConfig):

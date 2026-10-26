@@ -7,16 +7,15 @@ from pyhighlights.components.models.spp.base import SPPBackbone
 from pyhighlights.configurations.base import SPPModelConfig
 from pyhighlights.configurations.keys import (
     GRU_BACKBONE,
-    NAMESPACE,
+    GRU_DR,
     TRANSFORMER_BACKBONE,
+    TRANSFORMER_DR,
 )
 
 DR_COMPONENT = "pyhighlights.components.models.spp.dr.DR"
 
 
-@register_class(
-    name="model", tags={"dr", "gru"}, namespace=NAMESPACE, component=DR_COMPONENT
-)
+@register_class(key=GRU_DR, component=DR_COMPONENT)
 class GRUDRConfig(SPPModelConfig):
     name: str = Param("dr")
     #: Separate encoders: DR decouples the two rates, and a shared encoder
@@ -29,12 +28,7 @@ class GRUDRConfig(SPPModelConfig):
     scale_floor: float = Param(0.05, gt=0.0, le=1.0)
 
 
-@register_class(
-    name="model",
-    tags={"dr", "transformer"},
-    namespace=NAMESPACE,
-    component=DR_COMPONENT,
-)
+@register_class(key=TRANSFORMER_DR, component=DR_COMPONENT)
 class TransformerDRConfig(GRUDRConfig):
     selector_backbones: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)
     predictor_backbone: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)

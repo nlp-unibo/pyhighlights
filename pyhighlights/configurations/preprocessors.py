@@ -8,19 +8,21 @@ from cinnamon.registry import RegistrationKey, register_class
 from pyhighlights.components.loaders import HateXplainLoader
 from pyhighlights.components.preprocessors import PRIORITY, Preprocessor
 from pyhighlights.configurations.keys import (
+    CLASS_WEIGHTS,
     HATEXPLAIN_AGGREGATOR,
+    HATEXPLAIN_PIPELINE,
+    KNOWLEDGE_WEIGHTS,
+    LEAKAGE_DETECTOR,
     LEAKAGE_REMOVER,
-    NAMESPACE,
+    PIPELINE,
+    SHORTCUT_DETECTOR,
 )
 
 PIPELINE_COMPONENT = "pyhighlights.components.preprocessors.Pipeline"
 
 
 @register_class(
-    name="detector",
-    tags={"leakage"},
-    namespace=NAMESPACE,
-    component="pyhighlights.components.leakage.LeakageDetector",
+    key=LEAKAGE_DETECTOR, component="pyhighlights.components.leakage.LeakageDetector"
 )
 class LeakageDetectorConfig(Configuration):
     """Reports what splits share, and refuses a corpus that shares anything."""
@@ -30,9 +32,7 @@ class LeakageDetectorConfig(Configuration):
 
 
 @register_class(
-    name="detector",
-    tags={"shortcut"},
-    namespace=NAMESPACE,
+    key=SHORTCUT_DETECTOR,
     component="pyhighlights.components.shortcuts.ShortcutDetector",
 )
 class ShortcutDetectorConfig(Configuration):
@@ -53,9 +53,7 @@ class ShortcutDetectorConfig(Configuration):
 
 
 @register_class(
-    name="preprocessor",
-    tags={"leakage"},
-    namespace=NAMESPACE,
+    key=LEAKAGE_REMOVER,
     component="pyhighlights.components.preprocessors.LeakageRemover",
 )
 class LeakageRemoverConfig(Configuration):
@@ -67,9 +65,7 @@ class LeakageRemoverConfig(Configuration):
 
 
 @register_class(
-    name="preprocessor",
-    tags={"aggregator", "hatexplain"},
-    namespace=NAMESPACE,
+    key=HATEXPLAIN_AGGREGATOR,
     component="pyhighlights.components.preprocessors.AnnotationAggregator",
 )
 class HateXplainAggregatorConfig(Configuration):
@@ -81,10 +77,7 @@ class HateXplainAggregatorConfig(Configuration):
 
 
 @register_class(
-    name="preprocessor",
-    tags={"class_weights"},
-    namespace=NAMESPACE,
-    component="pyhighlights.components.preprocessors.ClassWeights",
+    key=CLASS_WEIGHTS, component="pyhighlights.components.preprocessors.ClassWeights"
 )
 class ClassWeightsConfig(Configuration):
     """Reads one split's class frequencies; changes no row."""
@@ -96,9 +89,7 @@ class ClassWeightsConfig(Configuration):
 
 
 @register_class(
-    name="preprocessor",
-    tags={"knowledge_weights"},
-    namespace=NAMESPACE,
+    key=KNOWLEDGE_WEIGHTS,
     component="pyhighlights.components.preprocessors.KnowledgeWeights",
 )
 class KnowledgeWeightsConfig(Configuration):
@@ -115,24 +106,14 @@ class KnowledgeWeightsConfig(Configuration):
     entries: int = Param(2, ge=1)
 
 
-@register_class(
-    name="preprocessor",
-    tags={"pipeline"},
-    namespace=NAMESPACE,
-    component=PIPELINE_COMPONENT,
-)
+@register_class(key=PIPELINE, component=PIPELINE_COMPONENT)
 class PipelineConfig(Configuration):
     """Preprocessors run in order, each over what the last returned."""
 
     steps: List[RegistrationKey[Preprocessor]] = Param([LEAKAGE_REMOVER])
 
 
-@register_class(
-    name="preprocessor",
-    tags={"hatexplain", "pipeline"},
-    namespace=NAMESPACE,
-    component=PIPELINE_COMPONENT,
-)
+@register_class(key=HATEXPLAIN_PIPELINE, component=PIPELINE_COMPONENT)
 class HateXplainPipelineConfig(PipelineConfig):
     """Aggregate the annotators first: repairing leakage before the tie-drop
     would measure overlap over rows the aggregation then removes."""

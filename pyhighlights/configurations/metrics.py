@@ -22,22 +22,37 @@ from torchmetrics import Metric
 
 from pyhighlights.configurations.keys import (
     ACCURACY,
+    ACCURACY_METRIC,
     CLASS_F1,
+    CLASS_F1_METRIC,
     EMPTY_SET_ACCURACY,
+    EMPTY_SET_METRIC,
     EXACT_SET_MATCH,
+    EXACT_SET_METRIC,
     F1,
+    F1_METRIC,
     HIGHLIGHT_F1,
+    HIGHLIGHT_F1_METRIC,
     HIGHLIGHT_IOU,
+    HIGHLIGHT_IOU_METRIC,
     HIGHLIGHT_PRECISION,
+    HIGHLIGHT_PRECISION_METRIC,
     HIGHLIGHT_RECALL,
+    HIGHLIGHT_RECALL_METRIC,
     LINK_F1,
+    LINK_F1_METRIC,
     LINK_MACRO_F1,
+    LINK_MACRO_F1_METRIC,
     MULTICLASS_ACCURACY,
+    MULTICLASS_ACCURACY_METRIC,
     MULTICLASS_F1,
-    NAMESPACE,
+    MULTICLASS_F1_METRIC,
     SELECTION_RATE,
+    SELECTION_RATE_METRIC,
     SELECTION_SIZE,
+    SELECTION_SIZE_METRIC,
     SELECTION_SPANS,
+    SELECTION_SPANS_METRIC,
 )
 
 #: Classes the multiclass variants score. HateXplain is the corpus that needs
@@ -50,53 +65,31 @@ ACCURACY_COMPONENT = "torchmetrics.Accuracy"
 F1_SCORE_COMPONENT = "torchmetrics.F1Score"
 
 
-@register_class(
-    name="torchmetric",
-    tags={"accuracy"},
-    namespace=NAMESPACE,
-    component=ACCURACY_COMPONENT,
-)
+@register_class(key=ACCURACY, component=ACCURACY_COMPONENT)
 class AccuracyConfig(Configuration):
     task: str = Param("multiclass")
     num_classes: int = Param(2, ge=2)
     average: str = Param("micro")
 
 
-@register_class(
-    name="torchmetric",
-    tags={"accuracy", "multiclass"},
-    namespace=NAMESPACE,
-    component=ACCURACY_COMPONENT,
-)
+@register_class(key=MULTICLASS_ACCURACY, component=ACCURACY_COMPONENT)
 class MulticlassAccuracyConfig(AccuracyConfig):
     num_classes: int = Param(MULTICLASS_CLASSES, ge=2)
 
 
-@register_class(
-    name="torchmetric", tags={"f1"}, namespace=NAMESPACE, component=F1_SCORE_COMPONENT
-)
+@register_class(key=F1, component=F1_SCORE_COMPONENT)
 class F1Config(Configuration):
     task: str = Param("multiclass")
     num_classes: int = Param(2, ge=2)
     average: str = Param("macro")
 
 
-@register_class(
-    name="torchmetric",
-    tags={"f1", "multiclass"},
-    namespace=NAMESPACE,
-    component=F1_SCORE_COMPONENT,
-)
+@register_class(key=MULTICLASS_F1, component=F1_SCORE_COMPONENT)
 class MulticlassF1Config(F1Config):
     num_classes: int = Param(MULTICLASS_CLASSES, ge=2)
 
 
-@register_class(
-    name="torchmetric",
-    tags={"f1", "class"},
-    namespace=NAMESPACE,
-    component="pyhighlights.utility.metrics.ClassF1Score",
-)
+@register_class(key=CLASS_F1, component="pyhighlights.utility.metrics.ClassF1Score")
 class ClassF1Config(Configuration):
     """F1 of one class, for a corpus an average would flatter.
 
@@ -121,29 +114,21 @@ class HighlightMetricConfig(Configuration):
 
 
 @register_class(
-    name="torchmetric",
-    tags={"f1", "highlight"},
-    namespace=NAMESPACE,
-    component="pyhighlights.utility.metrics.BinaryHighlightF1Score",
+    key=HIGHLIGHT_F1, component="pyhighlights.utility.metrics.BinaryHighlightF1Score"
 )
 class HighlightF1Config(HighlightMetricConfig):
     pass
 
 
 @register_class(
-    name="torchmetric",
-    tags={"highlight", "iou"},
-    namespace=NAMESPACE,
-    component="pyhighlights.utility.metrics.BinaryHighlightIoU",
+    key=HIGHLIGHT_IOU, component="pyhighlights.utility.metrics.BinaryHighlightIoU"
 )
 class HighlightIoUConfig(HighlightMetricConfig):
     pass
 
 
 @register_class(
-    name="torchmetric",
-    tags={"highlight", "precision"},
-    namespace=NAMESPACE,
+    key=HIGHLIGHT_PRECISION,
     component="pyhighlights.utility.metrics.BinaryHighlightPrecision",
 )
 class HighlightPrecisionConfig(HighlightMetricConfig):
@@ -151,20 +136,14 @@ class HighlightPrecisionConfig(HighlightMetricConfig):
 
 
 @register_class(
-    name="torchmetric",
-    tags={"highlight", "recall"},
-    namespace=NAMESPACE,
-    component="pyhighlights.utility.metrics.BinaryHighlightRecall",
+    key=HIGHLIGHT_RECALL, component="pyhighlights.utility.metrics.BinaryHighlightRecall"
 )
 class HighlightRecallConfig(HighlightMetricConfig):
     pass
 
 
 @register_class(
-    name="torchmetric",
-    tags={"selection_rate"},
-    namespace=NAMESPACE,
-    component="pyhighlights.utility.metrics.SelectionRate",
+    key=SELECTION_RATE, component="pyhighlights.utility.metrics.SelectionRate"
 )
 class SelectionRateConfig(Configuration):
     """Share of a document the selector kept, averaged over samples.
@@ -176,31 +155,20 @@ class SelectionRateConfig(Configuration):
 
 
 @register_class(
-    name="torchmetric",
-    tags={"selection_size"},
-    namespace=NAMESPACE,
-    component="pyhighlights.utility.metrics.SelectionSize",
+    key=SELECTION_SIZE, component="pyhighlights.utility.metrics.SelectionSize"
 )
 class SelectionSizeConfig(SelectionRateConfig):
     """Tokens the selector kept, averaged over samples."""
 
 
 @register_class(
-    name="torchmetric",
-    tags={"selection_spans"},
-    namespace=NAMESPACE,
-    component="pyhighlights.utility.metrics.SelectionSpans",
+    key=SELECTION_SPANS, component="pyhighlights.utility.metrics.SelectionSpans"
 )
 class SelectionSpansConfig(SelectionRateConfig):
     """Contiguous runs the selection falls into, averaged over samples."""
 
 
-@register_class(
-    name="metric",
-    tags={"accuracy"},
-    namespace=NAMESPACE,
-    component=BOUND_METRIC_COMPONENT,
-)
+@register_class(key=ACCURACY_METRIC, component=BOUND_METRIC_COMPONENT)
 class MetricConfig(Configuration):
     """A scoring object bound to the namespace fields it reads."""
 
@@ -209,52 +177,30 @@ class MetricConfig(Configuration):
     inputs: Sequence[str] = Param(["class_logits", "y_true"])
 
 
-@register_class(
-    name="metric",
-    tags={"accuracy", "multiclass"},
-    namespace=NAMESPACE,
-    component=BOUND_METRIC_COMPONENT,
-)
+@register_class(key=MULTICLASS_ACCURACY_METRIC, component=BOUND_METRIC_COMPONENT)
 class MulticlassAccuracyMetricConfig(MetricConfig):
     metric: RegistrationKey[Metric] = Param(MULTICLASS_ACCURACY)
 
 
-@register_class(
-    name="metric", tags={"f1"}, namespace=NAMESPACE, component=BOUND_METRIC_COMPONENT
-)
+@register_class(key=F1_METRIC, component=BOUND_METRIC_COMPONENT)
 class F1MetricConfig(MetricConfig):
     name: str = Param("f1")
     metric: RegistrationKey[Metric] = Param(F1)
 
 
-@register_class(
-    name="metric",
-    tags={"f1", "multiclass"},
-    namespace=NAMESPACE,
-    component=BOUND_METRIC_COMPONENT,
-)
+@register_class(key=MULTICLASS_F1_METRIC, component=BOUND_METRIC_COMPONENT)
 class MulticlassF1MetricConfig(F1MetricConfig):
     metric: RegistrationKey[Metric] = Param(MULTICLASS_F1)
 
 
-@register_class(
-    name="metric",
-    tags={"f1", "class"},
-    namespace=NAMESPACE,
-    component=BOUND_METRIC_COMPONENT,
-)
+@register_class(key=CLASS_F1_METRIC, component=BOUND_METRIC_COMPONENT)
 class ClassF1MetricConfig(F1MetricConfig):
     """Still reported as ``f1``: which F1 it is, the manifest's key says."""
 
     metric: RegistrationKey[Metric] = Param(CLASS_F1)
 
 
-@register_class(
-    name="metric",
-    tags={"f1", "highlight"},
-    namespace=NAMESPACE,
-    component=BOUND_METRIC_COMPONENT,
-)
+@register_class(key=HIGHLIGHT_F1_METRIC, component=BOUND_METRIC_COMPONENT)
 class HighlightF1MetricConfig(MetricConfig):
     """Scores the selected tokens against the annotated ones."""
 
@@ -263,45 +209,25 @@ class HighlightF1MetricConfig(MetricConfig):
     inputs: Sequence[str] = Param(["highlight_mask", "highlight_true"])
 
 
-@register_class(
-    name="metric",
-    tags={"highlight", "iou"},
-    namespace=NAMESPACE,
-    component=BOUND_METRIC_COMPONENT,
-)
+@register_class(key=HIGHLIGHT_IOU_METRIC, component=BOUND_METRIC_COMPONENT)
 class HighlightIoUMetricConfig(HighlightF1MetricConfig):
     name: str = Param("highlight_iou")
     metric: RegistrationKey[Metric] = Param(HIGHLIGHT_IOU)
 
 
-@register_class(
-    name="metric",
-    tags={"highlight", "precision"},
-    namespace=NAMESPACE,
-    component=BOUND_METRIC_COMPONENT,
-)
+@register_class(key=HIGHLIGHT_PRECISION_METRIC, component=BOUND_METRIC_COMPONENT)
 class HighlightPrecisionMetricConfig(HighlightF1MetricConfig):
     name: str = Param("highlight_precision")
     metric: RegistrationKey[Metric] = Param(HIGHLIGHT_PRECISION)
 
 
-@register_class(
-    name="metric",
-    tags={"highlight", "recall"},
-    namespace=NAMESPACE,
-    component=BOUND_METRIC_COMPONENT,
-)
+@register_class(key=HIGHLIGHT_RECALL_METRIC, component=BOUND_METRIC_COMPONENT)
 class HighlightRecallMetricConfig(HighlightF1MetricConfig):
     name: str = Param("highlight_recall")
     metric: RegistrationKey[Metric] = Param(HIGHLIGHT_RECALL)
 
 
-@register_class(
-    name="metric",
-    tags={"selection_rate"},
-    namespace=NAMESPACE,
-    component=BOUND_METRIC_COMPONENT,
-)
+@register_class(key=SELECTION_RATE_METRIC, component=BOUND_METRIC_COMPONENT)
 class SelectionRateMetricConfig(HighlightF1MetricConfig):
     """Reports what the selector kept, whether or not the corpus is annotated.
 
@@ -315,23 +241,13 @@ class SelectionRateMetricConfig(HighlightF1MetricConfig):
     inputs: Sequence[str] = Param(["highlight_mask", "mask"])
 
 
-@register_class(
-    name="metric",
-    tags={"selection_size"},
-    namespace=NAMESPACE,
-    component=BOUND_METRIC_COMPONENT,
-)
+@register_class(key=SELECTION_SIZE_METRIC, component=BOUND_METRIC_COMPONENT)
 class SelectionSizeMetricConfig(SelectionRateMetricConfig):
     name: str = Param("selection_size")
     metric: RegistrationKey[Metric] = Param(SELECTION_SIZE)
 
 
-@register_class(
-    name="metric",
-    tags={"selection_spans"},
-    namespace=NAMESPACE,
-    component=BOUND_METRIC_COMPONENT,
-)
+@register_class(key=SELECTION_SPANS_METRIC, component=BOUND_METRIC_COMPONENT)
 class SelectionSpansMetricConfig(SelectionRateMetricConfig):
     name: str = Param("selection_spans")
     metric: RegistrationKey[Metric] = Param(SELECTION_SPANS)
@@ -387,12 +303,7 @@ __all__: List[str] = [
 KNOWLEDGE_ENTRIES = 2
 
 
-@register_class(
-    name="torchmetric",
-    tags={"f1", "link"},
-    namespace=NAMESPACE,
-    component="torchmetrics.classification.MultilabelF1Score",
-)
+@register_class(key=LINK_F1, component="torchmetrics.classification.MultilabelF1Score")
 class LinkF1Config(Configuration):
     """Per-link F1, micro-averaged: every (example, entry) link counts once.
 
@@ -407,10 +318,7 @@ class LinkF1Config(Configuration):
 
 
 @register_class(
-    name="torchmetric",
-    tags={"f1", "link", "macro"},
-    namespace=NAMESPACE,
-    component="torchmetrics.classification.MultilabelF1Score",
+    key=LINK_MACRO_F1, component="torchmetrics.classification.MultilabelF1Score"
 )
 class LinkMacroF1Config(LinkF1Config):
     """Per-link F1 averaged over entries rather than over links.
@@ -425,10 +333,7 @@ class LinkMacroF1Config(LinkF1Config):
 
 
 @register_class(
-    name="torchmetric",
-    tags={"exact_set"},
-    namespace=NAMESPACE,
-    component="pyhighlights.utility.metrics.ExactSetMatch",
+    key=EXACT_SET_MATCH, component="pyhighlights.utility.metrics.ExactSetMatch"
 )
 class ExactSetMatchConfig(Configuration):
     """Share of examples whose named set is exactly the annotated one."""
@@ -438,10 +343,7 @@ class ExactSetMatchConfig(Configuration):
 
 
 @register_class(
-    name="torchmetric",
-    tags={"empty_set"},
-    namespace=NAMESPACE,
-    component="pyhighlights.utility.metrics.EmptySetAccuracy",
+    key=EMPTY_SET_ACCURACY, component="pyhighlights.utility.metrics.EmptySetAccuracy"
 )
 class EmptySetAccuracyConfig(ExactSetMatchConfig):
     """Share of examples annotated with nothing that were named nothing."""
@@ -455,44 +357,24 @@ class KnowledgeMetricConfig(MetricConfig):
     inputs: Sequence[str] = Param(["knowledge_mask", "knowledge_true"])
 
 
-@register_class(
-    name="metric",
-    tags={"f1", "link"},
-    namespace=NAMESPACE,
-    component=BOUND_METRIC_COMPONENT,
-)
+@register_class(key=LINK_F1_METRIC, component=BOUND_METRIC_COMPONENT)
 class LinkF1MetricConfig(KnowledgeMetricConfig):
     pass
 
 
-@register_class(
-    name="metric",
-    tags={"f1", "link", "macro"},
-    namespace=NAMESPACE,
-    component=BOUND_METRIC_COMPONENT,
-)
+@register_class(key=LINK_MACRO_F1_METRIC, component=BOUND_METRIC_COMPONENT)
 class LinkMacroF1MetricConfig(KnowledgeMetricConfig):
     name: str = Param("link_macro_f1")
     metric: RegistrationKey[Metric] = Param(LINK_MACRO_F1)
 
 
-@register_class(
-    name="metric",
-    tags={"exact_set"},
-    namespace=NAMESPACE,
-    component=BOUND_METRIC_COMPONENT,
-)
+@register_class(key=EXACT_SET_METRIC, component=BOUND_METRIC_COMPONENT)
 class ExactSetMetricConfig(KnowledgeMetricConfig):
     name: str = Param("exact_set_match")
     metric: RegistrationKey[Metric] = Param(EXACT_SET_MATCH)
 
 
-@register_class(
-    name="metric",
-    tags={"empty_set"},
-    namespace=NAMESPACE,
-    component=BOUND_METRIC_COMPONENT,
-)
+@register_class(key=EMPTY_SET_METRIC, component=BOUND_METRIC_COMPONENT)
 class EmptySetMetricConfig(KnowledgeMetricConfig):
     name: str = Param("empty_set_accuracy")
     metric: RegistrationKey[Metric] = Param(EMPTY_SET_ACCURACY)
