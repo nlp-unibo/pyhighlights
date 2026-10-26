@@ -13,7 +13,13 @@ from pyhighlights.components.loaders import (
     ERASERLoader,
     HateXplainLoader,
 )
-from pyhighlights.configurations.keys import NAMESPACE
+from pyhighlights.configurations.keys import (
+    BEER,
+    HATEXPLAIN,
+    HOTEL,
+    MOVIES,
+    TOY,
+)
 
 
 class LoaderConfig(Configuration):
@@ -34,12 +40,7 @@ class R2AConfig(LoaderConfig):
     sha256: str | None = Param(R2A_SHA256)
 
 
-@register_class(
-    name="dataset",
-    tags={"beer"},
-    namespace=NAMESPACE,
-    component="pyhighlights.components.loaders.BeerLoader",
-)
+@register_class(key=BEER, component="pyhighlights.components.loaders.BeerLoader")
 class BeerConfig(R2AConfig):
     """Beer aspects; one variant per aspect."""
 
@@ -47,12 +48,7 @@ class BeerConfig(R2AConfig):
     task: str = Param(BEER_TASKS[0], variants=list(BEER_TASKS[1:]))
 
 
-@register_class(
-    name="dataset",
-    tags={"hotel"},
-    namespace=NAMESPACE,
-    component="pyhighlights.components.loaders.HotelLoader",
-)
+@register_class(key=HOTEL, component="pyhighlights.components.loaders.HotelLoader")
 class HotelConfig(R2AConfig):
     """Hotel aspects; one variant per aspect."""
 
@@ -60,10 +56,7 @@ class HotelConfig(R2AConfig):
 
 
 @register_class(
-    name="dataset",
-    tags={"hatexplain"},
-    namespace=NAMESPACE,
-    component="pyhighlights.components.loaders.HateXplainLoader",
+    key=HATEXPLAIN, component="pyhighlights.components.loaders.HateXplainLoader"
 )
 class HateXplainConfig(LoaderConfig):
     """Hate-speech posts, every annotator judgement kept."""
@@ -77,12 +70,7 @@ class HateXplainConfig(LoaderConfig):
     divisions_sha256: str | None = Param(HateXplainLoader.DIVISIONS_SHA256)
 
 
-@register_class(
-    name="dataset",
-    tags={"movies"},
-    namespace=NAMESPACE,
-    component="pyhighlights.components.loaders.MoviesLoader",
-)
+@register_class(key=MOVIES, component="pyhighlights.components.loaders.MoviesLoader")
 class MoviesConfig(LoaderConfig):
     """ERASER movies: evidence spans become highlights."""
 
@@ -94,12 +82,7 @@ class MoviesConfig(LoaderConfig):
     sha256: str | None = Param(ERASERLoader.SHA256)
 
 
-@register_class(
-    name="dataset",
-    tags={"toy"},
-    namespace=NAMESPACE,
-    component="pyhighlights.components.loaders.ToyLoader",
-)
+@register_class(key=TOY, component="pyhighlights.components.loaders.ToyLoader")
 class ToyConfig(LoaderConfig):
     """Synthetic corpus for smoke tests and demos; no download."""
 

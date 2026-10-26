@@ -3,13 +3,14 @@ from pathlib import Path
 import lightning as L
 import pytest
 import torch as th
-from cinnamon.registry import Registry
+from cinnamon.registry import RegistrationKey, Registry
 from torch.utils.data import DataLoader
 
 import pyhighlights
 from pyhighlights.components.models import InputData
 from pyhighlights.components.models.base import Model
 from pyhighlights.components.models.spp import FR, MCD, MGR
+from pyhighlights.configurations import keys
 from pyhighlights.configurations.keys import (
     ADAM,
     GRU_BACKBONE,
@@ -68,6 +69,29 @@ def test_every_registration_in_the_library_resolves():
             raise missing
 
     assert needed_runtime == {"input_size", "params"}
+
+
+def test_every_declared_key_is_registered():
+    """Each key in ``keys.py`` names a registration the namespace scan finds.
+
+    A study that builds the library as an external directory loads it only
+    through the namespace ``Registry.build`` reads off its sources before
+    importing anything. The scan follows ``key=`` only to a ``Namespace``
+    literal, so a key computed any other way leaves the library unreachable.
+    """
+    directory = Path(pyhighlights.__file__).parent
+    _, mapping = Registry.parse_configuration_files([directory])
+    assert mapping.get(keys.NAMESPACE) == directory
+
+    Registry.build(directory=directory)
+    declared = {
+        name: value
+        for name, value in vars(keys).items()
+        if isinstance(value, RegistrationKey)
+    }
+
+    assert declared
+    assert not [name for name, key in declared.items() if not Registry.in_registry(key)]
 
 
 def test_registered_gru_fr_forward_backward_and_optimizer():

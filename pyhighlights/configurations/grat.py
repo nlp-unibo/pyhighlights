@@ -15,13 +15,15 @@ from pyhighlights.configurations.keys import (
     CLASSIFICATION_LOSS,
     CONTIGUITY_LOSS,
     GRU_BACKBONE,
+    GRU_GRAT,
+    GRU_GUIDER,
     GUIDANCE_GUIDER,
     GUIDE_LOSS,
     JSD_LOSS,
     MLP_PREDICTOR,
-    NAMESPACE,
     SPARSITY_LOSS,
     TRANSFORMER_BACKBONE,
+    TRANSFORMER_GRAT,
     TRANSFORMER_GUIDER,
 )
 from pyhighlights.utility.losses import Loss
@@ -31,34 +33,19 @@ GRAT_COMPONENT = "pyhighlights.components.models.spp.grat.GRAT"
 GUIDANCE_GUIDER_COMPONENT = "pyhighlights.components.models.spp.grat.GuidanceGuider"
 
 
-@register_class(
-    name="guider",
-    tags={"attention", "gru"},
-    namespace=NAMESPACE,
-    component=ATTENTION_GUIDER_COMPONENT,
-)
+@register_class(key=GRU_GUIDER, component=ATTENTION_GUIDER_COMPONENT)
 class AttentionGuiderConfig(Configuration):
     backbone: RegistrationKey[SPPBackbone] = Param(GRU_BACKBONE)
     predictor: RegistrationKey[SPPPredictor] = Param(MLP_PREDICTOR)
     noise_sigma: float = Param(1.0, ge=0.0)
 
 
-@register_class(
-    name="guider",
-    tags={"attention", "transformer"},
-    namespace=NAMESPACE,
-    component=ATTENTION_GUIDER_COMPONENT,
-)
+@register_class(key=TRANSFORMER_GUIDER, component=ATTENTION_GUIDER_COMPONENT)
 class TransformerAttentionGuiderConfig(AttentionGuiderConfig):
     backbone: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)
 
 
-@register_class(
-    name="guider",
-    tags={"guidance", "gru"},
-    namespace=NAMESPACE,
-    component=GUIDANCE_GUIDER_COMPONENT,
-)
+@register_class(key=GUIDANCE_GUIDER, component=GUIDANCE_GUIDER_COMPONENT)
 class GuidanceGuiderConfig(Configuration):
     """The original G-RAT guider, sized as the library's GRU backbone."""
 
@@ -73,9 +60,7 @@ class GuidanceGuiderConfig(Configuration):
     freeze_embeddings: bool | None = Param(None)
 
 
-@register_class(
-    name="model", tags={"grat", "gru"}, namespace=NAMESPACE, component=GRAT_COMPONENT
-)
+@register_class(key=GRU_GRAT, component=GRAT_COMPONENT)
 class GRUGRATConfig(SPPModelConfig):
     name: str = Param("grat")
     #: As the original implementation: no empty-selection repair. Its
@@ -99,12 +84,7 @@ class GRUGRATConfig(SPPModelConfig):
     jsd_loss: str = Param("jsd")
 
 
-@register_class(
-    name="model",
-    tags={"grat", "transformer"},
-    namespace=NAMESPACE,
-    component=GRAT_COMPONENT,
-)
+@register_class(key=TRANSFORMER_GRAT, component=GRAT_COMPONENT)
 class TransformerGRATConfig(GRUGRATConfig):
     selector_backbones: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)
     predictor_backbone: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)

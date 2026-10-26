@@ -19,9 +19,11 @@ from pyhighlights.configurations.keys import (
     GENSPP_GRU_BACKBONE,
     GENSPP_TRANSFORMER_BACKBONE,
     GRU_GENSPP,
-    NAMESPACE,
+    GRU_GENSPP_TRAINER,
     SIGMOID_SELECTOR,
+    TOY_GENSPP_TRAINER,
     TRANSFORMER_GENSPP,
+    TRANSFORMER_GENSPP_TRAINER,
 )
 from pyhighlights.configurations.optimizers import AdamConfig
 from pyhighlights.utility.losses import Loss
@@ -31,9 +33,7 @@ GENSPP_TRAINER_COMPONENT = "pyhighlights.components.models.spp.genspp.GenSPPTrai
 
 
 @register_class(
-    name="backbone",
-    tags={"genspp", "gru"},
-    namespace=NAMESPACE,
+    key=GENSPP_GRU_BACKBONE,
     component="pyhighlights.components.models.spp.implementations.GRUBackbone",
 )
 class GenSPPGRUBackboneConfig(GRUBackboneConfig):
@@ -45,31 +45,19 @@ class GenSPPGRUBackboneConfig(GRUBackboneConfig):
 
 
 @register_class(
-    name="backbone",
-    tags={"genspp", "transformer"},
-    namespace=NAMESPACE,
+    key=GENSPP_TRANSFORMER_BACKBONE,
     component="pyhighlights.components.models.spp.implementations.TransformerBackbone",
 )
 class GenSPPTransformerBackboneConfig(TransformerBackboneConfig):
     freeze_transformer: bool = Param(True)
 
 
-@register_class(
-    name="optimizer",
-    tags={"adam", "genspp"},
-    namespace=NAMESPACE,
-    component="torch.optim.Adam",
-)
+@register_class(key=GENSPP_ADAM, component="torch.optim.Adam")
 class GenSPPAdamConfig(AdamConfig):
     lr: float = Param(1e-2, gt=0.0)
 
 
-@register_class(
-    name="model",
-    tags={"genspp", "gru"},
-    namespace=NAMESPACE,
-    component=GENSPP_COMPONENT,
-)
+@register_class(key=GRU_GENSPP, component=GENSPP_COMPONENT)
 class GRUGenSPPConfig(SPPModelConfig):
     name: str = Param("genspp")
     selector_backbones: RegistrationKey[SPPBackbone] = Param(GENSPP_GRU_BACKBONE)
@@ -81,12 +69,7 @@ class GRUGenSPPConfig(SPPModelConfig):
     optimizer: RegistrationKey[th.optim.Optimizer] = Param(GENSPP_ADAM)
 
 
-@register_class(
-    name="model",
-    tags={"genspp", "transformer"},
-    namespace=NAMESPACE,
-    component=GENSPP_COMPONENT,
-)
+@register_class(key=TRANSFORMER_GENSPP, component=GENSPP_COMPONENT)
 class TransformerGenSPPConfig(GRUGenSPPConfig):
     selector_backbones: RegistrationKey[SPPBackbone] = Param(
         GENSPP_TRANSFORMER_BACKBONE
@@ -96,12 +79,7 @@ class TransformerGenSPPConfig(GRUGenSPPConfig):
     )
 
 
-@register_class(
-    name="trainer",
-    tags={"genspp", "gru"},
-    namespace=NAMESPACE,
-    component=GENSPP_TRAINER_COMPONENT,
-)
+@register_class(key=GRU_GENSPP_TRAINER, component=GENSPP_TRAINER_COMPONENT)
 class GRUGenSPPTrainerConfig(Configuration):
     model: RegistrationKey[GenSPP] = Param(GRU_GENSPP)
     n_generations: int = Param(100, ge=0)
@@ -123,22 +101,12 @@ class GRUGenSPPTrainerConfig(Configuration):
     CUDA workers are threads, and ``GenSPPTrainer._score`` explains why."""
 
 
-@register_class(
-    name="trainer",
-    tags={"genspp", "transformer"},
-    namespace=NAMESPACE,
-    component=GENSPP_TRAINER_COMPONENT,
-)
+@register_class(key=TRANSFORMER_GENSPP_TRAINER, component=GENSPP_TRAINER_COMPONENT)
 class TransformerGenSPPTrainerConfig(GRUGenSPPTrainerConfig):
     model: RegistrationKey[GenSPP] = Param(TRANSFORMER_GENSPP)
 
 
-@register_class(
-    name="trainer",
-    tags={"genspp", "gru", "toy"},
-    namespace=NAMESPACE,
-    component=GENSPP_TRAINER_COMPONENT,
-)
+@register_class(key=TOY_GENSPP_TRAINER, component=GENSPP_TRAINER_COMPONENT)
 class ToyGenSPPTrainerConfig(GRUGenSPPTrainerConfig):
     """A search small enough to finish: two candidates, one generation.
 
