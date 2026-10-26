@@ -64,10 +64,10 @@ class SPPShapeConfig(Configuration):
     #: See ``SPP.compacted`` for what it costs.
     compact: bool = Param(False)
     #: Sample the hard Gumbel selection at validation and test as in training,
-    #: rather than take the argmax. The original FR, MCD and MGR do.
+    #: rather than take the argmax. The original FR, MCD, MGR and DAR do.
     sample_at_evaluation: bool = Param(False)
     #: Keep the highest-scoring word of a selection that kept none. The
-    #: original FR, MCD, MGR and G-RAT have no such repair.
+    #: original FR, MCD, MGR, G-RAT and DAR have no such repair.
     repair_empty_selections: bool = Param(True)
     #: A selection is made over words: the unit the corpus annotates, that a
     #: sparsity target is a fraction of, and that an export shows. Words are
