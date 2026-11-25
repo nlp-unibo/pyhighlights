@@ -49,7 +49,7 @@ class TransformerAttentionGuiderConfig(AttentionGuiderConfig):
 class GuidanceGuiderConfig(Configuration):
     """The original G-RAT guider, sized as the library's GRU backbone."""
 
-    vocab_size: int = Param(10_000, ge=3)
+    vocabulary_size: int = Param(10_000, ge=3)
     embedding_dim: int = Param(128, ge=1)
     #: Per direction, as in ``GRUBackboneConfig``: the guider's states are
     #: twice as wide.

@@ -5,8 +5,10 @@ from pyhighlights.components.models.spp.implementations import GRUBackbone
 
 def test_a_gru_backbone_without_layer_norm_returns_the_recurrent_states():
     th.manual_seed(0)
-    plain = GRUBackbone(vocab_size=6, embedding_dim=3, hidden_size=4, layer_norm=False)
-    normalised = GRUBackbone(vocab_size=6, embedding_dim=3, hidden_size=4)
+    plain = GRUBackbone(
+        vocabulary_size=6, embedding_dim=3, hidden_size=4, layer_norm=False
+    )
+    normalised = GRUBackbone(vocabulary_size=6, embedding_dim=3, hidden_size=4)
     features = th.tensor([[2, 3, 4], [5, 2, 0]])
     mask = th.tensor([[1.0, 1.0, 1.0], [1.0, 1.0, 0.0]])
 

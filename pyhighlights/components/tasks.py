@@ -410,7 +410,7 @@ class SPPTask(Task):
         """The subword tokenizer of the model's encoder, else a vocabulary.
 
         The vocabulary is fitted on ``train`` only, and its size has to match
-        the backbone's ``vocab_size``: an id the embedding has no row for is a
+        the backbone's ``vocabulary_size``: an id the embedding has no row for is a
         crash at the first batch. Naming ``embeddings`` fits it against a
         vector file instead, and the matrix that comes back is handed to the
         model, which sizes its table to it. ``one_hot_embeddings`` builds that

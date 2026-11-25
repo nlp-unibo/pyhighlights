@@ -24,7 +24,7 @@ from pyhighlights.configurations.keys import (
 class GRUBackboneConfig(Configuration):
     #: Rows the embedding table has, which is the task's ``vocabulary_size``:
     #: id 0 is padding, id 1 is the unknown token, and words start at 2.
-    vocab_size: int = Param(10_000, ge=3)
+    vocabulary_size: int = Param(10_000, ge=3)
     embedding_dim: int = Param(128, ge=1)
     hidden_size: int = Param(128, ge=1)
     #: ``None`` trains a randomly initialised table and freezes loaded

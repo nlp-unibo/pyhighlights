@@ -75,7 +75,7 @@ class GRUBackbone(SPPBackbone):
 
     def __init__(
         self,
-        vocab_size: int,
+        vocabulary_size: int,
         embedding_dim: int,
         hidden_size: int,
         freeze_embeddings: bool | None = None,
@@ -86,7 +86,7 @@ class GRUBackbone(SPPBackbone):
     ):
         super().__init__()
         self.freeze_embeddings = freeze_embeddings
-        self.embedding = th.nn.Embedding(vocab_size, embedding_dim)
+        self.embedding = th.nn.Embedding(vocabulary_size, embedding_dim)
         self.embedding.weight.requires_grad_(freeze_embeddings is not True)
 
         self.encoder = th.nn.GRU(
@@ -112,7 +112,7 @@ class GRUBackbone(SPPBackbone):
         The table is replaced rather than copied into, because a pretrained
         vocabulary is as wide as the release covers: requiring the
         configuration to have guessed that number in advance would make
-        ``vocab_size`` a value nobody can know before the corpus is read.
+        ``vocabulary_size`` a value nobody can know before the corpus is read.
         """
         if matrix.shape[1] != self.embedding.embedding_dim:
             raise ValueError(

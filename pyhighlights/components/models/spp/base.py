@@ -34,7 +34,7 @@ def token_spaces(value: Any) -> Set[str | None]:
     ``value`` is a registration key, a configuration, or a list or dict of
     them, as a dependency field holds. A configuration naming
     ``pretrained_model_card`` reads the subword vocabulary of that model. A
-    configuration naming ``vocab_size`` reads the vocabulary a task fits on its
+    configuration naming ``vocabulary_size`` reads the vocabulary a task fits on its
     corpus, which is ``None`` here. Dependencies are walked, so the backbone
     of a guider counts as a backbone of the model holding it.
 
@@ -51,7 +51,7 @@ def token_spaces(value: Any) -> Set[str | None]:
         return set()
     if "pretrained_model_card" in value.fields:
         return {value.pretrained_model_card}
-    spaces: Set[str | None] = {None} if "vocab_size" in value.fields else set()
+    spaces: Set[str | None] = {None} if "vocabulary_size" in value.fields else set()
     for dependency in value.dependencies.values():
         spaces |= token_spaces(dependency)
     return spaces

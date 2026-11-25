@@ -70,7 +70,7 @@ def test_an_unusable_file_says_so(tmp_path):
 
 def test_a_backbone_sizes_its_table_to_the_matrix_and_keeps_it_frozen():
     backbone = GRUBackbone(
-        vocab_size=3, embedding_dim=2, hidden_size=4, freeze_embeddings=True
+        vocabulary_size=3, embedding_dim=2, hidden_size=4, freeze_embeddings=True
     )
     matrix = th.arange(10, dtype=th.float32).reshape(5, 2)
 
@@ -83,14 +83,14 @@ def test_a_backbone_sizes_its_table_to_the_matrix_and_keeps_it_frozen():
     assert backbone.embedding.weight.requires_grad is False
 
     trainable = GRUBackbone(
-        vocab_size=3, embedding_dim=2, hidden_size=4, freeze_embeddings=False
+        vocabulary_size=3, embedding_dim=2, hidden_size=4, freeze_embeddings=False
     )
     trainable.load_embeddings(matrix)
     assert trainable.embedding.weight.requires_grad is True
 
 
 def test_loaded_vectors_are_frozen_and_a_random_table_trains_by_default():
-    backbone = GRUBackbone(vocab_size=3, embedding_dim=2, hidden_size=4)
+    backbone = GRUBackbone(vocabulary_size=3, embedding_dim=2, hidden_size=4)
     assert backbone.embedding.weight.requires_grad is True
 
     backbone.load_embeddings(th.ones(5, 2))
@@ -106,7 +106,7 @@ def test_a_backbone_takes_its_table_through_one_path():
     """The constructor copies no matrix, so no table is sized by guesswork."""
     with pytest.raises(TypeError, match="embedding_matrix"):
         GRUBackbone(
-            vocab_size=3,
+            vocabulary_size=3,
             embedding_dim=2,
             hidden_size=4,
             embedding_matrix=th.zeros(3, 2),

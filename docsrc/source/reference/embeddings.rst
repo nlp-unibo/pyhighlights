@@ -23,7 +23,7 @@ The file's width has to be the backbone's ``embedding_dim``.
 The ids the vocabulary hands out start at ``2``: rows ``0`` and ``1`` are the padding and unknown ids, both zero, kept apart so that a highlight over an unknown word is not a highlight over padding.
 Its **length** does not have to be anything: the matrix is handed to the model through
 :meth:`~pyhighlights.components.models.spp.base.SPP.load_embeddings`, which
-sizes the table to it, so ``vocab_size`` is not a number the configuration has to have guessed.
+sizes the table to it, so ``vocabulary_size`` is not a number the configuration has to have guessed.
 Loaded vectors are frozen by default, and so is a one-hot table, which reaches the model the same way.
 The backbone's ``freeze_embeddings`` decides.
 ``None``, the default, freezes a loaded table and trains a randomly initialised one.
