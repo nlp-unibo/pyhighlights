@@ -108,7 +108,7 @@ class GuidanceGuider(GRATGuider):
 
     def __init__(
         self,
-        vocab_size: int,
+        vocabulary_size: int,
         embedding_dim: int,
         hidden_size: int,
         predictor: RegistrationKey[SPPPredictor],
@@ -122,7 +122,7 @@ class GuidanceGuider(GRATGuider):
         # The embedding table, its loading and the packed recurrence are the
         # library's own. Normalisation happens here, after the residual.
         self.backbone = GRUBackbone(
-            vocab_size=vocab_size,
+            vocabulary_size=vocabulary_size,
             embedding_dim=embedding_dim,
             hidden_size=hidden_size,
             freeze_embeddings=freeze_embeddings,

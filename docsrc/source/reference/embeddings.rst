@@ -2,7 +2,7 @@ Token vectors
 =============
 
 A model starts from token vectors, and a task says where they come from in one of three ways, which are mutually exclusive.
-Name a ``pretrained_model_card`` and the tokens are embedded by that pretrained encoder, which is what :doc:`backbones` covers.
+Give the task a model whose backbone names a ``pretrained_model_card`` and the tokens are embedded by that pretrained encoder, which is what :doc:`backbones` covers.
 Name ``embeddings`` and a vector file is fitted against the training split, which is the rest of this page.
 Name neither and set ``one_hot_embeddings=<width>`` and the tokens carry no pretrained representation at all.
 
@@ -23,7 +23,7 @@ The file's width has to be the backbone's ``embedding_dim``.
 The ids the vocabulary hands out start at ``2``: rows ``0`` and ``1`` are the padding and unknown ids, both zero, kept apart so that a highlight over an unknown word is not a highlight over padding.
 Its **length** does not have to be anything: the matrix is handed to the model through
 :meth:`~pyhighlights.components.models.spp.base.SPP.load_embeddings`, which
-sizes the table to it, so ``vocab_size`` is not a number the configuration has to have guessed.
+sizes the table to it, so ``vocabulary_size`` is not a number the configuration has to have guessed.
 Loaded vectors are frozen by default, and so is a one-hot table, which reaches the model the same way.
 The backbone's ``freeze_embeddings`` decides.
 ``None``, the default, freezes a loaded table and trains a randomly initialised one.
@@ -50,7 +50,7 @@ An evaluation token absent from the training split is embedded as zero under ``"
 ``"vectors"`` needs ``embeddings`` and refuses to build without it.
 ``requires_embeddings=True`` asks for the same refusal while keeping the corpus vocabulary, for a reproduction whose numbers are a vector file's even though its vocabulary is not.
 
-``embeddings`` and ``pretrained_model_card`` are mutually exclusive: a subword tokenizer brings its own embeddings.
+``embeddings`` and a pretrained backbone are mutually exclusive: a subword tokenizer brings its own embeddings.
 
 One-hot inputs
 --------------

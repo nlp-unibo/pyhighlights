@@ -23,7 +23,11 @@ The kwargs above override a key at build time; they are not the only way to set 
 A value a run *computes* cannot be a parameter at all: the embedding matrix is fitted against the training split and reaches the model as a tensor, and a vocabulary size measured by a tokenizer is known only once that split has been read.
 
 Constraints between parameters are declared as cinnamon conditions rather than checked in the component, so an invalid combination is rejected while the registry expands keys.
-A task that names both ``pretrained_model_card`` and ``embeddings`` fails the ``one_embedding_source`` condition, and a grid varying the embedding source drops that combination before anything trains.
+A task whose model has a pretrained backbone and that also names ``embeddings`` fails the ``one_embedding_source`` condition.
+A grid varying the embedding source drops that combination before anything trains.
+A model whose encoders read different token ids fails the ``one_token_space`` condition.
+A grid varying the selector, predictor, and guider backbones independently therefore keeps only the cells where they agree.
+A configuration built with its constructor rather than ``default()`` carries no condition, so a project that registers by hand builds it with ``default()`` and sets its fields afterwards.
 
 What a run does
 ---------------
@@ -120,8 +124,10 @@ HateXplain has no label until an
 and the loader says so rather than guessing one.
 
 Text becomes ids in one of two ways.
-Name a ``pretrained_model_card`` and the matching subword tokenizer is used; leave it unset and a vocabulary is fitted on the **training split alone**, since fitting it on evaluation text would leak quietly and nothing downstream can tell where an id came from.
-Its ``vocabulary_size`` has to match the backbone's ``vocab_size``: an id the embedding has no row for is a crash at the first batch.
+The model decides how.
+When its backbones name a ``pretrained_model_card``, the task uses that model's subword tokenizer, since a pretrained encoder fixes its own vocabulary.
+Otherwise a vocabulary is fitted on the **training split alone**, since fitting it on evaluation text would leak quietly and nothing downstream can tell where an id came from.
+The task's ``vocabulary_size`` has to match the backbone's: an id the embedding has no row for is a crash at the first batch.
 ``vocabulary_size`` counts ids rather than words, and two of them are reserved: id ``0`` is padding and id ``1`` is the unknown token, so a size of ``10_000`` maps the ``9_998`` most frequent training tokens.
 The two ids are separate so that a highlight over an out-of-vocabulary word is distinguishable from one over padding, which is what an exported explanation has to state.
 

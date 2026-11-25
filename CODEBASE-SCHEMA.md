@@ -68,3 +68,11 @@ The module depends on `pyhighlights.components.tasks` and `cinnamon.registry`.
 `Benchmark.run` calls `Benchmark.report` and `Benchmark.serialize` after every task.
 `Benchmark.resolve` calls `Registry.retrieve_keys` with the name, namespace, tag, and variant filters.
 `pyhighlights/configurations/benchmarks.py` registers `ToyBenchmarkConfig` under `TOY_BENCHMARK`, which selects `TOY_TASK` by its `spp` and `toy` tags.
+
+## pyhighlights/components/models/spp/base.py
+
+The module depends on `pyhighlights.components.models.base`, `pyhighlights.components.models.spp.data`, `pyhighlights.utility`, `cinnamon.configuration`, `cinnamon.registry`, and `torch`.
+`token_spaces` calls `Registry.retrieve_configuration` for each key it meets and calls itself on every dependency of a configuration.
+`SPPShapeConfig.default` in `pyhighlights/configurations/base.py` calls `token_spaces` from its `one_token_space` condition.
+`SPPTask.__init__` in `pyhighlights/components/tasks.py` calls `token_spaces` on its model key and keeps the single card as `pretrained_model_card`, which `SPPTask.tokenizer` reads.
+`pretrained` in `pyhighlights/configurations/tasks.py` calls `token_spaces`, and `TaskConfig.default` calls `pretrained` from its `one_embedding_source` condition.

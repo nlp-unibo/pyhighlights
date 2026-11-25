@@ -59,8 +59,8 @@ class FakeTransformer(th.nn.Module):
         return SimpleNamespace(last_hidden_state=self.projection(states + context))
 
 
-def test_a_task_tokenizes_with_the_model_card_it_names(monkeypatch):
-    """Naming a card swaps the fitted vocabulary for that model's tokenizer."""
+def test_a_task_tokenizes_with_the_card_of_its_model(monkeypatch):
+    """A pretrained encoder swaps the fitted vocabulary for its own tokenizer."""
 
     class FakeAutoTokenizer:
         @classmethod
@@ -72,12 +72,12 @@ def test_a_task_tokenizes_with_the_model_card_it_names(monkeypatch):
     transformers.AutoTokenizer = FakeAutoTokenizer
     monkeypatch.setitem(sys.modules, "transformers", transformers)
 
-    task = SPPTask(
-        loader=TOY,
-        model=GRU_FR,
-        pretrained_model_card="distilbert-base-uncased",
-    )
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+    task = SPPTask(loader=TOY, model=TRANSFORMER_FR)
+    assert task.pretrained_model_card == "distilbert-base-uncased"
     assert isinstance(task.tokenizer({}), HuggingFaceTokenizer)
+    # A backbone trained from scratch reads the vocabulary the task fits.
+    assert SPPTask(loader=TOY, model=GRU_FR).pretrained_model_card is None
 
 
 def test_transformer_backbone_reports_missing_optional_dependency(monkeypatch):

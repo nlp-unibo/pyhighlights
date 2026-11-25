@@ -10,7 +10,9 @@ import pyhighlights
 from pyhighlights.components.models import InputData
 from pyhighlights.components.models.base import Model
 from pyhighlights.components.models.spp import FR, MCD, MGR
+from pyhighlights.components.models.spp.base import token_spaces
 from pyhighlights.configurations import keys
+from pyhighlights.configurations.grat import GRUGRATConfig
 from pyhighlights.configurations.keys import (
     ADAM,
     GRU_BACKBONE,
@@ -19,8 +21,13 @@ from pyhighlights.configurations.keys import (
     GRU_GRAT,
     GRU_MCD,
     GRU_MGR,
+    GUIDANCE_GUIDER,
     MLP_PREDICTOR,
     MLP_SELECTOR,
+    TRANSFORMER_BACKBONE,
+    TRANSFORMER_FR,
+    TRANSFORMER_GRAT,
+    TRANSFORMER_GUIDER,
 )
 from pyhighlights.configurations.mgr import GRUMGRConfig
 from pyhighlights.configurations.tasks import ToyTaskConfig
@@ -341,13 +348,16 @@ def test_a_task_refuses_two_embedding_sources_before_it_is_built():
     """A key that names both is invalid, not a run that fails at the first batch.
 
     The registry validates conditions while it expands keys, so a grid that
-    varies the embedding source drops the impossible combination up front.
+    varies the embedding source drops the impossible combination up front. A
+    model whose encoder is pretrained counts as a source, since its tokenizer
+    comes with it.
     """
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
     assert ToyTaskConfig.default().validate_conditions(strict=False).passed
 
     pairs = [
-        {"pretrained_model_card": "prajjwal1/bert-tiny", "embeddings": "vectors.txt"},
-        {"pretrained_model_card": "prajjwal1/bert-tiny", "one_hot_embeddings": 8},
+        {"model": TRANSFORMER_FR, "embeddings": "vectors.txt"},
+        {"model": TRANSFORMER_FR, "one_hot_embeddings": 8},
         {"embeddings": "vectors.txt", "one_hot_embeddings": 8},
     ]
     for pair in pairs:
@@ -500,3 +510,92 @@ def test_the_baselines_select_as_their_originals_do():
         config = Registry.retrieve_configuration(key)
         assert config.sample_at_evaluation is samples
         assert not config.repair_empty_selections
+
+
+def test_a_model_reads_one_token_space():
+    """A guider's backbone counts, so G-RAT's three encoders agree or fail."""
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+
+    assert token_spaces(GRU_FR) == {None}
+    assert token_spaces(GRU_GRAT) == {None}
+    assert token_spaces(TRANSFORMER_FR) == {"distilbert-base-uncased"}
+    assert token_spaces(TRANSFORMER_GRAT) == {"distilbert-base-uncased"}
+
+    mixed = GRUGRATConfig.default()
+    mixed.selector_backbones = TRANSFORMER_BACKBONE
+    result = Registry.resolve_configuration(mixed).validate_conditions(strict=False)
+    assert not result.passed
+    assert "one_token_space" in result.error_message
+
+
+#: A downstream project whose G-RAT varies its three encoders independently.
+GRID = """
+from cinnamon.configuration import Param
+from cinnamon.registry import Namespace, RegistrationKey, register_class
+
+from pyhighlights.configurations.grat import GRUGRATConfig
+from pyhighlights.configurations.keys import (
+    GRU_BACKBONE,
+    GUIDANCE_GUIDER,
+    TRANSFORMER_BACKBONE,
+    TRANSFORMER_GUIDER,
+)
+
+GRID = Namespace("grid").key("model")
+
+
+@register_class(key=GRID, component="pyhighlights.components.models.spp.grat.GRAT")
+class GridGRATConfig(GRUGRATConfig):
+    selector_backbones: RegistrationKey = Param(
+        GRU_BACKBONE, variants=[TRANSFORMER_BACKBONE]
+    )
+    predictor_backbone: RegistrationKey = Param(
+        GRU_BACKBONE, variants=[TRANSFORMER_BACKBONE]
+    )
+    guider: RegistrationKey = Param(GUIDANCE_GUIDER, variants=[TRANSFORMER_GUIDER])
+"""
+
+
+def test_a_grid_over_backbones_drops_the_cells_that_disagree(tmp_path):
+    """Eight cells, and only the two whose encoders read one token space stay."""
+    (tmp_path / "configurations").mkdir()
+    (tmp_path / "configurations" / "__init__.py").write_text("")
+    (tmp_path / "configurations" / "grid.py").write_text(GRID)
+
+    valid, invalid = Registry.build(
+        directory=tmp_path,
+        external_directories=[Path(pyhighlights.__file__).parent],
+    )
+
+    def cells(keys):
+        return [key for key in keys if key.namespace == "grid"]
+
+    assert len(cells(valid)) + len(cells(invalid)) == 8
+    kept = [
+        Registry.retrieve_variant_values(cell) for cell in sorted(cells(valid), key=str)
+    ]
+    assert kept == [
+        {
+            "selector_backbones": GRU_BACKBONE,
+            "predictor_backbone": GRU_BACKBONE,
+            "guider": GUIDANCE_GUIDER,
+        },
+        {
+            "selector_backbones": TRANSFORMER_BACKBONE,
+            "predictor_backbone": TRANSFORMER_BACKBONE,
+            "guider": TRANSFORMER_GUIDER,
+        },
+    ]
+    assert all("one_token_space" in str(key.metadata) for key in cells(invalid))
+
+
+def test_no_registered_key_fails_its_conditions():
+    """A base key that fails a condition is dropped, not reported.
+
+    It would surface only when something asks for it, as a key that is not
+    registered. A variant may fail, since pruning is what conditions are for,
+    and the library registers none.
+    """
+    _, invalid = Registry.build(directory=Path(pyhighlights.__file__).parent)
+
+    assert not invalid, {str(key): key.metadata for key in invalid}

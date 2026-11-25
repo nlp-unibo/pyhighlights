@@ -21,6 +21,7 @@ from pyhighlights.components.models.spp.base import (
     SPPBackbone,
     SPPPredictor,
     SPPSelector,
+    token_spaces,
 )
 from pyhighlights.configurations.keys import (
     ADAM,
@@ -84,6 +85,23 @@ class SPPShapeConfig(Configuration):
     train_metrics: List[RegistrationKey[BoundMetric]] | None = Param(None)
     val_metrics: List[RegistrationKey[BoundMetric]] | None = Param(None)
     test_metrics: List[RegistrationKey[BoundMetric]] | None = Param(None)
+
+    @classmethod
+    def default(cls):
+        config = super().default()
+        # A condition rather than one backbone field, so a model whose
+        # selector, predictor and guider are separate encoders keeps them
+        # separate. Only their token space has to agree, and a grid that
+        # varies the backbones independently drops the cells where it does not.
+        config.add_condition(
+            name="one_token_space",
+            description=(
+                "Every encoder of a model reads the same token ids: one "
+                "pretrained model card, or the vocabulary the task fits."
+            ),
+            condition=lambda model: len(token_spaces(model)) <= 1,
+        )
+        return config
 
 
 class SPPModelConfig(SPPShapeConfig):
