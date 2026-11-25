@@ -15,6 +15,7 @@ from lightning.pytorch.callbacks import Callback
 
 from pyhighlights.components.loaders import HighlightLoader
 from pyhighlights.components.models.base import Model
+from pyhighlights.components.models.spp.base import token_spaces
 from pyhighlights.components.models.spp.genspp import GenSPPTrainer
 from pyhighlights.components.preprocessors import ClassWeights, Preprocessor
 from pyhighlights.configurations.keys import (
@@ -60,6 +61,11 @@ HIGHLIGHT_METRICS = [
 BINARY_METRICS = [ACCURACY_METRIC, F1_METRIC, *HIGHLIGHT_METRICS]
 
 
+def pretrained(model: Any) -> bool:
+    """Whether the encoders of ``model`` read a pretrained subword vocabulary."""
+    return model is not None and bool(token_spaces(model) - {None})
+
+
 class TaskConfig(Configuration):
     """Fields every task shares.
 
@@ -76,7 +82,6 @@ class TaskConfig(Configuration):
     batch_size: int = Param(32, ge=1)
     max_length: int | None = Param(None)
     vocabulary_size: int = Param(10_000, ge=3)
-    pretrained_model_card: str | None = Param(None)
     #: Keep ``[CLS]`` and ``[SEP]``. A pretrained encoder was trained reading
     #: them; they carry no word, so a selector never sees them either way.
     add_special_tokens: bool = Param(True)
@@ -137,18 +142,14 @@ class TaskConfig(Configuration):
         config.add_condition(
             name="one_embedding_source",
             description=(
-                "A task embeds its tokens with a pretrained model card, a "
-                "vector file or a one-hot table, never with two of them."
+                "A task embeds its tokens with the pretrained encoder of its "
+                "model, a vector file or a one-hot table, never with two of "
+                "them."
             ),
             condition=lambda task: (
-                sum(
-                    source is not None
-                    for source in (
-                        task.pretrained_model_card,
-                        task.embeddings,
-                        task.one_hot_embeddings,
-                    )
-                )
+                pretrained(getattr(task, "model", None))
+                + (task.embeddings is not None)
+                + (task.one_hot_embeddings is not None)
                 <= 1
             ),
         )

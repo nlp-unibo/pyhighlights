@@ -44,6 +44,7 @@ from pyhighlights.components.data import (
 from pyhighlights.components.faithfulness import evaluate as score_faithfulness
 from pyhighlights.components.loaders import HighlightLoader, to_examples
 from pyhighlights.components.models.base import InputData, Model
+from pyhighlights.components.models.spp.base import token_spaces
 from pyhighlights.components.models.spp.genspp import GenSPPTrainer
 from pyhighlights.components.preprocessors import ClassWeights, Preprocessor
 from pyhighlights.utility import cost, diagnostics, manifest
@@ -223,7 +224,6 @@ class SPPTask(Task):
         batch_size: int = 32,
         max_length: int | None = None,
         vocabulary_size: int = 10_000,
-        pretrained_model_card: str | None = None,
         add_special_tokens: bool = True,
         embeddings: str | Path | None = None,
         pretrained_tokens_only: bool = True,
@@ -257,7 +257,16 @@ class SPPTask(Task):
         self.batch_size = batch_size
         self.max_length = max_length
         self.vocabulary_size = vocabulary_size
-        self.pretrained_model_card = pretrained_model_card
+        spaces = token_spaces(model)
+        if len(spaces) > 1:
+            raise ValueError(
+                f"{self.name}: the encoders of {model} read different token "
+                f"ids: {sorted(map(str, spaces))}"
+            )
+        #: The pretrained vocabulary the model's encoders read, or ``None``
+        #: when they read the one this task fits. Read from the model rather
+        #: than named here, since the encoder fixes its own vocabulary.
+        self.pretrained_model_card = next(iter(spaces), None)
         self.add_special_tokens = add_special_tokens
         self.embeddings = Path(embeddings) if embeddings is not None else None
         self.pretrained_tokens_only = pretrained_tokens_only
@@ -293,7 +302,7 @@ class SPPTask(Task):
         named = [
             name
             for name, value in (
-                ("a pretrained model card", pretrained_model_card),
+                ("a pretrained model card", self.pretrained_model_card),
                 ("a vector file", self.embeddings),
                 ("a one-hot table", one_hot_embeddings),
             )
@@ -398,7 +407,7 @@ class SPPTask(Task):
         return load_splits(self.loader, self.preprocessor)
 
     def tokenizer(self, splits: Mapping[str, pd.DataFrame]) -> HighlightTokenizer:
-        """A subword tokenizer when a model card is named, else a vocabulary.
+        """The subword tokenizer of the model's encoder, else a vocabulary.
 
         The vocabulary is fitted on ``train`` only, and its size has to match
         the backbone's ``vocab_size``: an id the embedding has no row for is a

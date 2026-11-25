@@ -27,6 +27,7 @@ from pyhighlights.configurations.keys import (
     TOY_GENSPP_TASK,
     TOY_GENSPP_TRAINER,
     TOY_TASK,
+    TRANSFORMER_FR,
 )
 from pyhighlights.configurations.tasks import BINARY_METRICS
 from pyhighlights.utility.embeddings import one_hot_table
@@ -403,12 +404,13 @@ def test_a_task_that_embeds_from_a_file_refuses_to_run_without_one():
 
 
 def test_a_task_embeds_its_tokens_one_way_or_the_other(tmp_path):
+    build_registry()
+    # A pretrained encoder brings its own tokenizer and embeddings.
     with pytest.raises(ValueError, match="not both"):
         SPPTask(
             loader=TOY,
-            model=GRU_FR,
+            model=TRANSFORMER_FR,
             embeddings=str(tmp_path / "vectors.txt"),
-            pretrained_model_card="distilbert-base-uncased",
         )
     with pytest.raises(ValueError, match="a one-hot table"):
         SPPTask(

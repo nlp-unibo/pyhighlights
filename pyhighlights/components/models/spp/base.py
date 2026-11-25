@@ -5,6 +5,7 @@ import math
 from typing import Any, Dict, List, Literal, Sequence, Set, Tuple, Union
 
 import torch as th
+from cinnamon.configuration import Configuration
 from cinnamon.registry import RegistrationKey, Registry
 
 from pyhighlights.components.models.base import (
@@ -25,6 +26,35 @@ def probability(logits: th.Tensor, of: th.Tensor) -> th.Tensor:
     such term compares this quantity across two inputs to the same predictor.
     """
     return th.softmax(logits, dim=-1).gather(1, of.unsqueeze(1)).squeeze(1)
+
+
+def token_spaces(value: Any) -> Set[str | None]:
+    """The token ids the encoders under ``value`` read.
+
+    ``value`` is a registration key, a configuration, or a list or dict of
+    them, as a dependency field holds. A configuration naming
+    ``pretrained_model_card`` reads the subword vocabulary of that model. A
+    configuration naming ``vocab_size`` reads the vocabulary a task fits on its
+    corpus, which is ``None`` here. Dependencies are walked, so the backbone
+    of a guider counts as a backbone of the model holding it.
+
+    Every encoder of one model reads the same ids, so a model has at most one
+    token space. A task reads the model card from it rather than naming one.
+    """
+    if isinstance(value, RegistrationKey):
+        value = Registry.retrieve_configuration(value)
+    if isinstance(value, (list, tuple)):
+        return set().union(*(token_spaces(item) for item in value))
+    if isinstance(value, dict):
+        return set().union(*(token_spaces(item) for item in value.values()))
+    if not isinstance(value, Configuration):
+        return set()
+    if "pretrained_model_card" in value.fields:
+        return {value.pretrained_model_card}
+    spaces: Set[str | None] = {None} if "vocab_size" in value.fields else set()
+    for dependency in value.dependencies.values():
+        spaces |= token_spaces(dependency)
+    return spaces
 
 
 class SPPBackbone(th.nn.Module, abc.ABC):

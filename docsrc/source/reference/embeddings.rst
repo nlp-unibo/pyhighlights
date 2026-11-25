@@ -2,7 +2,7 @@ Token vectors
 =============
 
 A model starts from token vectors, and a task says where they come from in one of three ways, which are mutually exclusive.
-Name a ``pretrained_model_card`` and the tokens are embedded by that pretrained encoder, which is what :doc:`backbones` covers.
+Give the task a model whose backbone names a ``pretrained_model_card`` and the tokens are embedded by that pretrained encoder, which is what :doc:`backbones` covers.
 Name ``embeddings`` and a vector file is fitted against the training split, which is the rest of this page.
 Name neither and set ``one_hot_embeddings=<width>`` and the tokens carry no pretrained representation at all.
 
@@ -50,7 +50,7 @@ An evaluation token absent from the training split is embedded as zero under ``"
 ``"vectors"`` needs ``embeddings`` and refuses to build without it.
 ``requires_embeddings=True`` asks for the same refusal while keeping the corpus vocabulary, for a reproduction whose numbers are a vector file's even though its vocabulary is not.
 
-``embeddings`` and ``pretrained_model_card`` are mutually exclusive: a subword tokenizer brings its own embeddings.
+``embeddings`` and a pretrained backbone are mutually exclusive: a subword tokenizer brings its own embeddings.
 
 One-hot inputs
 --------------
