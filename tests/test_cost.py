@@ -25,7 +25,7 @@ from pyhighlights.configurations.keys import (
 )
 from pyhighlights.utility import cost
 
-SMOKE = {
+SANITY_CHECK = {
     "accelerator": "cpu",
     "max_epochs": 1,
     "enable_progress_bar": False,
@@ -107,7 +107,7 @@ def test_the_timer_reports_the_pass_and_its_batches():
 
 def test_a_seed_reports_what_it_cost_beside_what_it_scored(tmp_path):
     task = Registry.from_key(
-        TOY_TASK, save_path=str(tmp_path), seeds=[0], trainer_args=SMOKE
+        TOY_TASK, save_path=str(tmp_path), seeds=[0], trainer_args=SANITY_CHECK
     )
 
     results = task.run()
@@ -136,7 +136,7 @@ def test_a_search_counts_the_candidates_it_actually_trained(tmp_path):
     `stop_threshold` early, which is the one a study most wants costed.
     """
     task = Registry.from_key(
-        TOY_GENSPP_TASK, save_path=str(tmp_path), seeds=[0], trainer_args=SMOKE
+        TOY_GENSPP_TASK, save_path=str(tmp_path), seeds=[0], trainer_args=SANITY_CHECK
     )
     search = Registry.from_key(TOY_GENSPP_TRAINER)
 
@@ -152,7 +152,7 @@ def test_a_search_counts_the_candidates_it_actually_trained(tmp_path):
 def test_the_cost_table_is_the_metrics_table_with_another_prefix(tmp_path):
     """So a computational comparison is a call, not a second analyzer."""
     Registry.from_key(
-        TOY_TASK, save_path=str(tmp_path), seeds=[0], trainer_args=SMOKE
+        TOY_TASK, save_path=str(tmp_path), seeds=[0], trainer_args=SANITY_CHECK
     ).run()
 
     table = MetricsAnalyzer(directory=tmp_path, split="cost").analyze()
@@ -175,13 +175,13 @@ def test_a_pool_wider_than_the_population_is_not_the_concurrency(tmp_path):
     """Eight workers cannot run four candidates eight at a time.
 
     Counting them as eight would report each candidate as costing twice what
-    it did, which is the smoke-sized search every wiring check runs.
+    it did, which is the search size every sanity check run uses.
     """
     task = Registry.from_key(
         TOY_GENSPP_TASK,
         save_path=str(tmp_path),
         seeds=[0],
-        trainer_args=SMOKE,
+        trainer_args=SANITY_CHECK,
     )
 
     run = task.run()["runs"][0]

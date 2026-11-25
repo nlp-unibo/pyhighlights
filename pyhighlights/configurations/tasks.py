@@ -160,7 +160,7 @@ class TaskConfig(Configuration):
     key=TOY_TASK, component="pyhighlights.components.tasks.SPPTask", run_method="run"
 )
 class ToyTaskConfig(TaskConfig):
-    """The synthetic corpus against FR: a smoke test that trains in seconds."""
+    """The synthetic corpus against FR: a sanity check run that trains in seconds."""
 
     name: str = Param("toy")
     loader: RegistrationKey[HighlightLoader] = Param(TOY)

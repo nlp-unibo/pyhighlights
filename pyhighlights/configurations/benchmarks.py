@@ -44,7 +44,7 @@ class BenchmarkConfig(Configuration):
     run_method="run",
 )
 class ToyBenchmarkConfig(BenchmarkConfig):
-    """The synthetic corpus, as a benchmark of one: the end-to-end smoke test."""
+    """The synthetic corpus, as a benchmark of one: the end-to-end sanity check run."""
 
     task_namespace: str | None = Param("pyhighlights")
     task_tags: Set[str] | None = Param({"spp", "toy"})
