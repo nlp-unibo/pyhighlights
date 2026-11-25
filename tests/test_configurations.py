@@ -95,6 +95,11 @@ def test_every_declared_key_is_registered():
 
 
 def test_registered_gru_fr_forward_backward_and_optimizer():
+    # Seeded before the model is built, because an unrepaired sample can drop
+    # every word, and an empty selection pools to zeros and gives the
+    # predictor's weight no gradient. Seeding after the build left the weights
+    # to whatever state earlier tests in the worker left the generator in.
+    th.manual_seed(0)
     Registry.build(directory=Path(pyhighlights.__file__).parent)
     model = Registry.from_key(GRU_FR)
     assert isinstance(model, FR)
@@ -112,9 +117,6 @@ def test_registered_gru_fr_forward_backward_and_optimizer():
     )
 
     model.train()
-    # Seeded, because an unrepaired sample can drop every word, and an empty
-    # selection pools to zeros and gives the predictor's weight no gradient.
-    th.manual_seed(0)
     output = model(batch)
     loss, losses = model.compute_loss(batch, output)
     loss.backward()

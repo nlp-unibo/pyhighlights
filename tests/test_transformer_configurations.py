@@ -126,6 +126,9 @@ def test_transformer_registrations_are_algorithm_interchangeable(monkeypatch):
     monkeypatch.setitem(sys.modules, "transformers", transformers)
     Registry.build(directory=Path(pyhighlights.__file__).parent)
 
+    # Seeded before the models are built: the gradient check below needs a
+    # selection that keeps a word, and that depends on the initial weights.
+    th.manual_seed(0)
     models = [
         Registry.from_key(TRANSFORMER_FR),
         Registry.from_key(TRANSFORMER_DAR),
@@ -183,7 +186,6 @@ def test_transformer_registrations_are_algorithm_interchangeable(monkeypatch):
         assert output.highlight_logits.shape == (2, heads, 4, 2)
         assert not output.highlight_mask[:, :, 3].any()
 
-    th.manual_seed(0)
     classification_loss = fr.losses[0](fr.head_namespace(batch, fr(batch)))
     classification_loss.backward()
     selector_gradient = fr.selectors[0].selector[-1].weight.grad
