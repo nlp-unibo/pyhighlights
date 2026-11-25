@@ -4,7 +4,8 @@ from types import SimpleNamespace
 
 import pandas as pd
 import pytest
-from cinnamon.registry import Registry
+from cinnamon.configuration import Configuration, Param
+from cinnamon.registry import RegistrationKey, Registry
 
 import pyhighlights
 from pyhighlights.components import benchmarks
@@ -48,19 +49,27 @@ class FakeTask(Task):
 
 
 def serve(monkeypatch, tasks: dict) -> list:
-    """Have the benchmark's registry build the fake tasks ``tasks`` names.
+    """Have the benchmark's registry find and build the fake tasks ``tasks`` names.
 
+    Every name in ``tasks`` matches the benchmark's search, in insertion order.
     Each task is rebuilt with the arguments the benchmark passes, so a test
     sees where it was told to save. Returns those arguments, one per build.
     """
     built = []
+
+    def retrieve_keys(**filters):
+        return list(tasks)
 
     def from_key(key, expected_type=None, **arguments):
         built.append(arguments)
         task = tasks[key]
         return FakeTask(task.summary, fails=task.fails, name=task.name, **arguments)
 
-    monkeypatch.setattr(benchmarks, "Registry", SimpleNamespace(from_key=from_key))
+    monkeypatch.setattr(
+        benchmarks,
+        "Registry",
+        SimpleNamespace(from_key=from_key, retrieve_keys=retrieve_keys),
+    )
     return built
 
 
@@ -76,7 +85,7 @@ def test_a_benchmark_runs_its_tasks_and_collects_them(tmp_path, monkeypatch):
         "first": FakeTask(summary(accuracy=0.8), name="first"),
         "second": FakeTask(summary(accuracy=0.6), name="second"),
     }
-    benchmark = Benchmark(tasks=list(tasks), name="grid", save_path=str(tmp_path))
+    benchmark = Benchmark(name="grid", save_path=str(tmp_path))
     serve(monkeypatch, tasks)
 
     report = benchmark.run()
@@ -94,7 +103,7 @@ def test_a_failing_task_does_not_take_the_grid_with_it(tmp_path, monkeypatch):
         "broken": FakeTask(summary(), fails=True, name="broken"),
         "fine": FakeTask(summary(accuracy=0.9), name="fine"),
     }
-    benchmark = Benchmark(tasks=list(tasks), name="grid", save_path=str(tmp_path))
+    benchmark = Benchmark(name="grid", save_path=str(tmp_path))
     serve(monkeypatch, tasks)
 
     report = benchmark.run()
@@ -104,16 +113,32 @@ def test_a_failing_task_does_not_take_the_grid_with_it(tmp_path, monkeypatch):
     assert report["tasks"][0]["traceback"].endswith("cannot run\n")
     assert report["tasks"][1]["result"]["summary"]["test_accuracy"]["mean"] == 0.9
 
-    strict = Benchmark(
-        tasks=["broken"], name="strict", save_path=str(tmp_path), strict=True
-    )
+    strict = Benchmark(name="strict", save_path=str(tmp_path), strict=True)
     with pytest.raises(RuntimeError, match="cannot run"):
         strict.run()
 
 
-def test_a_benchmark_needs_a_task():
-    with pytest.raises(ValueError, match="at least one task"):
-        Benchmark(tasks=[])
+def test_a_filter_that_matches_no_task_raises_and_names_the_filter(monkeypatch):
+    serve(monkeypatch, {})
+    benchmark = Benchmark(task_namespace="nowhere", task_tags={"typo"})
+
+    with pytest.raises(ValueError, match="namespace='nowhere', tags=\\['typo'\\]"):
+        benchmark.run()
+
+
+def test_the_report_lists_the_resolved_keys_sorted(tmp_path, monkeypatch):
+    """A search returns keys in registry order; a run states them in key order."""
+    tasks = {
+        "second": FakeTask(summary(accuracy=0.6), name="second"),
+        "first": FakeTask(summary(accuracy=0.8), name="first"),
+    }
+    serve(monkeypatch, tasks)
+
+    report = Benchmark(name="grid", save_path=str(tmp_path)).run()
+
+    written = json.loads((tmp_path / "grid" / "benchmark.json").read_text())
+    assert written["settings"]["tasks"] == ["first", "second"]
+    assert [item["task"] for item in report["tasks"]] == ["first", "second"]
 
 
 def test_metrics_analyzer_reads_every_result_beneath_a_directory(tmp_path):
@@ -197,7 +222,7 @@ def test_registered_benchmark_and_analyzers_build(tmp_path):
 
     benchmark = Registry.from_key(TOY_BENCHMARK, save_path=str(tmp_path))
     assert isinstance(benchmark, Benchmark)
-    assert benchmark.tasks == [TOY_TASK]
+    assert benchmark.resolve() == [TOY_TASK]
 
     assert isinstance(Registry.from_key(METRICS_ANALYZER), MetricsAnalyzer)
     assert isinstance(
@@ -778,7 +803,7 @@ def test_the_report_is_written_after_every_task(tmp_path, monkeypatch):
         "first": FakeTask(summary(accuracy=0.5), name="first"),
         "second": FakeTask(summary(accuracy=0.7), name="second"),
     }
-    benchmark = Benchmark(tasks=list(tasks), name="grid", save_path=str(tmp_path))
+    benchmark = Benchmark(name="grid", save_path=str(tmp_path))
     serve(monkeypatch, tasks)
     run = FakeTask.run
 
@@ -800,7 +825,6 @@ def test_the_benchmark_directory_wins_over_a_task_argument(tmp_path, monkeypatch
     """A task writing elsewhere leaves `benchmark.json` naming results no
     analyzer reading this directory can find."""
     benchmark = Benchmark(
-        tasks=["first"],
         name="grid",
         save_path=str(tmp_path),
         task_args={"save_path": str(tmp_path / "elsewhere")},
@@ -877,3 +901,69 @@ def test_offsets_address_the_text_the_corpus_wrote():
     assert offsets(tokens, "aab") == [(0, 1), (1, 2), (2, 3)]
     # Repeated tokens take successive occurrences rather than the first one.
     assert offsets(tokens) == [(0, 1), (2, 3), (4, 5)]
+
+
+class GridModelConfig(Configuration):
+    backbone: str = Param("gru", variants=["transformer"])
+
+
+class GridTaskConfig(Configuration):
+    category: str = Param("A", variants=["B"])
+    model: RegistrationKey = Param(RegistrationKey(name="model", namespace="grid"))
+
+
+@pytest.fixture
+def grid():
+    """Four task keys: categories ``A`` and ``B`` over two model backbones.
+
+    ``A`` and ``gru`` are defaults, so no tag names them, and only a variant
+    search can select them.
+    """
+    Registry.initialize()
+    Registry.register_configuration(
+        config=GridModelConfig.default(), name="model", namespace="grid"
+    )
+    Registry.register_configuration(
+        config=GridTaskConfig.default(), name="task", namespace="grid"
+    )
+    Registry.dag_resolution()
+    yield
+    Registry.initialize()
+
+
+def matched(**variants) -> list:
+    benchmark = Benchmark(task_namespace="grid", task_variants=variants)
+    return [Registry.retrieve_variant_values(key) for key in benchmark.resolve()]
+
+
+def test_a_benchmark_selects_a_default_variant_value(grid):
+    found = matched(category="A")
+
+    assert len(found) == 2
+    assert all(values["category"] == "A" for values in found)
+
+
+def test_a_benchmark_selects_a_non_default_variant_value(grid):
+    found = matched(category="B")
+
+    assert len(found) == 2
+    assert all(values["category"] == "B" for values in found)
+
+
+def test_a_benchmark_reads_a_variant_value_of_a_child_key(grid):
+    keys = Benchmark(
+        task_namespace="grid", task_variants={"model.backbone": "transformer"}
+    ).resolve()
+
+    assert len(keys) == 2
+    assert all(
+        Registry.retrieve_variant_values(Registry.retrieve_variant_values(key)["model"])
+        == {"backbone": "transformer"}
+        for key in keys
+    )
+    assert keys == sorted(keys, key=str)
+
+
+def test_a_variant_value_no_task_has_raises(grid):
+    with pytest.raises(ValueError, match="variants=\\{'category': 'C'\\}"):
+        matched(category="C")

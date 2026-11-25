@@ -78,3 +78,7 @@ exclude_also = [
     "if TYPE_CHECKING:",
     "raise NotImplementedError",
 ]
+
+# ponytail: temporary; remove once cinnamon-core 3.0.0 (with nlp-unibo/cinnamon#79) is on PyPI.
+[tool.uv.sources]
+cinnamon-core = { path = "../cinnamon", editable = true }

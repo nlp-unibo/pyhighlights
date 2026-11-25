@@ -93,7 +93,7 @@ The directory is stamped with the moment the run began, and a second run never o
    {
      "started": "2026-09-09T17-55-22",
      "component": "pyhighlights.components.tasks.SPPTask",
-     "key": "name=task--tags=['toy']--namespace=pyhighlights",
+     "key": "name=task--tags=['spp', 'toy']--namespace=pyhighlights",
      "build_args": {"seeds": [0, 1], "store_predictions": true,
                     "trainer_args": {"accelerator": "cpu", "max_epochs": 1}},
      "versions": {"python": "3.13.15", "pyhighlights": "0.2.0",
@@ -189,7 +189,7 @@ paper's values registered in a namespace of their own.
 7. Run a grid
 -------------
 
-A benchmark is a list of task keys, run in sequence, each writing inside the benchmark's directory:
+A benchmark runs the task keys a registry search selects, in sequence, each writing inside the benchmark's directory:
 
 .. code-block:: python
 

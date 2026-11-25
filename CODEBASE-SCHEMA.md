@@ -60,3 +60,11 @@ The module depends on `pyhighlights.components.models`, `pyhighlights.components
 `GuidanceGuider` extends `GRATGuider` and builds a `GRUBackbone`; its `forward` calls `GRUBackbone.encode` and `masked_softmax`, and its `load_embeddings` calls `GRUBackbone.load_embeddings`.
 `pyhighlights/configurations/grat.py` registers `GuidanceGuider` under `GUIDANCE_GUIDER`, the default guider of `GRUGRATConfig`.
 `pyhighlights.components.tasks` calls `GRAT.load_embeddings` from `SPPTask.build_model`.
+
+## pyhighlights/components/benchmarks.py
+
+The module depends on `pyhighlights.components.tasks` and `cinnamon.registry`.
+`Benchmark.run` calls `Benchmark.resolve`, then builds each resolved key with `Registry.from_key` and calls the task's `run`.
+`Benchmark.run` calls `Benchmark.report` and `Benchmark.serialize` after every task.
+`Benchmark.resolve` calls `Registry.retrieve_keys` with the name, namespace, tag, and variant filters.
+`pyhighlights/configurations/benchmarks.py` registers `ToyBenchmarkConfig` under `TOY_BENCHMARK`, which selects `TOY_TASK` by its `spp` and `toy` tags.

@@ -1,26 +1,32 @@
 """Benchmark and analyzer registrations."""
 
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List, Sequence, Set
 
 from cinnamon.configuration import Configuration, Param
-from cinnamon.registry import RegistrationKey, register_class
+from cinnamon.registry import register_class
 
 from pyhighlights.components.analyzers import PREDICTIONS
-from pyhighlights.components.tasks import Task
 from pyhighlights.configurations.keys import (
     HIGHLIGHT_POSITION_ANALYZER,
     LABEL_STUDIO_EXPORTER,
     METRICS_ANALYZER,
     PREDICTION_ANALYZER,
     TOY_BENCHMARK,
-    TOY_TASK,
 )
 
 
 class BenchmarkConfig(Configuration):
-    """A grid of tasks, run in order."""
+    """The tasks a registry search selects, run in key order.
 
-    tasks: List[RegistrationKey[Task]] = Param([TOY_TASK])
+    Each filter left as ``None`` matches every key. ``task_tags`` matches keys
+    holding every listed tag, and ``task_variants`` matches values of variant
+    parameters, defaults included, with dotted names reading into child keys.
+    """
+
+    task_name: str = Param("task")
+    task_namespace: str | None = Param(None)
+    task_tags: Set[str] | None = Param(None)
+    task_variants: Dict[str, Any] | None = Param(None)
     name: str = Param("benchmark")
     save_path: str | None = Param(None)
     strict: bool = Param(False)
@@ -40,6 +46,8 @@ class BenchmarkConfig(Configuration):
 class ToyBenchmarkConfig(BenchmarkConfig):
     """The synthetic corpus, as a benchmark of one: the end-to-end smoke test."""
 
+    task_namespace: str | None = Param("pyhighlights")
+    task_tags: Set[str] | None = Param({"spp", "toy"})
     name: str = Param("toy-benchmark")
 
 
