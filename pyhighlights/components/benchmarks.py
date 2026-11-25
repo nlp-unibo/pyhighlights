@@ -1,8 +1,10 @@
 """Benchmarks: several tasks, one report.
 
 A paper's table is not one experiment but a grid of them: every model over
-every corpus, each with its own seeds. A benchmark is that grid: a list of task
-keys, run in order, and one report collecting what each of them found.
+every corpus, each with its own seeds. A benchmark is that grid: the task keys a
+registry search selects, run in order, and one report collecting what each of
+them found. A search follows the variants cinnamon expands, which a fixed list
+of keys cannot.
 
 It owns no training logic. Whatever a task does, the benchmark does not need to
 know; it runs the key and keeps the result.
@@ -14,7 +16,7 @@ import json
 import logging
 import traceback
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Sequence
+from typing import Any, Dict, Iterable, List, Mapping, Sequence
 
 from cinnamon.registry import RegistrationKey, Registry
 
@@ -26,7 +28,13 @@ __all__ = ["Benchmark"]
 
 
 class Benchmark:
-    """Runs a list of tasks and writes down what each of them reported.
+    """Runs the tasks a registry search selects and records what each reported.
+
+    The search runs in :meth:`run`, after the registry is expanded, so it can
+    match variant values. ``task_variants`` matches the value of a variant
+    parameter, its default included, and a dotted name such as
+    ``model.backbone`` reads into the key a field holds. Keys run sorted by
+    their string form, so two runs of one benchmark run in the same order.
 
     A task that raises does not take the rest of the grid with it: the failure
     is recorded against that task and the benchmark carries on, since an
@@ -36,15 +44,21 @@ class Benchmark:
 
     def __init__(
         self,
-        tasks: Sequence[RegistrationKey[Task]] = (),
+        task_name: str = "task",
+        task_namespace: str | None = None,
+        task_tags: Iterable[str] | None = None,
+        task_variants: Mapping[str, Any] | None = None,
         name: str = "benchmark",
         save_path: str | Path | None = None,
         strict: bool = False,
         task_args: Mapping[str, Any] | None = None,
     ):
-        if not tasks:
-            raise ValueError("a benchmark needs at least one task")
-        self.tasks = list(tasks)
+        self.task_name = task_name
+        self.task_namespace = task_namespace
+        self.task_tags = frozenset(task_tags) if task_tags is not None else None
+        self.task_variants = dict(task_variants) if task_variants else None
+        #: The keys the last :meth:`run` resolved; empty before the first one.
+        self.tasks: List[RegistrationKey[Task]] = []
         self.name = name
         self.save_path = Path(save_path) if save_path is not None else Path("results")
         self.strict = strict
@@ -74,7 +88,29 @@ class Benchmark:
             "failed": [item["task"] for item in results if "error" in item],
         }
 
+    def resolve(self) -> List[RegistrationKey[Task]]:
+        """The keys the filter matches, sorted by their string form.
+
+        An empty match raises: a typo in a filter would otherwise produce a
+        benchmark that runs nothing and reports success.
+        """
+        keys = Registry.retrieve_keys(
+            names=self.task_name,
+            namespaces=self.task_namespace,
+            tags=self.task_tags,
+            variants=self.task_variants,
+        )
+        if not keys:
+            raise ValueError(
+                f"{self.name}: no task matches name={self.task_name!r}, "
+                f"namespace={self.task_namespace!r}, "
+                f"tags={sorted(self.task_tags) if self.task_tags else None!r}, "
+                f"variants={self.task_variants!r}"
+            )
+        return sorted(keys, key=str)
+
     def run(self) -> Dict[str, Any]:
+        self.tasks = self.resolve()
         results: List[Dict[str, Any]] = []
         for key in self.tasks:
             # The benchmark's directory wins over `task_args`: the report names

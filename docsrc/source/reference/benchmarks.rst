@@ -46,8 +46,26 @@ Running a grid
 --------------
 
 A paper's table is a grid, not one experiment: every model over every corpus.
-:class:`~pyhighlights.components.benchmarks.Benchmark` is that grid, a list of
-task keys, run in order, each writing inside the benchmark's own directory.
+:class:`~pyhighlights.components.benchmarks.Benchmark` is that grid.
+It selects its tasks with a registry search and runs each matching key, sorted by its string form.
+Each task writes inside the benchmark's own directory.
+
+The search runs when the benchmark runs, after the registry is expanded.
+``task_name``, ``task_namespace``, and ``task_tags`` filter keys as ``Registry.retrieve_keys`` does.
+``task_tags`` matches keys holding every listed tag.
+``task_variants`` matches the values of variant parameters, defaults included.
+A dotted name reads the variant parameter of the key a field holds:
+
+.. code-block:: python
+
+   class GridBenchmarkConfig(BenchmarkConfig):
+       task_namespace: str | None = Param("my-project")
+       task_variants: Dict[str, Any] | None = Param({"model.backbone": "gru"})
+
+Every matching key joins the benchmark.
+``benchmark.json`` lists the resolved keys under ``settings.tasks``.
+A filter that matches no key raises ``ValueError`` rather than running nothing.
+A project that needs a subset defines a narrower filter.
 
 .. code-block:: python
 
