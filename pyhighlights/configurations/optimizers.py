@@ -8,5 +8,9 @@ from pyhighlights.configurations.keys import ADAM
 
 @register_class(key=ADAM, component="torch.optim.Adam")
 class AdamConfig(Configuration):
-    lr: float = Param(1e-3, gt=0.0)
-    weight_decay: float = Param(0.0, ge=0.0)
+    lr: float = Param(1e-3, gt=0.0, description="Learning rate, greater than 0.")
+    weight_decay: float = Param(
+        0.0,
+        ge=0.0,
+        description="Weight decay, an L2 penalty on the parameters, 0 or greater.",
+    )

@@ -16,14 +16,22 @@ from pyhighlights.components.data import (
     HighlightDataset,
     HighlightExample,
 )
+from pyhighlights.constants import (
+    BEER_TASKS,
+    ERASER_SHA256,
+    ERASER_URL,
+    HATEXPLAIN_COMMIT,
+    HATEXPLAIN_DIVISIONS_SHA256,
+    HATEXPLAIN_DIVISIONS_URL,
+    HATEXPLAIN_LABELS,
+    HATEXPLAIN_SHA256,
+    HATEXPLAIN_URL,
+    HOTEL_TASKS,
+    R2A_SHA256,
+    R2A_URL,
+)
 from pyhighlights.utility.io import cache_directory, download, extract
 
-R2A_URL = "https://people.csail.mit.edu/yujia/files/r2a/data.zip"
-#: The release the split manifests on Zenodo were built against. Pinned so a
-#: reproduction fails loudly on a changed upstream rather than training on it.
-R2A_SHA256 = "23fcb4cac883ec1de86d83a7747294d7fdae10061d3803fd4c34c930e66f25de"
-BEER_TASKS = ("beer0", "beer1", "beer2")
-HOTEL_TASKS = ("hotel_Location", "hotel_Service", "hotel_Cleanliness")
 R2A_TASKS = BEER_TASKS + HOTEL_TASKS
 R2A_SPLITS = {
     "train": "oracle/{task}.train",
@@ -674,29 +682,13 @@ class HateXplainLoader(HighlightLoader):
     :meth:`~HighlightLoader.datasets` says so.
     """
 
-    #: The commit both files are read at. A branch name is not a version: the
-    #: same key would name different rows after an upstream push, and a run
-    #: made before it could not be told from a run made after. The benchmark
-    #: publishes no digest of its own, so :attr:`SHA256` and
-    #: :attr:`DIVISIONS_SHA256` were computed against this commit, which is
-    #: what ``master`` resolved to as of 2026-09-15, byte for byte.
-    COMMIT = "01d742279dac941981f53806154481c0e15ee686"
-    URL = (
-        "https://raw.githubusercontent.com/hate-alert/HateXplain/"
-        f"{COMMIT}/Data/dataset.json"
-    )
-    #: Digest of the 12256170-byte ``dataset.json`` that commit holds.
-    SHA256 = "63bb3340fee0ec469b09690d04cb68f7c187787dd8b83807f071892c084967fb"
-    DIVISIONS_URL = (
-        "https://raw.githubusercontent.com/hate-alert/HateXplain/"
-        f"{COMMIT}/Data/post_id_divisions.json"
-    )
-    #: Digest of the official split map. Separate from :attr:`SHA256` because
-    #: they are separate downloads: one can change without the other.
-    DIVISIONS_SHA256 = (
-        "c2fb0d89862e7897b11ea3e9380753f15a793482b4b70ad0532dfb1212212835"
-    )
-    LABELS = ("hatespeech", "normal", "offensive")
+    #: The pinned release, documented in :mod:`pyhighlights.constants`.
+    COMMIT = HATEXPLAIN_COMMIT
+    URL = HATEXPLAIN_URL
+    SHA256 = HATEXPLAIN_SHA256
+    DIVISIONS_URL = HATEXPLAIN_DIVISIONS_URL
+    DIVISIONS_SHA256 = HATEXPLAIN_DIVISIONS_SHA256
+    LABELS = HATEXPLAIN_LABELS
 
     def __init__(
         self,
@@ -778,12 +770,10 @@ class ERASERLoader(HighlightLoader):
     until pyhighlights has a place to put a query.
     """
 
-    URL = "https://www.eraserbenchmark.com/zipped/{task}.tar.gz"
+    URL = ERASER_URL
     TASKS = ("movies",)
-    #: The archive the ``movies`` split manifest was built against. The
-    #: benchmark publishes no digest of its own. One constant serves because
-    #: :attr:`TASKS` is one task; a second would want this keyed by task.
-    SHA256 = "66e18d4e6c9df9e9f5544572b0bfe92a39673f74ecbfc3859b46cedb2f5b2dee"
+    #: The pinned archive, documented in :mod:`pyhighlights.constants`.
+    SHA256 = ERASER_SHA256
     QUERY_TASKS = (
         "boolq",
         "esnli",

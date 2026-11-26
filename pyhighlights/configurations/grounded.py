@@ -35,7 +35,13 @@ class EntailmentComparerConfig(Configuration):
     the same way a selector and a predictor are sized.
     """
 
-    hidden_sizes: List[int] = Param([128])
+    hidden_sizes: List[int] = Param(
+        [128],
+        description=(
+            "Widths of the hidden layers of the MLP that maps "
+            "``[u; v; u - v; u * v]`` to two link logits."
+        ),
+    )
 
 
 @register_class(key=GRU_GROUNDED, component=GROUNDED_COMPONENT)
@@ -56,7 +62,13 @@ class GRUGroundedConfig(SPPModelConfig):
     """
 
     name: str = Param("grounded")
-    comparer: RegistrationKey[SPPComparer] = Param(ENTAILMENT_COMPARER)
+    comparer: RegistrationKey[SPPComparer] = Param(
+        ENTAILMENT_COMPARER,
+        description=(
+            "Registration key of the comparer that scores whether an input "
+            "highlight instantiates a knowledge highlight."
+        ),
+    )
     losses: List[RegistrationKey[Loss]] = Param(
         [CLASSIFICATION_LOSS, SPARSITY_LOSS, CONTIGUITY_LOSS, KNOWLEDGE_LOSS]
     )

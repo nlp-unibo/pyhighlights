@@ -41,7 +41,8 @@ from pyhighlights.components.loaders import (
     MoviesLoader,
     ToyLoader,
 )
-from pyhighlights.components.preprocessors import PRIORITY, remove_leakage
+from pyhighlights.components.preprocessors import remove_leakage
+from pyhighlights.constants import PRIORITY, R2A_SHA256
 from pyhighlights.utility.io import download
 
 # The build directory is wherever you run this from, not wherever the script
@@ -66,9 +67,8 @@ GENSPP_TOY_VERSION = "v3"
 #: under ``seed_everything(15000)``, the rest test.
 GENSPP_TOY_SPLIT = {"train_ratio": 0.8, "val_ratio": 0.2, "split_seed": 15000}
 
-# Pinned upstream sources. The R2A digest is the one the library's loaders and
-# the previous build both verified against.
-R2A_SHA256 = "23fcb4cac883ec1de86d83a7747294d7fdae10061d3803fd4c34c930e66f25de"
+# Pinned upstream sources. The R2A digest comes from pyhighlights.constants,
+# the one the library's loaders verify against.
 GENSPP_TOY_URL = (
     "https://raw.githubusercontent.com/nlp-unibo/gen-spp/main/genetic/data/"
     "toy_dataset.pkl"

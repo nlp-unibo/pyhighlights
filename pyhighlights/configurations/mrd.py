@@ -26,13 +26,22 @@ MRD_COMPONENT = "pyhighlights.components.models.spp.mrd.MRD"
 @register_class(key=GRU_MRD, component=MRD_COMPONENT)
 class GRUMRDConfig(PhasedSPPModelConfig):
     name: str = Param("mrd")
-    #: The predictor reads the complement and the full input with its own
-    #: encoder, so its backbone is required rather than optional.
-    predictor_backbone: RegistrationKey[SPPBackbone] = Param(GRU_BACKBONE)
-    #: The predictor reads the complement and the full input, and never the
-    #: highlight: MRD's criterion is what the remainder can still say.
+    predictor_backbone: RegistrationKey[SPPBackbone] = Param(
+        GRU_BACKBONE,
+        description=(
+            "Registration key of the backbone that encodes for the predictor, "
+            "required because the predictor reads the complement and the full "
+            "input with its own encoder."
+        ),
+    )
     predictor_losses: List[RegistrationKey[Loss]] = Param(
-        [COMPLEMENT_CLASSIFICATION_LOSS, FULL_CLASSIFICATION_LOSS]
+        [COMPLEMENT_CLASSIFICATION_LOSS, FULL_CLASSIFICATION_LOSS],
+        description=(
+            "Registration keys of the losses scored in the predictor phase only. "
+            "They read the complement and the full input and never the "
+            "highlight, because the criterion of MRD is what the remainder can "
+            "still say."
+        ),
     )
     generator_losses: List[RegistrationKey[Loss]] = Param([REMAINING_DISCREPANCY_LOSS])
 

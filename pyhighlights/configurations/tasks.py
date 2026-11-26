@@ -15,7 +15,6 @@ from lightning.pytorch.callbacks import Callback
 
 from pyhighlights.components.loaders import HighlightLoader
 from pyhighlights.components.models.base import Model
-from pyhighlights.components.models.spp.base import token_spaces
 from pyhighlights.components.models.spp.genspp import GenSPPTrainer
 from pyhighlights.components.preprocessors import ClassWeights, Preprocessor
 from pyhighlights.configurations.keys import (
@@ -41,6 +40,7 @@ from pyhighlights.configurations.keys import (
 )
 from pyhighlights.utility.losses import Loss
 from pyhighlights.utility.metrics import BoundMetric
+from pyhighlights.utility.spaces import token_spaces
 
 #: What every select-then-predict run reports, whatever the corpus: how much
 #: of the document was kept, where it sits, and how well what was kept matches
@@ -76,61 +76,164 @@ class TaskConfig(Configuration):
     so it reaches the model as a tensor and never as a parameter.
     """
 
-    name: str = Param("task")
-    save_path: str | None = Param(None)
-    seeds: Sequence[int] = Param([42])
-    batch_size: int = Param(32, ge=1)
-    max_length: int | None = Param(None)
-    vocabulary_size: int = Param(10_000, ge=3)
-    #: Keep ``[CLS]`` and ``[SEP]``. A pretrained encoder was trained reading
-    #: them; they carry no word, so a selector never sees them either way.
-    add_special_tokens: bool = Param(True)
-    embeddings: str | None = Param(None)
-    pretrained_tokens_only: bool = Param(True)
-    #: ``"corpus"`` fits the vocabulary on the training split and looks its
-    #: tokens up in the vector file; ``"splits"`` does the same over every
-    #: split; ``"vectors"`` takes the file's own vocabulary whole, so nothing
-    #: the file covers is ever unknown. The last two need ``embeddings`` and
-    #: refuse to build without them.
-    vocabulary_from: str = Param("corpus")
-    #: Refuse to build without ``embeddings``, for a reproduction whose
-    #: numbers are a released vector file's. Implied by
-    #: ``vocabulary_from="splits"`` and ``vocabulary_from="vectors"``.
-    requires_embeddings: bool = Param(False)
-    #: Build a one-hot table of this width instead of reading or learning one,
-    #: for a corpus whose tokens are symbols. See
-    #: :func:`~pyhighlights.utility.embeddings.one_hot_table`.
-    one_hot_embeddings: int | None = Param(None, ge=1)
-    #: What monitors the run: early stopping, checkpointing, and any criterion
-    #: they read. The default pair stops and checkpoints on ``val_loss``.
-    #:
-    #: **The stopping callback and the checkpoint callback have to monitor the
-    #: same quantity.** Mix two and a run reports a model its own stopping rule
-    #: did not choose, silently. ``SCORE_*`` monitors the combination
-    #: :class:`~pyhighlights.components.callbacks.GeneralizationLossScore`
-    #: writes, and wants that criterion in this list too.
-    callbacks: List[RegistrationKey[Callback]] = Param(
-        [LOSS_EARLY_STOPPING, LOSS_CHECKPOINT]
+    name: str = Param(
+        "task",
+        description="Name of the task, which names the directory its results go to.",
     )
-    store_predictions: bool = Param(False)
-    #: Whether the weights survive the run. A checkpoint holds the whole
-    #: model, and nothing downstream reads one: the task restores the best
-    #: one itself before scoring, and an analyzer reads ``results.json`` and
-    #: the stored predictions. Turning this off trades the ability to re-score
-    #: without retraining for disk space, which a grid of transformer cells
-    #: runs out of.
-    keep_checkpoints: bool = Param(True)
-    #: Weights without the optimizer state: most of a fine-tuned encoder's
-    #: file, and only needed to resume training, which no task does.
-    save_weights_only: bool = Param(False)
-    faithfulness: bool = Param(False)
-    #: Record what each pipeline stage held, for a bounded run. See
-    #: :mod:`~pyhighlights.utility.diagnostics`.
-    diagnostics: bool = Param(False)
-    highlight_supervision: bool = Param(False)
-    highlight_loss: RegistrationKey[Loss] = Param(HIGHLIGHT_LOSS)
-    highlight_coefficient: float = Param(1.0, ge=0.0)
-    trainer_args: Dict[str, Any] = Param({"accelerator": "cpu", "max_epochs": 5})
+    save_path: str | None = Param(
+        None,
+        description=(
+            "Directory the results are written under, or None for ``results`` "
+            "in the working directory."
+        ),
+    )
+    seeds: Sequence[int] = Param(
+        [42],
+        description=(
+            "Random seeds the task runs with, training one model from scratch per seed."
+        ),
+    )
+    batch_size: int = Param(32, ge=1, description="Number of examples per batch.")
+    max_length: int | None = Param(
+        None,
+        description=(
+            "Maximum number of encoded positions per example, special tokens "
+            "included, or None to keep the whole input."
+        ),
+    )
+    vocabulary_size: int = Param(
+        10_000,
+        ge=3,
+        description=(
+            "Size of the vocabulary the task fits on the training split, which "
+            "has to match the backbone's ``vocabulary_size``."
+        ),
+    )
+    add_special_tokens: bool = Param(
+        True,
+        description=(
+            "Whether a pretrained tokenizer keeps ``[CLS]`` and ``[SEP]``, which "
+            "the encoder was trained reading. They carry no word, so a selector "
+            "never sees them either way."
+        ),
+    )
+    embeddings: str | None = Param(
+        None,
+        description=(
+            "Path to a GloVe-style vector file the tokens are embedded from, or "
+            "None for none."
+        ),
+    )
+    pretrained_tokens_only: bool = Param(
+        True,
+        description=(
+            "Whether a token the vector file has no vector for is dropped and "
+            "read as the unknown token. False gives it a randomly initialized "
+            "row of its own."
+        ),
+    )
+    vocabulary_from: str = Param(
+        "corpus",
+        description=(
+            "Where the vocabulary comes from: ``corpus`` fits it on the training "
+            "split and looks its tokens up in the vector file, ``splits`` does "
+            "the same over every split, and ``vectors`` takes the file's own "
+            "vocabulary whole. The last two need ``embeddings`` and refuse to "
+            "build without them."
+        ),
+    )
+    requires_embeddings: bool = Param(
+        False,
+        description=(
+            "Whether the task refuses to build without ``embeddings``, for a "
+            "reproduction whose numbers come from a released vector file. It is "
+            "implied when ``vocabulary_from`` is ``splits`` or ``vectors``."
+        ),
+    )
+    one_hot_embeddings: int | None = Param(
+        None,
+        ge=1,
+        description=(
+            "Width of a one-hot embedding table built in place of a read or "
+            "learned one, for a corpus whose tokens are symbols. None builds no "
+            "such table."
+        ),
+    )
+    callbacks: List[RegistrationKey[Callback]] = Param(
+        [LOSS_EARLY_STOPPING, LOSS_CHECKPOINT],
+        description=(
+            "Registration keys of the callbacks that monitor the run: early "
+            "stopping, checkpointing, and any criterion they read, such as the "
+            "``GeneralizationLossScore`` that the ``SCORE_*`` callbacks monitor. "
+            "The stopping and checkpoint callbacks have to monitor the same "
+            "quantity, or the run reports a model its own stopping rule did not "
+            "choose."
+        ),
+    )
+    store_predictions: bool = Param(
+        False,
+        description=(
+            "Whether the test predictions of each seed are written to "
+            "``predictions-seed=<seed>.pkl`` in the run directory."
+        ),
+    )
+    keep_checkpoints: bool = Param(
+        True,
+        description=(
+            "Whether the checkpoints survive the run, which nothing downstream "
+            "needs because the task restores the best one itself before scoring. "
+            "Turning this off trades re-scoring without retraining for disk "
+            "space, which a grid of transformer cells runs out of."
+        ),
+    )
+    save_weights_only: bool = Param(
+        False,
+        description=(
+            "Whether a checkpoint holds the weights without the optimizer state. "
+            "That state is most of a fine-tuned encoder's file and is needed "
+            "only to resume training, which no task does."
+        ),
+    )
+    faithfulness: bool = Param(
+        False,
+        description=(
+            "Whether the faithfulness terms are scored on the test split beside "
+            "the metrics."
+        ),
+    )
+    diagnostics: bool = Param(
+        False,
+        description=(
+            "Whether the run records what each pipeline stage held, which is "
+            "allowed only for a run whose batches are bounded."
+        ),
+    )
+    highlight_supervision: bool = Param(
+        False,
+        description=(
+            "Whether the model is also trained against the highlight annotation "
+            "through ``highlight_loss``, which needs an annotated training split."
+        ),
+    )
+    highlight_loss: RegistrationKey[Loss] = Param(
+        HIGHLIGHT_LOSS,
+        description=(
+            "Registration key of the loss that scores the selection against the "
+            "highlight annotation under ``highlight_supervision``."
+        ),
+    )
+    highlight_coefficient: float = Param(
+        1.0,
+        ge=0.0,
+        description="Non-negative weight of ``highlight_loss`` in the total loss.",
+    )
+    trainer_args: Dict[str, Any] = Param(
+        {"accelerator": "cpu", "max_epochs": 5},
+        description=(
+            "Keyword arguments for the Lightning trainer, applied over the "
+            "defaults of the task."
+        ),
+    )
 
     @classmethod
     def default(cls):
@@ -163,12 +266,33 @@ class ToyTaskConfig(TaskConfig):
     """The synthetic corpus against FR: a sanity check run that trains in seconds."""
 
     name: str = Param("toy")
-    loader: RegistrationKey[HighlightLoader] = Param(TOY)
-    model: RegistrationKey[Model] = Param(GRU_FR)
-    preprocessor: RegistrationKey[Preprocessor] | None = Param(None)
-    train_metrics: List[RegistrationKey[BoundMetric]] = Param(BINARY_METRICS)
-    val_metrics: List[RegistrationKey[BoundMetric]] = Param(BINARY_METRICS)
-    test_metrics: List[RegistrationKey[BoundMetric]] = Param(BINARY_METRICS)
+    loader: RegistrationKey[HighlightLoader] = Param(
+        TOY, description="Registration key of the loader that reads the corpus."
+    )
+    model: RegistrationKey[Model] = Param(
+        GRU_FR, description="Registration key of the model the task trains."
+    )
+    preprocessor: RegistrationKey[Preprocessor] | None = Param(
+        None,
+        description=(
+            "Registration key of the preprocessor applied to the corpus, or None "
+            "for a corpus that needs none."
+        ),
+    )
+    train_metrics: List[RegistrationKey[BoundMetric]] = Param(
+        BINARY_METRICS,
+        description=("Registration keys of the metrics scored on the training split."),
+    )
+    val_metrics: List[RegistrationKey[BoundMetric]] = Param(
+        BINARY_METRICS,
+        description=(
+            "Registration keys of the metrics scored on the validation split."
+        ),
+    )
+    test_metrics: List[RegistrationKey[BoundMetric]] = Param(
+        BINARY_METRICS,
+        description=("Registration keys of the metrics scored on the test split."),
+    )
     batch_size: int = Param(8, ge=1)
     trainer_args: Dict[str, Any] = Param({"accelerator": "cpu", "max_epochs": 2})
 
@@ -183,11 +307,34 @@ class ClassWeightsTaskConfig(Configuration):
     numbers the run writes into the loss the training tasks name.
     """
 
-    name: str = Param("class-weights")
-    loader: RegistrationKey[HighlightLoader] = Param(TOY)
-    weights: RegistrationKey[ClassWeights] = Param(CLASS_WEIGHTS)
-    preprocessor: RegistrationKey[Preprocessor] | None = Param(None)
-    save_path: str | None = Param(None)
+    name: str = Param(
+        "class-weights",
+        description="Name of the task, which names the directory its results go to.",
+    )
+    loader: RegistrationKey[HighlightLoader] = Param(
+        TOY,
+        description="Registration key of the loader that reads the corpus to weigh.",
+    )
+    weights: RegistrationKey[ClassWeights] = Param(
+        CLASS_WEIGHTS,
+        description=(
+            "Registration key of the preprocessor that computes the class weights."
+        ),
+    )
+    preprocessor: RegistrationKey[Preprocessor] | None = Param(
+        None,
+        description=(
+            "Registration key of the preprocessor applied to the corpus before it "
+            "is weighed, or None for a corpus that needs none."
+        ),
+    )
+    save_path: str | None = Param(
+        None,
+        description=(
+            "Directory the results are written under, or None for ``results`` "
+            "in the working directory."
+        ),
+    )
 
 
 @register_class(
@@ -211,11 +358,33 @@ class GenSPPTaskConfig(TaskConfig):
     carry metrics.
     """
 
-    loader: RegistrationKey[HighlightLoader] = Param(TOY)
-    search: RegistrationKey[GenSPPTrainer] = Param(TOY_GENSPP_TRAINER)
-    preprocessor: RegistrationKey[Preprocessor] | None = Param(None)
-    val_metrics: List[RegistrationKey[BoundMetric]] = Param(BINARY_METRICS)
-    test_metrics: List[RegistrationKey[BoundMetric]] = Param(BINARY_METRICS)
+    loader: RegistrationKey[HighlightLoader] = Param(
+        TOY, description="Registration key of the loader that reads the corpus."
+    )
+    search: RegistrationKey[GenSPPTrainer] = Param(
+        TOY_GENSPP_TRAINER,
+        description=(
+            "Registration key of the GenSPP search, which also names the model "
+            "the task evolves."
+        ),
+    )
+    preprocessor: RegistrationKey[Preprocessor] | None = Param(
+        None,
+        description=(
+            "Registration key of the preprocessor applied to the corpus, or None "
+            "for a corpus that needs none."
+        ),
+    )
+    val_metrics: List[RegistrationKey[BoundMetric]] = Param(
+        BINARY_METRICS,
+        description=(
+            "Registration keys of the metrics scored on the validation split."
+        ),
+    )
+    test_metrics: List[RegistrationKey[BoundMetric]] = Param(
+        BINARY_METRICS,
+        description=("Registration keys of the metrics scored on the test split."),
+    )
 
 
 @register_class(

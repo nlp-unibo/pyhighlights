@@ -36,16 +36,13 @@ from cinnamon.registry import RegistrationKey, Registry
 
 from pyhighlights.components.loaders import HighlightLoader
 from pyhighlights.components.preprocessors import Preprocessor
+from pyhighlights.constants import PREDICTIONS
 from pyhighlights.utility.manifest import registration_key
 
 logger = logging.getLogger(__name__)
 
 #: What :func:`latest_runs` groups: a report, or the directory holding one.
 T = TypeVar("T")
-
-#: The predictions one seed left behind. A glob rather than a name: a run
-#: stores one file per seed, and every analyzer here reads all of them.
-PREDICTIONS = "predictions-seed=*.pkl"
 
 __all__ = [
     "Analyzer",

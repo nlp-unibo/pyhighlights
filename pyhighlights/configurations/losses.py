@@ -38,11 +38,14 @@ LOSS_COMPONENT = "pyhighlights.utility.losses.Loss"
 class CrossEntropyConfig(Configuration):
     """Cross entropy, weighted per class where a corpus needs it."""
 
-    #: One weight per class, or nothing for an unweighted loss. A heavily
-    #: imbalanced corpus is answered correctly by a model that never predicts
-    #: the rare class, so the numbers such a corpus needs are part of its
-    #: configuration rather than a detail of its training.
-    weight: List[float] | None = Param(None)
+    weight: List[float] | None = Param(
+        None,
+        description=(
+            "One weight per class, or ``None`` for an unweighted loss. A heavily "
+            "imbalanced corpus is answered correctly by a model that never "
+            "predicts the rare class, so its weights belong to its configuration."
+        ),
+    )
 
 
 @register_class(
@@ -51,10 +54,15 @@ class CrossEntropyConfig(Configuration):
 class MaskedCrossEntropyConfig(Configuration):
     """Cross entropy over valid, labelled positions of any axis."""
 
-    #: One weight per class, for an axis whose classes are imbalanced. The
-    #: knowledge axis typically is, since an example instantiates few entries
-    #: of a base and many examples instantiate none.
-    weight: List[float] | None = Param(None)
+    weight: List[float] | None = Param(
+        None,
+        description=(
+            "One weight per class for an axis whose classes are imbalanced, or "
+            "``None`` for an unweighted loss. The knowledge axis typically is "
+            "imbalanced, since an example instantiates few entries of a base and "
+            "many examples instantiate none."
+        ),
+    )
 
 
 @register_class(
@@ -63,12 +71,22 @@ class MaskedCrossEntropyConfig(Configuration):
 class KnowledgeBCEConfig(Configuration):
     """A binary criterion carrying one positive weight per knowledge entry."""
 
-    ignore_index: int = Param(-1)
-    #: One factor per knowledge entry, multiplying the cost of missing a
-    #: positive there. ``ClassWeightsTask`` with ``KNOWLEDGE_WEIGHTS`` computes
-    #: them from a split and writes them to its results, and a study copies
-    #: them here.
-    pos_weight: List[float] | None = Param(None)
+    ignore_index: int = Param(
+        -1,
+        description=(
+            "Target value that marks a position without annotation, which the "
+            "loss skips."
+        ),
+    )
+    pos_weight: List[float] | None = Param(
+        None,
+        description=(
+            "One factor per knowledge entry multiplying the cost of missing a "
+            "positive there, or ``None`` for no weighting. ``ClassWeightsTask`` "
+            "with ``KNOWLEDGE_WEIGHTS`` computes them from a split and writes "
+            "them to its results, and a study copies them here."
+        ),
+    )
 
 
 @register_class(
@@ -77,10 +95,20 @@ class KnowledgeBCEConfig(Configuration):
 class MaskedBCEConfig(Configuration):
     """One independent decision per position of the axis being scored."""
 
-    ignore_index: int = Param(-1)
-    #: One factor per position, multiplying the cost of missing a positive
-    #: there.
-    pos_weight: List[float] | None = Param(None)
+    ignore_index: int = Param(
+        -1,
+        description=(
+            "Target value that marks a position without annotation, which the "
+            "loss skips."
+        ),
+    )
+    pos_weight: List[float] | None = Param(
+        None,
+        description=(
+            "One factor per position of the scored axis multiplying the cost of "
+            "missing a positive there, or ``None`` for no weighting."
+        ),
+    )
 
 
 @register_class(key=KL_DIV, component="pyhighlights.utility.losses.KLDiv")
@@ -104,18 +132,47 @@ class ContiguityPenaltyConfig(Configuration):
     key=SPARSITY_PENALTY, component="pyhighlights.utility.losses.SparsityPenalty"
 )
 class SparsityPenaltyConfig(Configuration):
-    threshold: float = Param(0.15, ge=0.0, le=1.0)
+    threshold: float = Param(
+        0.15,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Target selection rate, from 0 to 1. The penalty is the absolute "
+            "distance between the selection rate of the batch and this value."
+        ),
+    )
 
 
 @register_class(key=CLASSIFICATION_LOSS, component=LOSS_COMPONENT)
 class LossConfig(Configuration):
     """Binds a criterion to the namespace fields it scores."""
 
-    name: str = Param("classification")
-    loss: RegistrationKey[th.nn.Module] = Param(CROSS_ENTROPY)
-    inputs: List[str] = Param(["class_logits", "y_true"])
-    coefficient: float = Param(1.0, ge=0.0)
-    enabled: bool = Param(True)
+    name: str = Param(
+        "classification",
+        description="Name the loss term is logged under, as ``{split}_{name}``.",
+    )
+    loss: RegistrationKey[th.nn.Module] = Param(
+        CROSS_ENTROPY,
+        description="Registration key of the criterion that scores the bound fields.",
+    )
+    inputs: List[str] = Param(
+        ["class_logits", "y_true"],
+        description=(
+            "Names of the step namespace fields passed to the criterion, in the "
+            "order it reads them."
+        ),
+    )
+    coefficient: float = Param(
+        1.0,
+        ge=0.0,
+        description=(
+            "Weight of the term in the total loss, 0 or greater since a loss is "
+            "something to minimize."
+        ),
+    )
+    enabled: bool = Param(
+        True, description="Whether the term is computed and added to the total loss."
+    )
 
 
 @register_class(key=FULL_CLASSIFICATION_LOSS, component=LOSS_COMPONENT)
@@ -236,7 +293,13 @@ class RemainingDiscrepancyLossConfig(DiscrepancyLossConfig):
 
     name: str = Param("remaining_discrepancy")
     inputs: List[str] = Param(["complement_class_logits", "full_class_logits"])
-    coefficient: float = Param(-1.0)
+    coefficient: float = Param(
+        -1.0,
+        description=(
+            "Weight of the term in the total loss. Negative, because this is the "
+            "one term a model maximizes."
+        ),
+    )
 
 
 @register_class(key=GUIDE_LOSS, component=LOSS_COMPONENT)

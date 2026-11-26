@@ -10,7 +10,6 @@ import pyhighlights
 from pyhighlights.components.models import InputData
 from pyhighlights.components.models.base import Model
 from pyhighlights.components.models.spp import FR, MCD, MGR
-from pyhighlights.components.models.spp.base import token_spaces
 from pyhighlights.configurations import keys
 from pyhighlights.configurations.grat import GRUGRATConfig
 from pyhighlights.configurations.keys import (
@@ -31,6 +30,7 @@ from pyhighlights.configurations.keys import (
 )
 from pyhighlights.configurations.mgr import GRUMGRConfig
 from pyhighlights.configurations.tasks import ToyTaskConfig
+from pyhighlights.utility.spaces import token_spaces
 
 
 def test_every_registration_in_the_library_resolves():
@@ -397,7 +397,12 @@ def test_a_task_configuration_declares_every_task_parameter():
 )
 def test_mgr_refuses_a_generator_set_it_cannot_run(update, condition):
     """MGR's three shape constraints are conditions, so a grid over the
-    generator count never schedules a combination that cannot train."""
+    generator count never schedules a combination that cannot train.
+
+    The registry is built first, because ``one_token_space`` reads the
+    configurations the default keys name.
+    """
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
     config = GRUMGRConfig.default()
     assert config.validate_conditions(strict=False).passed
 
@@ -510,6 +515,42 @@ def test_the_baselines_select_as_their_originals_do():
         config = Registry.retrieve_configuration(key)
         assert config.sample_at_evaluation is samples
         assert not config.repair_empty_selections
+
+
+def test_every_registered_field_is_described():
+    """A parameter documents itself in ``description``, not in a comment.
+
+    A subclass that redeclares a field inherits the description, so this
+    checks what a registered configuration carries rather than its source.
+    """
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+
+    undescribed = sorted(
+        f"{type(config).__name__}.{name}"
+        for key in Registry.retrieve_keys(namespaces=str(keys.NAMESPACE))
+        for config in [Registry.retrieve_configuration(key)]
+        for name, field in type(config).model_fields.items()
+        if not field.description
+    )
+    assert not undescribed, undescribed
+
+
+def test_what_configurations_read_imports_no_component():
+    """Defaults and the token-space walk load without torch or Lightning.
+
+    A fresh interpreter, because this suite has imported both already.
+    """
+    import subprocess
+    import sys
+
+    code = (
+        "import sys, pyhighlights.constants, pyhighlights.utility.spaces; "
+        "print(sorted({'torch', 'lightning'} & set(sys.modules)))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+    )
+    assert result.stdout.strip() == "[]"
 
 
 def test_a_model_reads_one_token_space():

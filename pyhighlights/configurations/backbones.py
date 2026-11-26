@@ -22,19 +22,47 @@ from pyhighlights.configurations.keys import (
     component="pyhighlights.components.models.spp.implementations.GRUBackbone",
 )
 class GRUBackboneConfig(Configuration):
-    #: Rows the embedding table has, which is the task's ``vocabulary_size``:
-    #: id 0 is padding, id 1 is the unknown token, and words start at 2.
-    vocabulary_size: int = Param(10_000, ge=3)
-    embedding_dim: int = Param(128, ge=1)
-    hidden_size: int = Param(128, ge=1)
-    #: ``None`` trains a randomly initialised table and freezes loaded
-    #: vectors. ``True`` freezes either table, and ``False`` trains either.
-    freeze_embeddings: bool | None = Param(None)
-    num_layers: int = Param(1, ge=1)
-    bidirectional: bool = Param(True)
-    dropout_rate: float = Param(0.0, ge=0.0, lt=1.0)
-    #: Layer normalisation over the recurrent states.
-    layer_norm: bool = Param(True)
+    vocabulary_size: int = Param(
+        10_000,
+        ge=3,
+        description=(
+            "Rows the embedding table has, which is the task's ``vocabulary_size``: "
+            "id 0 is padding, id 1 is the unknown token, and words start at 2."
+        ),
+    )
+    embedding_dim: int = Param(128, ge=1, description="Width of each token embedding.")
+    hidden_size: int = Param(
+        128,
+        ge=1,
+        description=(
+            "Width of the GRU states per direction, so a bidirectional "
+            "backbone outputs twice this width."
+        ),
+    )
+    freeze_embeddings: bool | None = Param(
+        None,
+        description=(
+            "``None`` trains a randomly initialised table and freezes loaded "
+            "vectors. ``True`` freezes either table, and ``False`` trains either."
+        ),
+    )
+    num_layers: int = Param(1, ge=1, description="Number of stacked GRU layers.")
+    bidirectional: bool = Param(
+        True, description="Whether the GRU reads the sequence in both directions."
+    )
+    dropout_rate: float = Param(
+        0.0,
+        ge=0.0,
+        lt=1.0,
+        description="Dropout probability applied to the recurrent states.",
+    )
+    layer_norm: bool = Param(
+        True,
+        description=(
+            "Whether layer normalisation is applied to the recurrent states "
+            "before dropout."
+        ),
+    )
 
 
 @register_class(
@@ -56,9 +84,25 @@ class UnnormalisedGRUBackboneConfig(GRUBackboneConfig):
     component="pyhighlights.components.models.spp.implementations.TransformerBackbone",
 )
 class TransformerBackboneConfig(Configuration):
-    pretrained_model_card: str = Param("distilbert-base-uncased")
-    num_features: int | None = Param(None, ge=1)
-    freeze_transformer: bool = Param(False)
+    pretrained_model_card: str = Param(
+        "distilbert-base-uncased",
+        description="Hugging Face model card of the pretrained encoder.",
+    )
+    num_features: int | None = Param(
+        None,
+        ge=1,
+        description=(
+            "Number of token embeddings the encoder is resized to, or ``None`` "
+            "to keep the pretrained vocabulary."
+        ),
+    )
+    freeze_transformer: bool = Param(
+        False,
+        description=(
+            "Whether the encoder's weights are held fixed. A frozen encoder "
+            "stays in evaluation mode, so its dropout never runs."
+        ),
+    )
 
 
 @register_class(
@@ -101,13 +145,43 @@ class StackedBackboneConfig(Configuration):
     train on a corpus of a few thousand documents.
     """
 
-    pretrained_model_card: str = Param("distilbert-base-uncased")
-    hidden_size: int = Param(128, ge=1)
-    num_features: int | None = Param(None, ge=1)
-    freeze_transformer: bool = Param(True)
-    num_layers: int = Param(1, ge=1)
-    bidirectional: bool = Param(True)
-    dropout_rate: float = Param(0.0, ge=0.0, lt=1.0)
+    pretrained_model_card: str = Param(
+        "distilbert-base-uncased",
+        description="Hugging Face model card of the pretrained transformer.",
+    )
+    hidden_size: int = Param(
+        128,
+        ge=1,
+        description=(
+            "Width of the GRU states per direction, so a bidirectional "
+            "backbone outputs twice this width."
+        ),
+    )
+    num_features: int | None = Param(
+        None,
+        ge=1,
+        description=(
+            "Number of token embeddings the transformer is resized to, or "
+            "``None`` to keep the pretrained vocabulary."
+        ),
+    )
+    freeze_transformer: bool = Param(
+        True,
+        description=(
+            "Whether the transformer's weights are held fixed. Fine-tuning it "
+            "needs ``encoder_lr``, because the GRU above it trains from scratch."
+        ),
+    )
+    num_layers: int = Param(1, ge=1, description="Number of stacked GRU layers.")
+    bidirectional: bool = Param(
+        True, description="Whether the GRU reads the sequence in both directions."
+    )
+    dropout_rate: float = Param(
+        0.0,
+        ge=0.0,
+        lt=1.0,
+        description="Dropout probability applied to the recurrent states.",
+    )
 
 
 @register_class(
@@ -115,7 +189,14 @@ class StackedBackboneConfig(Configuration):
     component="pyhighlights.components.models.spp.implementations.MLPSelector",
 )
 class MLPSelectorConfig(Configuration):
-    hidden_sizes: List[int] = Param([])
+    hidden_sizes: List[int] = Param(
+        [],
+        description=(
+            "Widths of the hidden layers between the states and the two "
+            "selector outputs, with a GELU between layers. An empty list is one "
+            "linear layer."
+        ),
+    )
 
 
 @register_class(
@@ -123,7 +204,14 @@ class MLPSelectorConfig(Configuration):
     component="pyhighlights.components.models.spp.implementations.SigmoidSelector",
 )
 class SigmoidSelectorConfig(Configuration):
-    hidden_sizes: List[int] = Param([])
+    hidden_sizes: List[int] = Param(
+        [],
+        description=(
+            "Widths of the hidden layers between the states and the single "
+            "selector output, with a GELU between layers. An empty list is one "
+            "linear layer."
+        ),
+    )
 
 
 @register_class(
@@ -131,5 +219,14 @@ class SigmoidSelectorConfig(Configuration):
     component="pyhighlights.components.models.spp.implementations.MLPPredictor",
 )
 class MLPPredictorConfig(Configuration):
-    hidden_sizes: List[int] = Param([])
-    num_classes: int = Param(2, ge=2)
+    hidden_sizes: List[int] = Param(
+        [],
+        description=(
+            "Widths of the hidden layers between the pooled state and the class "
+            "logits, with a GELU between layers. An empty list is one linear "
+            "layer."
+        ),
+    )
+    num_classes: int = Param(
+        2, ge=2, description="Number of classes the predictor outputs logits for."
+    )
