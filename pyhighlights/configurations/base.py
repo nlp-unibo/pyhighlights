@@ -11,17 +11,11 @@ loss is: :class:`SPPModelConfig` scores a flat list,
 :class:`SPPShapeConfig` is what the two share.
 """
 
-from typing import List
+from typing import TYPE_CHECKING, List
 
-import torch as th
 from cinnamon.configuration import Configuration, Param
 from cinnamon.registry import RegistrationKey
 
-from pyhighlights.components.models.spp.base import (
-    SPPBackbone,
-    SPPPredictor,
-    SPPSelector,
-)
 from pyhighlights.configurations.keys import (
     ADAM,
     CLASSIFICATION_LOSS,
@@ -31,9 +25,14 @@ from pyhighlights.configurations.keys import (
     MLP_SELECTOR,
     SPARSITY_LOSS,
 )
-from pyhighlights.utility.losses import Loss
-from pyhighlights.utility.metrics import BoundMetric
 from pyhighlights.utility.spaces import token_spaces
+
+if TYPE_CHECKING:
+    import torch
+
+    import pyhighlights.components.models.spp.base
+    import pyhighlights.utility.losses
+    import pyhighlights.utility.metrics
 
 
 class SPPShapeConfig(Configuration):
@@ -46,28 +45,36 @@ class SPPShapeConfig(Configuration):
     """
 
     name: str = Param("spp", description="Name of the model.")
-    selector_backbones: RegistrationKey[SPPBackbone] = Param(
+    selector_backbones: RegistrationKey[
+        "pyhighlights.components.models.spp.base.SPPBackbone"
+    ] = Param(
         GRU_BACKBONE,
         description=(
             "Registration key of the backbone that encodes the input for the "
             "selector, or one key per selector for a model with several."
         ),
     )
-    selectors: RegistrationKey[SPPSelector] = Param(
+    selectors: RegistrationKey[
+        "pyhighlights.components.models.spp.base.SPPSelector"
+    ] = Param(
         MLP_SELECTOR,
         description=(
             "Registration key of the selector that scores each position as kept "
             "or dropped, or one key per selector for a model with several."
         ),
     )
-    predictor: RegistrationKey[SPPPredictor] = Param(
+    predictor: RegistrationKey[
+        "pyhighlights.components.models.spp.base.SPPPredictor"
+    ] = Param(
         MLP_PREDICTOR,
         description=(
             "Registration key of the predictor that maps the pooled state of the "
             "highlight to class logits."
         ),
     )
-    predictor_backbone: RegistrationKey[SPPBackbone] | None = Param(
+    predictor_backbone: (
+        RegistrationKey["pyhighlights.components.models.spp.base.SPPBackbone"] | None
+    ) = Param(
         None,
         description=(
             "Registration key of the backbone that encodes the highlight for the "
@@ -129,24 +136,30 @@ class SPPShapeConfig(Configuration):
             "from scratch."
         ),
     )
-    optimizer: RegistrationKey[th.optim.Optimizer] = Param(
+    optimizer: RegistrationKey["torch.optim.Optimizer"] = Param(
         ADAM, description="Registration key of the optimizer that trains the model."
     )
-    train_metrics: List[RegistrationKey[BoundMetric]] | None = Param(
+    train_metrics: (
+        List[RegistrationKey["pyhighlights.utility.metrics.BoundMetric"]] | None
+    ) = Param(
         None,
         description=(
             "Registration keys of the metrics scored on the training split, or "
             "None for none."
         ),
     )
-    val_metrics: List[RegistrationKey[BoundMetric]] | None = Param(
+    val_metrics: (
+        List[RegistrationKey["pyhighlights.utility.metrics.BoundMetric"]] | None
+    ) = Param(
         None,
         description=(
             "Registration keys of the metrics scored on the validation split, or "
             "None for none."
         ),
     )
-    test_metrics: List[RegistrationKey[BoundMetric]] | None = Param(
+    test_metrics: (
+        List[RegistrationKey["pyhighlights.utility.metrics.BoundMetric"]] | None
+    ) = Param(
         None,
         description=(
             "Registration keys of the metrics scored on the test split, or None "
@@ -175,7 +188,7 @@ class SPPShapeConfig(Configuration):
 class SPPModelConfig(SPPShapeConfig):
     """An SPP model scoring one flat list of criteria."""
 
-    losses: List[RegistrationKey[Loss]] = Param(
+    losses: List[RegistrationKey["pyhighlights.utility.losses.Loss"]] = Param(
         [CLASSIFICATION_LOSS, SPARSITY_LOSS, CONTIGUITY_LOSS],
         description=(
             "Registration keys of the losses whose weighted sum the model minimizes."
@@ -193,17 +206,17 @@ class PhasedSPPModelConfig(SPPShapeConfig):
     belongs to has to be named.
     """
 
-    shared_losses: List[RegistrationKey[Loss]] = Param(
+    shared_losses: List[RegistrationKey["pyhighlights.utility.losses.Loss"]] = Param(
         [SPARSITY_LOSS, CONTIGUITY_LOSS],
         description="Registration keys of the losses scored in both training phases.",
     )
-    predictor_losses: List[RegistrationKey[Loss]] = Param(
+    predictor_losses: List[RegistrationKey["pyhighlights.utility.losses.Loss"]] = Param(
         [],
         description=(
             "Registration keys of the losses scored in the predictor phase only."
         ),
     )
-    generator_losses: List[RegistrationKey[Loss]] = Param(
+    generator_losses: List[RegistrationKey["pyhighlights.utility.losses.Loss"]] = Param(
         [],
         description=(
             "Registration keys of the losses scored in the generator phase only."

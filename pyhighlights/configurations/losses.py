@@ -1,8 +1,7 @@
 """Criterion registrations and the bindings that feed them named fields."""
 
-from typing import List
+from typing import TYPE_CHECKING, List
 
-import torch as th
 from cinnamon.configuration import Configuration, Param
 from cinnamon.registry import RegistrationKey, register_class
 
@@ -30,6 +29,9 @@ from pyhighlights.configurations.keys import (
     SPARSITY_LOSS,
     SPARSITY_PENALTY,
 )
+
+if TYPE_CHECKING:
+    import torch
 
 LOSS_COMPONENT = "pyhighlights.utility.losses.Loss"
 
@@ -151,7 +153,7 @@ class LossConfig(Configuration):
         "classification",
         description="Name the loss term is logged under, as ``{split}_{name}``.",
     )
-    loss: RegistrationKey[th.nn.Module] = Param(
+    loss: RegistrationKey["torch.nn.Module"] = Param(
         CROSS_ENTROPY,
         description="Registration key of the criterion that scores the bound fields.",
     )
@@ -205,7 +207,7 @@ class AlignmentClassificationLossConfig(LossConfig):
 @register_class(key=HIGHLIGHT_LOSS, component=LOSS_COMPONENT)
 class HighlightLossConfig(LossConfig):
     name: str = Param("highlight")
-    loss: RegistrationKey[th.nn.Module] = Param(MASKED_CROSS_ENTROPY)
+    loss: RegistrationKey["torch.nn.Module"] = Param(MASKED_CROSS_ENTROPY)
     inputs: List[str] = Param(["highlight_logits", "highlight_true", "mask"])
 
 
@@ -225,7 +227,7 @@ class KnowledgeSupervisionLossConfig(LossConfig):
     """
 
     name: str = Param("knowledge")
-    loss: RegistrationKey[th.nn.Module] = Param(KNOWLEDGE_BCE)
+    loss: RegistrationKey["torch.nn.Module"] = Param(KNOWLEDGE_BCE)
     inputs: List[str] = Param(["knowledge_score", "knowledge_true", "knowledge_valid"])
 
 
@@ -241,7 +243,7 @@ class KnowledgeLossConfig(LossConfig):
     """
 
     name: str = Param("knowledge")
-    loss: RegistrationKey[th.nn.Module] = Param(MASKED_CROSS_ENTROPY)
+    loss: RegistrationKey["torch.nn.Module"] = Param(MASKED_CROSS_ENTROPY)
     inputs: List[str] = Param(["knowledge_logits", "knowledge_true", "knowledge_valid"])
 
 
@@ -254,21 +256,21 @@ class KnowledgeSparsityLossConfig(LossConfig):
     """
 
     name: str = Param("knowledge_sparsity")
-    loss: RegistrationKey[th.nn.Module] = Param(SPARSITY_PENALTY)
+    loss: RegistrationKey["torch.nn.Module"] = Param(SPARSITY_PENALTY)
     inputs: List[str] = Param(["knowledge_mask", "knowledge_valid"])
 
 
 @register_class(key=SPARSITY_LOSS, component=LOSS_COMPONENT)
 class SparsityLossConfig(LossConfig):
     name: str = Param("sparsity")
-    loss: RegistrationKey[th.nn.Module] = Param(SPARSITY_PENALTY)
+    loss: RegistrationKey["torch.nn.Module"] = Param(SPARSITY_PENALTY)
     inputs: List[str] = Param(["highlight_mask", "mask"])
 
 
 @register_class(key=CONTIGUITY_LOSS, component=LOSS_COMPONENT)
 class ContiguityLossConfig(LossConfig):
     name: str = Param("contiguity")
-    loss: RegistrationKey[th.nn.Module] = Param(CONTIGUITY_PENALTY)
+    loss: RegistrationKey["torch.nn.Module"] = Param(CONTIGUITY_PENALTY)
     inputs: List[str] = Param(["highlight_mask", "mask"])
     coefficient: float = Param(2.0, ge=0.0)
 
@@ -276,7 +278,7 @@ class ContiguityLossConfig(LossConfig):
 @register_class(key=DISCREPANCY_LOSS, component=LOSS_COMPONENT)
 class DiscrepancyLossConfig(LossConfig):
     name: str = Param("discrepancy")
-    loss: RegistrationKey[th.nn.Module] = Param(KL_DIV)
+    loss: RegistrationKey["torch.nn.Module"] = Param(KL_DIV)
     inputs: List[str] = Param(["class_logits", "full_class_logits"])
 
 
@@ -305,12 +307,12 @@ class RemainingDiscrepancyLossConfig(DiscrepancyLossConfig):
 @register_class(key=GUIDE_LOSS, component=LOSS_COMPONENT)
 class GuideLossConfig(LossConfig):
     name: str = Param("guide")
-    loss: RegistrationKey[th.nn.Module] = Param(MASKED_BCE)
+    loss: RegistrationKey["torch.nn.Module"] = Param(MASKED_BCE)
     inputs: List[str] = Param(["selection_logits", "guide_target", "mask"])
 
 
 @register_class(key=JSD_LOSS, component=LOSS_COMPONENT)
 class JSDLossConfig(LossConfig):
     name: str = Param("jsd")
-    loss: RegistrationKey[th.nn.Module] = Param(JS_DIV)
+    loss: RegistrationKey["torch.nn.Module"] = Param(JS_DIV)
     inputs: List[str] = Param(["class_logits", "guider_class_logits"])

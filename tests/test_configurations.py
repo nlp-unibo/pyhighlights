@@ -535,17 +535,45 @@ def test_every_registered_field_is_described():
     assert not undescribed, undescribed
 
 
-def test_what_configurations_read_imports_no_component():
-    """Defaults and the token-space walk load without torch or Lightning.
+def test_every_key_type_names_a_class():
+    """A dotted key type is text nothing resolves, so a rename leaves it stale."""
+    import typing
 
-    A fresh interpreter, because this suite has imported both already.
+    from cinnamon.utility.registration import import_class_from_string
+
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+
+    paths = {
+        argument
+        for key in Registry.retrieve_keys(namespaces=str(keys.NAMESPACE))
+        for field in type(Registry.retrieve_configuration(key)).model_fields.values()
+        for alias in [field.annotation, *typing.get_args(field.annotation)]
+        for alias in [alias, *typing.get_args(alias)]
+        if typing.get_origin(alias) is RegistrationKey
+        for argument in typing.get_args(alias)
+    }
+    assert paths
+    assert all(isinstance(import_class_from_string(path), type) for path in paths)
+
+
+def test_the_registry_builds_without_a_component_library():
+    """A build imports no torch, Lightning, torchmetrics or transformers.
+
+    Configurations bind components by import path and name key types as
+    dotted strings, so building every key costs no component import. A fresh
+    interpreter, because this suite has imported all four already.
     """
     import subprocess
     import sys
 
     code = (
-        "import sys, pyhighlights.constants, pyhighlights.utility.spaces; "
-        "print(sorted({'torch', 'lightning'} & set(sys.modules)))"
+        "import sys; from pathlib import Path; import pyhighlights; "
+        "from cinnamon.registry import Registry; "
+        "valid, invalid = Registry.build("
+        "directory=Path(pyhighlights.__file__).parent); "
+        "assert valid and not invalid, invalid; "
+        "print(sorted({'torch', 'lightning', 'torchmetrics', 'transformers'} "
+        "& set(sys.modules)))"
     )
     result = subprocess.run(
         [sys.executable, "-c", code], capture_output=True, text=True, check=True

@@ -1,11 +1,10 @@
 """Corpus audits and preprocessing registrations."""
 
-from typing import List, Sequence
+from typing import TYPE_CHECKING, List, Sequence
 
 from cinnamon.configuration import Configuration, Param
 from cinnamon.registry import RegistrationKey, register_class
 
-from pyhighlights.components.preprocessors import Preprocessor
 from pyhighlights.configurations.keys import (
     CLASS_WEIGHTS,
     HATEXPLAIN_AGGREGATOR,
@@ -17,6 +16,9 @@ from pyhighlights.configurations.keys import (
     SHORTCUT_DETECTOR,
 )
 from pyhighlights.constants import HATEXPLAIN_LABELS, PRIORITY
+
+if TYPE_CHECKING:
+    import pyhighlights.components.preprocessors
 
 PIPELINE_COMPONENT = "pyhighlights.components.preprocessors.Pipeline"
 
@@ -181,7 +183,9 @@ class KnowledgeWeightsConfig(Configuration):
 class PipelineConfig(Configuration):
     """Preprocessors run in order, each over what the last returned."""
 
-    steps: List[RegistrationKey[Preprocessor]] = Param(
+    steps: List[
+        RegistrationKey["pyhighlights.components.preprocessors.Preprocessor"]
+    ] = Param(
         [LEAKAGE_REMOVER],
         description=(
             "Registration keys of the preprocessors, run in order, each over what "
@@ -195,9 +199,9 @@ class HateXplainPipelineConfig(PipelineConfig):
     """Aggregate the annotators first: repairing leakage before the tie-drop
     would measure overlap over rows the aggregation then removes."""
 
-    steps: List[RegistrationKey[Preprocessor]] = Param(
-        [HATEXPLAIN_AGGREGATOR, LEAKAGE_REMOVER]
-    )
+    steps: List[
+        RegistrationKey["pyhighlights.components.preprocessors.Preprocessor"]
+    ] = Param([HATEXPLAIN_AGGREGATOR, LEAKAGE_REMOVER])
 
 
 __all__: List[str] = [

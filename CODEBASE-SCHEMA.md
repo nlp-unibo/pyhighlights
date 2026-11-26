@@ -83,3 +83,9 @@ The module imports nothing.
 It holds the R2A, HateXplain, and ERASER sources and digests, `PRIORITY`, and `PREDICTIONS`.
 `pyhighlights/components/loaders.py`, `pyhighlights/components/preprocessors.py`, and `pyhighlights/components/analyzers.py` import these values and re-export them under their previous names.
 `pyhighlights/configurations/datasets.py`, `pyhighlights/configurations/preprocessors.py`, and `pyhighlights/configurations/benchmarks.py` read their defaults from it, and `tools/build_datasets.py` reads `PRIORITY` and `R2A_SHA256` from it.
+
+## pyhighlights/configurations
+
+The configuration modules depend on `cinnamon`, `pyhighlights.configurations.keys`, `pyhighlights.constants`, and `pyhighlights.utility.spaces` at run time.
+They name the type of a key field as a dotted string, such as `RegistrationKey["pyhighlights.utility.losses.Loss"]`, and import the module of that type under `TYPE_CHECKING` only.
+`Registry.build` therefore imports no component module, and `test_the_registry_builds_without_a_component_library` in `tests/test_configurations.py` checks that torch, Lightning, torchmetrics, and transformers stay unimported.
