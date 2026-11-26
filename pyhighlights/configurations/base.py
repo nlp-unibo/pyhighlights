@@ -9,6 +9,15 @@ Three bases rather than one, because the architectures disagree about what a
 loss is: :class:`SPPModelConfig` scores a flat list,
 :class:`PhasedSPPModelConfig` scores three lists tied to training phases, and
 :class:`SPPShapeConfig` is what the two share.
+
+Each model registers a GRU configuration and a Transformer subclass of it,
+rather than declaring the Transformer backbone as a variant. A variant varies
+one field, and for most models the switch changes two to four fields
+together: every backbone, and for G-RAT its guider and ``share_layer_norm`` as
+well. Variants on each field would build every mixed combination, and the
+``one_token_space`` condition would drop all of them, 12 keys for G-RAT. FR
+and the grounded model switch one field, but their variant key would keep the
+``gru`` tag of the base key, so they follow the same pattern.
 """
 
 from typing import TYPE_CHECKING, List, Literal
