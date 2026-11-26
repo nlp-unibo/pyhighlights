@@ -397,7 +397,12 @@ def test_a_task_configuration_declares_every_task_parameter():
 )
 def test_mgr_refuses_a_generator_set_it_cannot_run(update, condition):
     """MGR's three shape constraints are conditions, so a grid over the
-    generator count never schedules a combination that cannot train."""
+    generator count never schedules a combination that cannot train.
+
+    The registry is built first, because ``one_token_space`` reads the
+    configurations the default keys name.
+    """
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
     config = GRUMGRConfig.default()
     assert config.validate_conditions(strict=False).passed
 
