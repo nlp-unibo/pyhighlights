@@ -40,8 +40,14 @@ class GenSPPGRUBackboneConfig(GRUBackboneConfig):
     hidden_size: int = Param(16, ge=1)
     freeze_embeddings: bool = Param(True)
     bidirectional: bool = Param(False)
-    #: The released GenSPP encoder passes the GRU states on unnormalised.
-    layer_norm: bool = Param(False)
+    layer_norm: bool = Param(
+        False,
+        description=(
+            "Whether layer normalisation is applied to the recurrent states. "
+            "Off, because the released GenSPP encoder passes the GRU states on "
+            "unnormalised."
+        ),
+    )
 
 
 @register_class(
@@ -61,9 +67,13 @@ class GenSPPAdamConfig(AdamConfig):
 class GRUGenSPPConfig(SPPModelConfig):
     name: str = Param("genspp")
     selector_backbones: RegistrationKey[SPPBackbone] = Param(GENSPP_GRU_BACKBONE)
-    #: One sigmoid unit, as the reference generator ends, so the threshold is
-    #: one gene.
-    selectors: RegistrationKey[SPPSelector] = Param(SIGMOID_SELECTOR)
+    selectors: RegistrationKey[SPPSelector] = Param(
+        SIGMOID_SELECTOR,
+        description=(
+            "Registration key of the selector. One sigmoid unit, as the "
+            "reference generator ends, so the decision threshold is one gene."
+        ),
+    )
     predictor_backbone: RegistrationKey[SPPBackbone] = Param(GENSPP_GRU_BACKBONE)
     losses: List[RegistrationKey[Loss]] = Param([CLASSIFICATION_LOSS])
     optimizer: RegistrationKey[th.optim.Optimizer] = Param(GENSPP_ADAM)
@@ -81,24 +91,92 @@ class TransformerGenSPPConfig(GRUGenSPPConfig):
 
 @register_class(key=GRU_GENSPP_TRAINER, component=GENSPP_TRAINER_COMPONENT)
 class GRUGenSPPTrainerConfig(Configuration):
-    model: RegistrationKey[GenSPP] = Param(GRU_GENSPP)
-    n_generations: int = Param(100, ge=0)
-    population_size: int = Param(50, ge=2)
-    #: Couples per generation as a share of the population. Each crosses into
-    #: two children, so 0.5, the reference implementation's value, adds one
-    #: child per member.
-    selection_rate: float = Param(0.5, gt=0.0, le=1.0)
-    mutation_probability: float = Param(1.0, gt=0.0, le=1.0)
-    mutation_std: float = Param(0.05, gt=0.0)
-    predictor_epochs: int = Param(3, ge=1)
-    task_loss_limit: float = Param(0.1, ge=0.0)
-    stop_threshold: float = Param(0.01, gt=0.0)
-    seed: int | None = Param(None)
-    devices: List[str] = Param(["cpu"])
-    """One worker per device. ``["cpu"] * 8`` is eight candidates at once on
-    eight cores; ``["cuda:0", "cuda:1"]`` is a node's two GPUs. A candidate is
-    small enough that a device runs a whole one. CPU workers are processes and
-    CUDA workers are threads, and ``GenSPPTrainer._score`` explains why."""
+    model: RegistrationKey[GenSPP] = Param(
+        GRU_GENSPP,
+        description="Registration key of the GenSPP model whose generator is searched.",
+    )
+    n_generations: int = Param(
+        100,
+        ge=0,
+        description=(
+            "Maximum number of generations the search breeds after scoring the "
+            "first population."
+        ),
+    )
+    population_size: int = Param(
+        50,
+        ge=2,
+        description=(
+            "Number of candidates each generation keeps. It has to be even, "
+            "because the survivors are the best half plus a half drawn by fitness."
+        ),
+    )
+    selection_rate: float = Param(
+        0.5,
+        gt=0.0,
+        le=1.0,
+        description=(
+            "Couples per generation as a share of the population. Each couple "
+            "crosses into two children, so 0.5, the reference implementation's "
+            "value, adds one child per member."
+        ),
+    )
+    mutation_probability: float = Param(
+        1.0,
+        gt=0.0,
+        le=1.0,
+        description=(
+            "Probability that a mutation perturbs each gene. The default of 1.0 "
+            "perturbs every gene, as the release does."
+        ),
+    )
+    mutation_std: float = Param(
+        0.05,
+        gt=0.0,
+        description=(
+            "Standard deviation of the Gaussian noise a mutation adds to each "
+            "perturbed gene."
+        ),
+    )
+    predictor_epochs: int = Param(
+        3,
+        ge=1,
+        description=(
+            "Number of epochs a fresh predictor trains on each candidate "
+            "generator before the candidate is scored."
+        ),
+    )
+    task_loss_limit: float = Param(
+        0.1,
+        ge=0.0,
+        description=(
+            "Validation cross entropy above which a candidate gets the lowest "
+            "fitness, 1.0, whatever it selected, so the search cannot buy a "
+            "sparse selection with a predictor that has stopped classifying."
+        ),
+    )
+    stop_threshold: float = Param(
+        0.01,
+        gt=0.0,
+        description=(
+            "Objective, the reciprocal of the fitness, at or below which the "
+            "best candidate of a generation stops the search."
+        ),
+    )
+    seed: int | None = Param(
+        None,
+        description="Seed of the search's random state, or ``None`` to draw one.",
+    )
+    devices: List[str] = Param(
+        ["cpu"],
+        description=(
+            "Devices that score candidates, one worker and one whole candidate "
+            "at a time per device, such as ``['cpu'] * 8`` for eight cores or "
+            "``['cuda:0', 'cuda:1']`` for two GPUs. CPU workers are "
+            "processes and CUDA workers are threads, as ``GenSPPTrainer._score`` "
+            "explains."
+        ),
+    )
 
 
 @register_class(key=TRANSFORMER_GENSPP_TRAINER, component=GENSPP_TRAINER_COMPONENT)

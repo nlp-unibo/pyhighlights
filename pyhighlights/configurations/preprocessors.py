@@ -27,8 +27,14 @@ PIPELINE_COMPONENT = "pyhighlights.components.preprocessors.Pipeline"
 class LeakageDetectorConfig(Configuration):
     """Reports what splits share, and refuses a corpus that shares anything."""
 
-    key: str = Param("text")
-    normalize_keys: bool = Param(True)
+    key: str = Param("text", description="Column whose value identifies a row.")
+    normalize_keys: bool = Param(
+        True,
+        description=(
+            "Whether keys are compared with whitespace collapsed, stripped and "
+            "lower-cased, rather than exactly as the corpus spells them."
+        ),
+    )
 
 
 @register_class(
@@ -39,17 +45,35 @@ class ShortcutDetectorConfig(Configuration):
     """Reports what predicts the label, and refuses a corpus solvable without
     its evidence."""
 
-    #: Longest n-gram scanned. Every shorter one is scanned too.
-    max_length: int = Param(4, ge=1)
-    #: How an n-gram's tokens are joined for display: empty for a corpus of
-    #: characters, a space for a corpus of words.
-    separator: str = Param("")
-    tokens: str = Param("tokens")
-    label: str = Param("label")
-    seed: int = Param(0)
-    #: Label shuffles the refusal threshold is the best of, which makes the
-    #: check a permutation test at a level of about ``1 / permutations``.
-    permutations: int = Param(30, ge=1)
+    max_length: int = Param(
+        4,
+        ge=1,
+        description=(
+            "Longest n-gram scanned, in tokens, at least 1. Every shorter one is "
+            "scanned too."
+        ),
+    )
+    separator: str = Param(
+        "",
+        description=(
+            "String that joins an n-gram's tokens for display: empty for a corpus "
+            "of characters, a space for a corpus of words."
+        ),
+    )
+    tokens: str = Param(
+        "tokens", description="Column holding the token sequence of each example."
+    )
+    label: str = Param("label", description="Column holding the class label.")
+    seed: int = Param(0, description="Random seed of the label shuffles.")
+    permutations: int = Param(
+        30,
+        ge=1,
+        description=(
+            "Number of label shuffles the refusal threshold is the best of, which "
+            "makes the check a permutation test at a level of about "
+            "``1 / permutations``."
+        ),
+    )
 
 
 @register_class(
@@ -59,9 +83,22 @@ class ShortcutDetectorConfig(Configuration):
 class LeakageRemoverConfig(Configuration):
     """Drops shared and repeated rows, protecting the annotated split first."""
 
-    priority: Sequence[str] = Param(list(PRIORITY))
-    key: str = Param("text")
-    normalize_keys: bool = Param(True)
+    priority: Sequence[str] = Param(
+        list(PRIORITY),
+        description=(
+            "Split names from the one that must stay intact to the one that can "
+            "afford to lose rows; splits not listed come last. The annotated split "
+            "comes first by default, since it is the only one carrying highlights."
+        ),
+    )
+    key: str = Param("text", description="Column whose value identifies a row.")
+    normalize_keys: bool = Param(
+        True,
+        description=(
+            "Whether keys are compared with whitespace collapsed, stripped and "
+            "lower-cased, rather than exactly as the corpus spells them."
+        ),
+    )
 
 
 @register_class(
@@ -71,9 +108,30 @@ class LeakageRemoverConfig(Configuration):
 class HateXplainAggregatorConfig(Configuration):
     """Three annotators to one label and one highlight vector."""
 
-    labels: Sequence[str] = Param(list(HATEXPLAIN_LABELS))
-    highlights: str = Param("majority", variants=["union", "intersection"])
-    ties: str = Param("drop", variants=["keep"])
+    labels: Sequence[str] = Param(
+        list(HATEXPLAIN_LABELS),
+        description=(
+            "Label names in class index order, which map each annotator vote to "
+            "its class index."
+        ),
+    )
+    highlights: str = Param(
+        "majority",
+        variants=["union", "intersection"],
+        description=(
+            "How annotator highlights combine: ``majority`` marks a token more "
+            "than half the annotators marked, ``union`` any, ``intersection`` all."
+        ),
+    )
+    ties: str = Param(
+        "drop",
+        variants=["keep"],
+        description=(
+            "What happens to a post whose top label is shared with another: "
+            "``drop`` removes it, as the HateXplain paper does, and ``keep`` "
+            "resolves it by annotator order."
+        ),
+    )
 
 
 @register_class(
@@ -82,10 +140,15 @@ class HateXplainAggregatorConfig(Configuration):
 class ClassWeightsConfig(Configuration):
     """Reads one split's class frequencies; changes no row."""
 
-    split: str = Param("train")
-    #: Left unset, the number of classes is the largest label seen plus one.
-    #: Set it wherever a split might not hold every class.
-    classes: int | None = Param(None, ge=1)
+    split: str = Param("train", description="Split whose class frequencies are read.")
+    classes: int | None = Param(
+        None,
+        ge=1,
+        description=(
+            "Number of classes, at least 1; unset means the largest label seen "
+            "plus one. Set it wherever a split might not hold every class."
+        ),
+    )
 
 
 @register_class(
@@ -100,17 +163,31 @@ class KnowledgeWeightsConfig(Configuration):
     computed inside training and left nowhere.
     """
 
-    split: str = Param("train")
-    #: The size of the knowledge base, required rather than inferred: the
-    #: largest index a split happens to use is not how many entries there are.
-    entries: int = Param(2, ge=1)
+    split: str = Param(
+        "train", description="Split whose example-to-entry links are read."
+    )
+    entries: int = Param(
+        2,
+        ge=1,
+        description=(
+            "Number of entries in the knowledge base, at least 1, stated rather "
+            "than inferred: the largest index a split happens to use is not how "
+            "many entries there are."
+        ),
+    )
 
 
 @register_class(key=PIPELINE, component=PIPELINE_COMPONENT)
 class PipelineConfig(Configuration):
     """Preprocessors run in order, each over what the last returned."""
 
-    steps: List[RegistrationKey[Preprocessor]] = Param([LEAKAGE_REMOVER])
+    steps: List[RegistrationKey[Preprocessor]] = Param(
+        [LEAKAGE_REMOVER],
+        description=(
+            "Registration keys of the preprocessors, run in order, each over what "
+            "the last returned."
+        ),
+    )
 
 
 @register_class(key=HATEXPLAIN_PIPELINE, component=PIPELINE_COMPONENT)

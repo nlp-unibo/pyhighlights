@@ -517,6 +517,24 @@ def test_the_baselines_select_as_their_originals_do():
         assert not config.repair_empty_selections
 
 
+def test_every_registered_field_is_described():
+    """A parameter documents itself in ``description``, not in a comment.
+
+    A subclass that redeclares a field inherits the description, so this
+    checks what a registered configuration carries rather than its source.
+    """
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+
+    undescribed = sorted(
+        f"{type(config).__name__}.{name}"
+        for key in Registry.retrieve_keys(namespaces=str(keys.NAMESPACE))
+        for config in [Registry.retrieve_configuration(key)]
+        for name, field in type(config).model_fields.items()
+        if not field.description
+    )
+    assert not undescribed, undescribed
+
+
 def test_what_configurations_read_imports_no_component():
     """Defaults and the token-space walk load without torch or Lightning.
 

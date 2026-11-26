@@ -25,21 +25,45 @@ EVALX_COMPONENT = "pyhighlights.components.models.spp.evalx.EvalX"
     component="pyhighlights.components.models.spp.evalx.RandomSelector",
 )
 class RandomSelectorConfig(Configuration):
-    #: ``"tokens"`` keeps each position independently, ``"spans"`` keeps one
-    #: contiguous span.
-    mode: str = Param("tokens")
-    #: The keep rate is drawn per example, uniformly from this interval.
-    min_keep: float = Param(0.0, ge=0.0, le=1.0)
-    max_keep: float = Param(1.0, ge=0.0, le=1.0)
+    mode: str = Param(
+        "tokens",
+        description=(
+            "How the selector keeps positions: ``'tokens'`` keeps each "
+            "position independently, and ``'spans'`` keeps one contiguous span."
+        ),
+    )
+    min_keep: float = Param(
+        0.0,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Lower bound of the keep rate, which is drawn per example, uniformly "
+            "from ``[min_keep, max_keep]``."
+        ),
+    )
+    max_keep: float = Param(
+        1.0,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Upper bound of the keep rate, which is drawn per example, uniformly "
+            "from ``[min_keep, max_keep]``."
+        ),
+    )
 
 
 @register_class(key=GRU_EVALX, component=EVALX_COMPONENT)
 class GRUEvalXConfig(SPPShapeConfig):
     name: str = Param("evalx")
     selectors: RegistrationKey[SPPSelector] = Param(RANDOM_SELECTOR)
-    #: The document's label is the only target. A sparsity or contiguity term
-    #: would score the random selector, which nothing can train.
-    losses: List[RegistrationKey[Loss]] = Param([CLASSIFICATION_LOSS])
+    losses: List[RegistrationKey[Loss]] = Param(
+        [CLASSIFICATION_LOSS],
+        description=(
+            "Registration keys of the losses, where the document's label is the "
+            "only target. A sparsity or contiguity term would score the random "
+            "selector, which nothing can train."
+        ),
+    )
 
 
 @register_class(

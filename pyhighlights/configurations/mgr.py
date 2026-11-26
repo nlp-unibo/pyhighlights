@@ -25,28 +25,65 @@ MGR_COMPONENT = "pyhighlights.components.models.spp.mgr.MGR"
 @register_class(key=GRU_MGR, component=MGR_COMPONENT)
 class GRUMGRConfig(SPPModelConfig):
     name: str = Param("mgr")
-    #: As the original implementation: a sampled selection at evaluation and
-    #: no empty-selection repair.
-    sample_at_evaluation: bool = Param(True)
-    repair_empty_selections: bool = Param(False)
-    #: One backbone and one selector *per generator*, where every other
-    #: architecture has one of each. That is the whole of MGR, so the base
-    #: class cannot carry these as defaults.
+    sample_at_evaluation: bool = Param(
+        True,
+        description=(
+            "Whether validation and test sample the hard Gumbel selection rather "
+            "than take the argmax. MGR samples, as its original implementation "
+            "does."
+        ),
+    )
+    repair_empty_selections: bool = Param(
+        False,
+        description=(
+            "Whether a selection that kept no word keeps its highest-scoring "
+            "word instead. MGR does not repair, as its original implementation "
+            "does not."
+        ),
+    )
     selector_backbones: List[RegistrationKey[SPPBackbone]] = Param(
-        [GRU_BACKBONE, GRU_BACKBONE, GRU_BACKBONE]
+        [GRU_BACKBONE, GRU_BACKBONE, GRU_BACKBONE],
+        description=(
+            "Registration keys of the selector backbones, one per generator, "
+            "where every other architecture has a single one. Several generators "
+            "are the whole of MGR, so the base class cannot carry this default."
+        ),
     )
     selectors: List[RegistrationKey[SPPSelector]] = Param(
-        [MLP_SELECTOR, MLP_SELECTOR, MLP_SELECTOR]
+        [MLP_SELECTOR, MLP_SELECTOR, MLP_SELECTOR],
+        description=(
+            "Registration keys of the selectors, one per generator, where every "
+            "other architecture has a single one. Several generators are the "
+            "whole of MGR, so the base class cannot carry this default."
+        ),
     )
-    #: The generators share one predictor, and it encodes with its own
-    #: backbone, so this is required rather than optional.
-    #: Unnormalised, as the original implementation's predictor encoder.
-    predictor_backbone: RegistrationKey[SPPBackbone] = Param(UNNORMALISED_GRU_BACKBONE)
-    inference_head: int = Param(0, ge=0)
-    #: How the heads' losses combine. ``"mean"`` divides them by the number of
-    #: heads, which rescales the logged loss. Under Adam it barely changes
-    #: training, since an Adam update does not depend on the loss scale.
-    loss_reduction: Literal["sum", "mean"] = Param("sum")
+    predictor_backbone: RegistrationKey[SPPBackbone] = Param(
+        UNNORMALISED_GRU_BACKBONE,
+        description=(
+            "Registration key of the backbone of the predictor the generators "
+            "share, required because that predictor encodes with its own "
+            "backbone. The GRU default is unnormalised, as the original "
+            "implementation's predictor encoder is."
+        ),
+    )
+    inference_head: int = Param(
+        0,
+        ge=0,
+        description=(
+            "Index of the generator whose head every metric, analysis and "
+            "faithfulness term reads, from zero to the number of generators "
+            "minus one."
+        ),
+    )
+    loss_reduction: Literal["sum", "mean"] = Param(
+        "sum",
+        description=(
+            "How the losses of the heads combine: ``sum`` adds them, and ``mean`` "
+            "divides them by the number of heads, which rescales the logged "
+            "loss. Under Adam the choice barely changes training, since an Adam "
+            "update does not depend on the loss scale."
+        ),
+    )
 
     @classmethod
     def default(cls):

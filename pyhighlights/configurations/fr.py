@@ -17,10 +17,22 @@ FR_COMPONENT = "pyhighlights.components.models.spp.fr.FR"
 @register_class(key=GRU_FR, component=FR_COMPONENT)
 class GRUFRConfig(SPPModelConfig):
     name: str = Param("fr")
-    #: As the original implementation: a sampled selection at evaluation and
-    #: no empty-selection repair.
-    sample_at_evaluation: bool = Param(True)
-    repair_empty_selections: bool = Param(False)
+    sample_at_evaluation: bool = Param(
+        True,
+        description=(
+            "Whether validation and test sample the hard Gumbel selection rather "
+            "than take the argmax. FR samples, as its original implementation "
+            "does."
+        ),
+    )
+    repair_empty_selections: bool = Param(
+        False,
+        description=(
+            "Whether a selection that kept no word keeps its highest-scoring "
+            "word instead. FR does not repair, as its original implementation "
+            "does not."
+        ),
+    )
 
 
 @register_class(key=TRANSFORMER_FR, component=FR_COMPONENT)

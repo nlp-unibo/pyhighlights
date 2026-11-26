@@ -45,46 +45,114 @@ class SPPShapeConfig(Configuration):
     added here reaches every model, and each model says only what differs.
     """
 
-    name: str = Param("spp")
-    selector_backbones: RegistrationKey[SPPBackbone] = Param(GRU_BACKBONE)
-    selectors: RegistrationKey[SPPSelector] = Param(MLP_SELECTOR)
-    predictor: RegistrationKey[SPPPredictor] = Param(MLP_PREDICTOR)
-    predictor_backbone: RegistrationKey[SPPBackbone] | None = Param(None)
-    temperature: float = Param(1.0, gt=0.0)
-    #: Gather the kept positions into a shorter sequence instead of zeroing the
-    #: dropped ones in place. Off by default, because it changes what the
-    #: predictor is trained on rather than fixing what it reads.
-    #:
-    #: Zeroing leaves a dropped position in the sequence, and the predictor can
-    #: read the fact of it. A recurrent encoder steps over it, and a
-    #: transformer gives the next kept token a different position embedding. So
-    #: a selector can signal a label through the *shape* of the mask rather than
-    #: the words in it. Compaction closes both mechanisms; it does not close the
-    #: count, which a shorter sequence still shows.
-    #:
-    #: See ``SPP.compacted`` for what it costs.
-    compact: bool = Param(False)
-    #: Sample the hard Gumbel selection at validation and test as in training,
-    #: rather than take the argmax. The original FR, MCD, MGR and DAR do.
-    sample_at_evaluation: bool = Param(False)
-    #: Keep the highest-scoring word of a selection that kept none. The
-    #: original FR, MCD, MGR, G-RAT and DAR have no such repair.
-    repair_empty_selections: bool = Param(True)
-    #: A selection is made over words: the unit the corpus annotates, that a
-    #: sparsity target is a fraction of, and that an export shows. Words are
-    #: the same unit whichever backbone read the text. ``"subtoken"`` selects
-    #: over the backbone's own tokens instead.
-    select_over: str = Param("word")
-    #: One rate for the encoders, another for everything above them. ``None``
-    #: trains the whole model at the optimizer's own rate, which suits a GRU
-    #: over a frozen table, where nothing pretrained is fine-tuned. Set it
-    #: when a pretrained encoder *is* being fine-tuned: one rate cannot serve
-    #: both a transformer and a selector initialized from scratch.
-    encoder_lr: float | None = Param(None, gt=0.0)
-    optimizer: RegistrationKey[th.optim.Optimizer] = Param(ADAM)
-    train_metrics: List[RegistrationKey[BoundMetric]] | None = Param(None)
-    val_metrics: List[RegistrationKey[BoundMetric]] | None = Param(None)
-    test_metrics: List[RegistrationKey[BoundMetric]] | None = Param(None)
+    name: str = Param("spp", description="Name of the model.")
+    selector_backbones: RegistrationKey[SPPBackbone] = Param(
+        GRU_BACKBONE,
+        description=(
+            "Registration key of the backbone that encodes the input for the "
+            "selector, or one key per selector for a model with several."
+        ),
+    )
+    selectors: RegistrationKey[SPPSelector] = Param(
+        MLP_SELECTOR,
+        description=(
+            "Registration key of the selector that scores each position as kept "
+            "or dropped, or one key per selector for a model with several."
+        ),
+    )
+    predictor: RegistrationKey[SPPPredictor] = Param(
+        MLP_PREDICTOR,
+        description=(
+            "Registration key of the predictor that maps the pooled state of the "
+            "highlight to class logits."
+        ),
+    )
+    predictor_backbone: RegistrationKey[SPPBackbone] | None = Param(
+        None,
+        description=(
+            "Registration key of the backbone that encodes the highlight for the "
+            "predictor, or None to share the first selector backbone."
+        ),
+    )
+    temperature: float = Param(
+        1.0,
+        gt=0.0,
+        description=(
+            "Temperature of the Gumbel-softmax that samples the selection, "
+            "greater than zero."
+        ),
+    )
+    compact: bool = Param(
+        False,
+        description=(
+            "Whether the predictor reads the kept positions gathered into a "
+            "shorter sequence instead of the dropped ones zeroed in place, which "
+            "stops a selector from signalling a label through the shape of the "
+            "mask but not through its count. It is off by default, because it "
+            "changes what the predictor is trained on rather than fixing what it "
+            "reads."
+        ),
+    )
+    sample_at_evaluation: bool = Param(
+        False,
+        description=(
+            "Whether validation and test sample the hard Gumbel selection as "
+            "training does, rather than take the argmax. The original FR, MCD, "
+            "MGR and DAR sample."
+        ),
+    )
+    repair_empty_selections: bool = Param(
+        True,
+        description=(
+            "Whether a selection that kept no word keeps its highest-scoring "
+            "word instead. The original FR, MCD, MGR, G-RAT and DAR have no "
+            "such repair."
+        ),
+    )
+    select_over: str = Param(
+        "word",
+        description=(
+            "Unit the selection is made over: ``word``, the unit the corpus "
+            "annotates, that a sparsity target is a fraction of, and that an "
+            "export shows, whichever backbone read the text. ``subtoken`` "
+            "selects over the backbone's own tokens instead."
+        ),
+    )
+    encoder_lr: float | None = Param(
+        None,
+        gt=0.0,
+        description=(
+            "Learning rate of the backbones, with everything above them at the "
+            "optimizer's own rate, or None to train the whole model at that "
+            "rate. Set it when a pretrained encoder is fine-tuned, since one "
+            "rate cannot serve both a transformer and a selector initialized "
+            "from scratch."
+        ),
+    )
+    optimizer: RegistrationKey[th.optim.Optimizer] = Param(
+        ADAM, description="Registration key of the optimizer that trains the model."
+    )
+    train_metrics: List[RegistrationKey[BoundMetric]] | None = Param(
+        None,
+        description=(
+            "Registration keys of the metrics scored on the training split, or "
+            "None for none."
+        ),
+    )
+    val_metrics: List[RegistrationKey[BoundMetric]] | None = Param(
+        None,
+        description=(
+            "Registration keys of the metrics scored on the validation split, or "
+            "None for none."
+        ),
+    )
+    test_metrics: List[RegistrationKey[BoundMetric]] | None = Param(
+        None,
+        description=(
+            "Registration keys of the metrics scored on the test split, or None "
+            "for none."
+        ),
+    )
 
     @classmethod
     def default(cls):
@@ -108,7 +176,10 @@ class SPPModelConfig(SPPShapeConfig):
     """An SPP model scoring one flat list of criteria."""
 
     losses: List[RegistrationKey[Loss]] = Param(
-        [CLASSIFICATION_LOSS, SPARSITY_LOSS, CONTIGUITY_LOSS]
+        [CLASSIFICATION_LOSS, SPARSITY_LOSS, CONTIGUITY_LOSS],
+        description=(
+            "Registration keys of the losses whose weighted sum the model minimizes."
+        ),
     )
 
 
@@ -122,8 +193,26 @@ class PhasedSPPModelConfig(SPPShapeConfig):
     belongs to has to be named.
     """
 
-    shared_losses: List[RegistrationKey[Loss]] = Param([SPARSITY_LOSS, CONTIGUITY_LOSS])
-    predictor_losses: List[RegistrationKey[Loss]] = Param([])
-    generator_losses: List[RegistrationKey[Loss]] = Param([])
-    #: Names of the losses evaluation sums into ``loss``. ``None`` sums all.
-    monitored_losses: List[str] | None = Param(None)
+    shared_losses: List[RegistrationKey[Loss]] = Param(
+        [SPARSITY_LOSS, CONTIGUITY_LOSS],
+        description="Registration keys of the losses scored in both training phases.",
+    )
+    predictor_losses: List[RegistrationKey[Loss]] = Param(
+        [],
+        description=(
+            "Registration keys of the losses scored in the predictor phase only."
+        ),
+    )
+    generator_losses: List[RegistrationKey[Loss]] = Param(
+        [],
+        description=(
+            "Registration keys of the losses scored in the generator phase only."
+        ),
+    )
+    monitored_losses: List[str] | None = Param(
+        None,
+        description=(
+            "Names of the losses whose weighted sum evaluation logs as ``loss``, "
+            "or None to sum all of them."
+        ),
+    )

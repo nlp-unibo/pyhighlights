@@ -67,9 +67,22 @@ F1_SCORE_COMPONENT = "torchmetrics.F1Score"
 
 @register_class(key=ACCURACY, component=ACCURACY_COMPONENT)
 class AccuracyConfig(Configuration):
-    task: str = Param("multiclass")
-    num_classes: int = Param(2, ge=2)
-    average: str = Param("micro")
+    task: str = Param(
+        "multiclass",
+        description=(
+            "Task type torchmetrics scores; ``multiclass`` because a predictor "
+            "emits one logit per class, including when there are two."
+        ),
+    )
+    num_classes: int = Param(2, ge=2, description="Number of classes, at least 2.")
+    average: str = Param(
+        "micro",
+        description=(
+            "How torchmetrics reduces the per-class statistics: ``micro`` pools "
+            "them over every class, ``macro`` averages the per-class scores, "
+            "``weighted`` weights them by support, and ``none`` keeps one per class."
+        ),
+    )
 
 
 @register_class(key=MULTICLASS_ACCURACY, component=ACCURACY_COMPONENT)
@@ -79,9 +92,22 @@ class MulticlassAccuracyConfig(AccuracyConfig):
 
 @register_class(key=F1, component=F1_SCORE_COMPONENT)
 class F1Config(Configuration):
-    task: str = Param("multiclass")
-    num_classes: int = Param(2, ge=2)
-    average: str = Param("macro")
+    task: str = Param(
+        "multiclass",
+        description=(
+            "Task type torchmetrics scores; ``multiclass`` because a predictor "
+            "emits one logit per class, including when there are two."
+        ),
+    )
+    num_classes: int = Param(2, ge=2, description="Number of classes, at least 2.")
+    average: str = Param(
+        "macro",
+        description=(
+            "How torchmetrics reduces the per-class statistics: ``micro`` pools "
+            "them over every class, ``macro`` averages the per-class scores, "
+            "``weighted`` weights them by support, and ``none`` keeps one per class."
+        ),
+    )
 
 
 @register_class(key=MULTICLASS_F1, component=F1_SCORE_COMPONENT)
@@ -97,8 +123,15 @@ class ClassF1Config(Configuration):
     skewed enough for macro F1 to be mostly the majority class.
     """
 
-    pos_label: int = Param(1, ge=0)
-    num_classes: int = Param(2, ge=2)
+    pos_label: int = Param(
+        1,
+        ge=0,
+        description=(
+            "Index of the class whose F1 is reported, at least 0 and below "
+            "``num_classes``."
+        ),
+    )
+    num_classes: int = Param(2, ge=2, description="Number of classes, at least 2.")
 
 
 class HighlightMetricConfig(Configuration):
@@ -109,8 +142,20 @@ class HighlightMetricConfig(Configuration):
     than counting as negatives.
     """
 
-    pos_label: int = Param(1)
-    ignore_index: int = Param(-1)
+    pos_label: int = Param(
+        1,
+        description=(
+            "Value that marks a token as a highlight, in the selection and in the "
+            "annotation alike."
+        ),
+    )
+    ignore_index: int = Param(
+        -1,
+        description=(
+            "Annotation value of a position that carries no annotation, which "
+            "scores nothing rather than counting as a negative."
+        ),
+    )
 
 
 @register_class(
@@ -172,9 +217,23 @@ class SelectionSpansConfig(SelectionRateConfig):
 class MetricConfig(Configuration):
     """A scoring object bound to the namespace fields it reads."""
 
-    name: str = Param("accuracy")
-    metric: RegistrationKey[Metric] = Param(ACCURACY)
-    inputs: Sequence[str] = Param(["class_logits", "y_true"])
+    name: str = Param(
+        "accuracy",
+        description=(
+            "Name the metric is logged under as ``{split}_{name}``; it must differ "
+            "from every loss name and from the summed loss."
+        ),
+    )
+    metric: RegistrationKey[Metric] = Param(
+        ACCURACY, description="Registration key of the torchmetrics scoring object."
+    )
+    inputs: Sequence[str] = Param(
+        ["class_logits", "y_true"],
+        description=(
+            "Fields of the step namespace the metric reads, in the order it takes "
+            "them; at least one."
+        ),
+    )
 
 
 @register_class(key=MULTICLASS_ACCURACY_METRIC, component=BOUND_METRIC_COMPONENT)
@@ -312,9 +371,26 @@ class LinkF1Config(Configuration):
     entry and stops looks precise and has missed the case.
     """
 
-    num_labels: int = Param(KNOWLEDGE_ENTRIES, ge=1)
-    average: str = Param("micro")
-    ignore_index: int = Param(-1)
+    num_labels: int = Param(
+        KNOWLEDGE_ENTRIES,
+        ge=1,
+        description="Number of knowledge base entries the metric scores, at least 1.",
+    )
+    average: str = Param(
+        "micro",
+        description=(
+            "How torchmetrics reduces the per-entry statistics: ``micro`` pools "
+            "every (example, entry) link, ``macro`` averages the per-entry scores, "
+            "``weighted`` weights them by support, and ``none`` keeps one per entry."
+        ),
+    )
+    ignore_index: int = Param(
+        -1,
+        description=(
+            "Annotation value of a link that carries no annotation, which does not "
+            "contribute to the metric."
+        ),
+    )
 
 
 @register_class(
@@ -338,8 +414,16 @@ class LinkMacroF1Config(LinkF1Config):
 class ExactSetMatchConfig(Configuration):
     """Share of examples whose named set is exactly the annotated one."""
 
-    threshold: float = Param(0.5)
-    ignore_index: int = Param(-1)
+    threshold: float = Param(
+        0.5, description="Prediction value above which an entry counts as named."
+    )
+    ignore_index: int = Param(
+        -1,
+        description=(
+            "Annotation value of an example the corpus does not annotate, which "
+            "scores nothing rather than counting as an empty set."
+        ),
+    )
 
 
 @register_class(
