@@ -160,7 +160,7 @@ def test_a_bound_that_bounds_nothing_is_refused():
     float as a fraction, so `limit_train_batches=1.0` is its own default.
     """
     for unbounded in ({"limit_val_batches": 2}, {"limit_train_batches": 1.0}):
-        with pytest.raises(ValueError, match="smoke test"):
+        with pytest.raises(ValueError, match="sanity check run"):
             Registry.from_key(TOY_TASK, diagnostics=True, trainer_args=unbounded)
 
     for bounded in (
@@ -251,7 +251,7 @@ def test_every_preprocessing_step_reports_what_it_returned(caplog):
 
 
 def test_a_run_nobody_bounded_is_refused():
-    with pytest.raises(ValueError, match="smoke test"):
+    with pytest.raises(ValueError, match="sanity check run"):
         Registry.from_key(TOY_TASK, diagnostics=True)
 
     # A bound of either kind is enough, and both are Lightning's own.

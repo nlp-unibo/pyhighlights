@@ -357,7 +357,7 @@ class SPPTask(Task):
         """Refuse to diagnose a run whose batches nobody bounded.
 
         The record is per batch, so a full run writes gigabytes of it and
-        pays the formatting on every step. It is for a smoke test: one or two
+        pays the formatting on every step. It is for a sanity check run: one or two
         epochs over a handful of batches, which is what Lightning's
         ``fast_dev_run`` and its ``limit_*_batches`` already express and what
         ``trainer_args`` already forwards. A task given neither is a mistake
@@ -376,7 +376,7 @@ class SPPTask(Task):
         if not self.bounds_training_batches():
             raise ValueError(
                 f"{self.name}: diagnostics record every batch of every stage, "
-                "so they are for a smoke test rather than a full run. Bound "
+                "so they are for a sanity check run rather than a full run. Bound "
                 "the training batches first: pass "
                 "trainer_args={'fast_dev_run': True}, or a "
                 "limit_train_batches of 2, or a fraction below one."
@@ -931,9 +931,9 @@ class GenSPPTask(SPPTask):
 
     #: How many candidates a diagnosed search may evaluate. Each one trains a
     #: predictor over the whole training split, and every batch of that is a
-    #: page of the record, so a smoke test is a handful of them. A full
+    #: page of the record, so a sanity check run is a handful of them. A full
     #: search evaluates thousands.
-    SMOKE_CANDIDATES = 8
+    SANITY_CHECK_CANDIDATES = 8
 
     @staticmethod
     def candidates(search: GenSPPTrainer, generations: int | None = None) -> int:
@@ -961,12 +961,12 @@ class GenSPPTask(SPPTask):
         """
         super().check_diagnostics()
         candidates = self.candidates(self._trainer)
-        if candidates > self.SMOKE_CANDIDATES:
+        if candidates > self.SANITY_CHECK_CANDIDATES:
             raise ValueError(
                 f"{self.name}: this search evaluates {candidates} candidates, "
                 "and each one trains a predictor over the whole training "
-                "split. Diagnostics are for a smoke test, so bound the search "
-                f"to {self.SMOKE_CANDIDATES} candidates or fewer: a smaller "
+                "split. Diagnostics are for a sanity check run, so bound the search "
+                f"to {self.SANITY_CHECK_CANDIDATES} candidates or fewer: a smaller "
                 "population_size, fewer n_generations, or both."
             )
 

@@ -17,7 +17,7 @@ Seven stages report, in the order a batch meets them: the frames the loader pars
 A tensor reports its shape, dtype, device, non-finite count and range, and a mask, which is a batch and one axis of nothing but zeros and ones, reports how many of them are on.
 That last count is where a mask which is neither zero nor one, a word dropped on the word axis but still read on the subtoken axis, or a ``nan`` inside a pooled state shows up, and where a metric shows nothing.
 
-**Only under a smoke test.** The record is per batch, so a full run writes gigabytes of it and pays the formatting on every step.
+**Only under a sanity check run.** The record is per batch, so a full run writes gigabytes of it and pays the formatting on every step.
 A task asked to diagnose a run whose *training* batches nobody bounded raises rather than writing it: pass ``fast_dev_run``, or a ``limit_train_batches`` of your own, which is what ``trainer_args`` already forwards and what
 :attr:`~pyhighlights.components.benchmarks.Benchmark.task_args` passes to a
 whole grid at once.

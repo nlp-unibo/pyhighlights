@@ -228,7 +228,7 @@ def test_the_aligner_pretrains_inside_the_bound_the_run_was_given(tmp_path):
 
     The aligner's loop is the model's own, so a run bounded to two batches
     still pretrained on all eight the split holds, once per pretraining epoch.
-    A smoke test asks for exactly that not to happen.
+    A sanity check run asks for exactly that not to happen.
     """
     model = Registry.from_key(GRU_DAR, pretrain_epochs=2)
     seen = []

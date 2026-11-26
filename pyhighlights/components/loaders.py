@@ -321,7 +321,7 @@ class ToyLoader(HighlightLoader):
     filler, which is what stops a fragment from being enough to classify:
     without it ``bc`` occurs nowhere but inside ``abc``, so detecting ``bc``
     names that class exactly as well as detecting ``abc`` does. Off by default,
-    since the registered corpus is a smoke test and a cheap one is the point.
+    since the registered corpus is for a sanity check run and a cheap one is the point.
     A reproduction of published numbers points ``url`` at the corpus those
     numbers are for, rather than generating one of the same shape.
 

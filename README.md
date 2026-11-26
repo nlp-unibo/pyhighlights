@@ -126,7 +126,7 @@ task                 run  seeds          accuracy      highlight_f1
  toy 2026-10-02T01-36-23      2 0.9375 +/- 0.0884 0.3308 +/- 0.1215
 ```
 
-`TOY_TASK` is a smoke test rather than a result.
+`TOY_TASK` is a sanity check run rather than a result.
 It trains FR on a GRU backbone for two epochs on CPU over 64 generated
 documents, which checks that a run holds together and teaches nothing else.
 Still, the spread is worth reading: two seeds of one configuration can
