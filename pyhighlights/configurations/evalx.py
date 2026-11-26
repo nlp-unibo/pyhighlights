@@ -1,6 +1,6 @@
 """EVAL-X: the random selector, the evaluator model and its toy task."""
 
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, List, Literal
 
 from cinnamon.configuration import Configuration, Param
 from cinnamon.registry import RegistrationKey, register_class
@@ -27,7 +27,7 @@ EVALX_COMPONENT = "pyhighlights.components.models.spp.evalx.EvalX"
     component="pyhighlights.components.models.spp.evalx.RandomSelector",
 )
 class RandomSelectorConfig(Configuration):
-    mode: str = Param(
+    mode: Literal["tokens", "spans"] = Param(
         "tokens",
         description=(
             "How the selector keeps positions: ``'tokens'`` keeps each "
@@ -52,6 +52,16 @@ class RandomSelectorConfig(Configuration):
             "from ``[min_keep, max_keep]``."
         ),
     )
+
+    @classmethod
+    def default(cls):
+        config = super().default()
+        config.add_condition(
+            name="ordered_keep_rates",
+            description="The keep rate is drawn from [min_keep, max_keep].",
+            condition=lambda selector: selector.min_keep <= selector.max_keep,
+        )
+        return config
 
 
 @register_class(key=GRU_EVALX, component=EVALX_COMPONENT)

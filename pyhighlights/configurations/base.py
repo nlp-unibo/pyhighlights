@@ -11,7 +11,7 @@ loss is: :class:`SPPModelConfig` scores a flat list,
 :class:`SPPShapeConfig` is what the two share.
 """
 
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, List, Literal
 
 from cinnamon.configuration import Configuration, Param
 from cinnamon.registry import RegistrationKey
@@ -116,7 +116,7 @@ class SPPShapeConfig(Configuration):
             "such repair."
         ),
     )
-    select_over: str = Param(
+    select_over: Literal["word", "subtoken"] = Param(
         "word",
         description=(
             "Unit the selection is made over: ``word``, the unit the corpus "

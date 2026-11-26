@@ -7,7 +7,7 @@ instead. Highlight and selection metrics are the same everywhere, since a
 token is either selected or it is not.
 """
 
-from typing import TYPE_CHECKING, Any, Dict, List, Sequence
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Sequence
 
 from cinnamon.configuration import Configuration, Param
 from cinnamon.registry import RegistrationKey, register_class
@@ -135,7 +135,7 @@ class TaskConfig(Configuration):
             "row of its own."
         ),
     )
-    vocabulary_from: str = Param(
+    vocabulary_from: Literal["corpus", "splits", "vectors"] = Param(
         "corpus",
         description=(
             "Where the vocabulary comes from: ``corpus`` fits it on the training "
@@ -231,10 +231,11 @@ class TaskConfig(Configuration):
         description="Non-negative weight of ``highlight_loss`` in the total loss.",
     )
     trainer_args: Dict[str, Any] = Param(
-        {"accelerator": "cpu", "max_epochs": 5},
+        {"max_epochs": 5},
         description=(
             "Keyword arguments for the Lightning trainer, applied over the "
-            "defaults of the task."
+            "defaults of the task. Without ``accelerator``, Lightning uses the "
+            "device it finds, so only a task that must stay on the CPU sets it."
         ),
     )
 
