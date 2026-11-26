@@ -20,12 +20,8 @@ from cinnamon.registry import RegistrationKey, Registry
 
 from pyhighlights.components.data import COLUMNS
 from pyhighlights.components.leakage import normalize
+from pyhighlights.constants import PRIORITY
 from pyhighlights.utility import diagnostics
-
-#: Priority runs from the split that must stay intact to the one that can
-#: afford to lose rows. The annotated split comes first: it is the only one
-#: carrying highlights, so it is the one worth protecting.
-PRIORITY = ("test", "val", "train")
 
 HIGHLIGHTS = ("majority", "union", "intersection")
 TIES = ("drop", "keep")

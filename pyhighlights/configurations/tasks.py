@@ -15,7 +15,6 @@ from lightning.pytorch.callbacks import Callback
 
 from pyhighlights.components.loaders import HighlightLoader
 from pyhighlights.components.models.base import Model
-from pyhighlights.components.models.spp.base import token_spaces
 from pyhighlights.components.models.spp.genspp import GenSPPTrainer
 from pyhighlights.components.preprocessors import ClassWeights, Preprocessor
 from pyhighlights.configurations.keys import (
@@ -41,6 +40,7 @@ from pyhighlights.configurations.keys import (
 )
 from pyhighlights.utility.losses import Loss
 from pyhighlights.utility.metrics import BoundMetric
+from pyhighlights.utility.spaces import token_spaces
 
 #: What every select-then-predict run reports, whatever the corpus: how much
 #: of the document was kept, where it sits, and how well what was kept matches

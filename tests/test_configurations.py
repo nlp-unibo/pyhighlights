@@ -10,7 +10,6 @@ import pyhighlights
 from pyhighlights.components.models import InputData
 from pyhighlights.components.models.base import Model
 from pyhighlights.components.models.spp import FR, MCD, MGR
-from pyhighlights.components.models.spp.base import token_spaces
 from pyhighlights.configurations import keys
 from pyhighlights.configurations.grat import GRUGRATConfig
 from pyhighlights.configurations.keys import (
@@ -31,6 +30,7 @@ from pyhighlights.configurations.keys import (
 )
 from pyhighlights.configurations.mgr import GRUMGRConfig
 from pyhighlights.configurations.tasks import ToyTaskConfig
+from pyhighlights.utility.spaces import token_spaces
 
 
 def test_every_registration_in_the_library_resolves():
@@ -510,6 +510,24 @@ def test_the_baselines_select_as_their_originals_do():
         config = Registry.retrieve_configuration(key)
         assert config.sample_at_evaluation is samples
         assert not config.repair_empty_selections
+
+
+def test_what_configurations_read_imports_no_component():
+    """Defaults and the token-space walk load without torch or Lightning.
+
+    A fresh interpreter, because this suite has imported both already.
+    """
+    import subprocess
+    import sys
+
+    code = (
+        "import sys, pyhighlights.constants, pyhighlights.utility.spaces; "
+        "print(sorted({'torch', 'lightning'} & set(sys.modules)))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+    )
+    assert result.stdout.strip() == "[]"
 
 
 def test_a_model_reads_one_token_space():

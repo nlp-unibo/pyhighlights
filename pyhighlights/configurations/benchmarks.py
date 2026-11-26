@@ -5,7 +5,6 @@ from typing import Any, Dict, List, Sequence, Set
 from cinnamon.configuration import Configuration, Param
 from cinnamon.registry import register_class
 
-from pyhighlights.components.analyzers import PREDICTIONS
 from pyhighlights.configurations.keys import (
     HIGHLIGHT_POSITION_ANALYZER,
     LABEL_STUDIO_EXPORTER,
@@ -13,6 +12,7 @@ from pyhighlights.configurations.keys import (
     PREDICTION_ANALYZER,
     TOY_BENCHMARK,
 )
+from pyhighlights.constants import PREDICTIONS
 
 
 class BenchmarkConfig(Configuration):

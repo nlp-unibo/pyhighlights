@@ -44,13 +44,13 @@ from pyhighlights.components.data import (
 from pyhighlights.components.faithfulness import evaluate as score_faithfulness
 from pyhighlights.components.loaders import HighlightLoader, to_examples
 from pyhighlights.components.models.base import InputData, Model
-from pyhighlights.components.models.spp.base import token_spaces
 from pyhighlights.components.models.spp.genspp import GenSPPTrainer
 from pyhighlights.components.preprocessors import ClassWeights, Preprocessor
 from pyhighlights.utility import cost, diagnostics, manifest
 from pyhighlights.utility.embeddings import load_vectors, one_hot_table
 from pyhighlights.utility.losses import Loss
 from pyhighlights.utility.metrics import BoundMetric, build_metrics
+from pyhighlights.utility.spaces import token_spaces
 
 logger = logging.getLogger(__name__)
 

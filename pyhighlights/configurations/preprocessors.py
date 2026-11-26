@@ -5,8 +5,7 @@ from typing import List, Sequence
 from cinnamon.configuration import Configuration, Param
 from cinnamon.registry import RegistrationKey, register_class
 
-from pyhighlights.components.loaders import HateXplainLoader
-from pyhighlights.components.preprocessors import PRIORITY, Preprocessor
+from pyhighlights.components.preprocessors import Preprocessor
 from pyhighlights.configurations.keys import (
     CLASS_WEIGHTS,
     HATEXPLAIN_AGGREGATOR,
@@ -17,6 +16,7 @@ from pyhighlights.configurations.keys import (
     PIPELINE,
     SHORTCUT_DETECTOR,
 )
+from pyhighlights.constants import HATEXPLAIN_LABELS, PRIORITY
 
 PIPELINE_COMPONENT = "pyhighlights.components.preprocessors.Pipeline"
 
@@ -71,7 +71,7 @@ class LeakageRemoverConfig(Configuration):
 class HateXplainAggregatorConfig(Configuration):
     """Three annotators to one label and one highlight vector."""
 
-    labels: Sequence[str] = Param(list(HateXplainLoader.LABELS))
+    labels: Sequence[str] = Param(list(HATEXPLAIN_LABELS))
     highlights: str = Param("majority", variants=["union", "intersection"])
     ties: str = Param("drop", variants=["keep"])
 

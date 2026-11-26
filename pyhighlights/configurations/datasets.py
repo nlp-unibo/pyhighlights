@@ -5,20 +5,24 @@ from typing import Dict, List
 from cinnamon.configuration import Configuration, Param
 from cinnamon.registry import register_class
 
-from pyhighlights.components.loaders import (
-    BEER_TASKS,
-    HOTEL_TASKS,
-    R2A_SHA256,
-    R2A_URL,
-    ERASERLoader,
-    HateXplainLoader,
-)
 from pyhighlights.configurations.keys import (
     BEER,
     HATEXPLAIN,
     HOTEL,
     MOVIES,
     TOY,
+)
+from pyhighlights.constants import (
+    BEER_TASKS,
+    ERASER_SHA256,
+    ERASER_URL,
+    HATEXPLAIN_DIVISIONS_SHA256,
+    HATEXPLAIN_DIVISIONS_URL,
+    HATEXPLAIN_SHA256,
+    HATEXPLAIN_URL,
+    HOTEL_TASKS,
+    R2A_SHA256,
+    R2A_URL,
 )
 
 
@@ -61,13 +65,13 @@ class HotelConfig(R2AConfig):
 class HateXplainConfig(LoaderConfig):
     """Hate-speech posts, every annotator judgement kept."""
 
-    url: str = Param(HateXplainLoader.URL)
-    divisions_url: str = Param(HateXplainLoader.DIVISIONS_URL)
+    url: str = Param(HATEXPLAIN_URL)
+    divisions_url: str = Param(HATEXPLAIN_DIVISIONS_URL)
     #: As on :class:`R2AConfig`: the loader's defaults, named again where the
     #: registered key can be read off them. Two digests because they are two
     #: downloads.
-    sha256: str | None = Param(HateXplainLoader.SHA256)
-    divisions_sha256: str | None = Param(HateXplainLoader.DIVISIONS_SHA256)
+    sha256: str | None = Param(HATEXPLAIN_SHA256)
+    divisions_sha256: str | None = Param(HATEXPLAIN_DIVISIONS_SHA256)
 
 
 @register_class(key=MOVIES, component="pyhighlights.components.loaders.MoviesLoader")
@@ -76,10 +80,10 @@ class MoviesConfig(LoaderConfig):
 
     task: str = Param("movies")
     splits: Dict[str, str] | None = Param(None)
-    url: str = Param(ERASERLoader.URL)
+    url: str = Param(ERASER_URL)
     #: As on :class:`R2AConfig`: the loader's default, said again where the
     #: registered key can be read off it.
-    sha256: str | None = Param(ERASERLoader.SHA256)
+    sha256: str | None = Param(ERASER_SHA256)
 
 
 @register_class(key=TOY, component="pyhighlights.components.loaders.ToyLoader")

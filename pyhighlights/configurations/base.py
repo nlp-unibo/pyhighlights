@@ -21,7 +21,6 @@ from pyhighlights.components.models.spp.base import (
     SPPBackbone,
     SPPPredictor,
     SPPSelector,
-    token_spaces,
 )
 from pyhighlights.configurations.keys import (
     ADAM,
@@ -34,6 +33,7 @@ from pyhighlights.configurations.keys import (
 )
 from pyhighlights.utility.losses import Loss
 from pyhighlights.utility.metrics import BoundMetric
+from pyhighlights.utility.spaces import token_spaces
 
 
 class SPPShapeConfig(Configuration):
