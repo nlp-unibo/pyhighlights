@@ -1,13 +1,10 @@
 """MRD: a generator trained to make the complement stop predicting the label."""
 
-from typing import List
+from typing import TYPE_CHECKING, List
 
 from cinnamon.configuration import Param
 from cinnamon.registry import RegistrationKey, register_class
 
-from pyhighlights.components.models.spp.base import (
-    SPPBackbone,
-)
 from pyhighlights.configurations.base import PhasedSPPModelConfig
 from pyhighlights.configurations.keys import (
     COMPLEMENT_CLASSIFICATION_LOSS,
@@ -18,7 +15,10 @@ from pyhighlights.configurations.keys import (
     TRANSFORMER_BACKBONE,
     TRANSFORMER_MRD,
 )
-from pyhighlights.utility.losses import Loss
+
+if TYPE_CHECKING:
+    import pyhighlights.components.models.spp.base
+    import pyhighlights.utility.losses
 
 MRD_COMPONENT = "pyhighlights.components.models.spp.mrd.MRD"
 
@@ -26,7 +26,9 @@ MRD_COMPONENT = "pyhighlights.components.models.spp.mrd.MRD"
 @register_class(key=GRU_MRD, component=MRD_COMPONENT)
 class GRUMRDConfig(PhasedSPPModelConfig):
     name: str = Param("mrd")
-    predictor_backbone: RegistrationKey[SPPBackbone] = Param(
+    predictor_backbone: RegistrationKey[
+        "pyhighlights.components.models.spp.base.SPPBackbone"
+    ] = Param(
         GRU_BACKBONE,
         description=(
             "Registration key of the backbone that encodes for the predictor, "
@@ -34,7 +36,7 @@ class GRUMRDConfig(PhasedSPPModelConfig):
             "input with its own encoder."
         ),
     )
-    predictor_losses: List[RegistrationKey[Loss]] = Param(
+    predictor_losses: List[RegistrationKey["pyhighlights.utility.losses.Loss"]] = Param(
         [COMPLEMENT_CLASSIFICATION_LOSS, FULL_CLASSIFICATION_LOSS],
         description=(
             "Registration keys of the losses scored in the predictor phase only. "
@@ -43,10 +45,16 @@ class GRUMRDConfig(PhasedSPPModelConfig):
             "still say."
         ),
     )
-    generator_losses: List[RegistrationKey[Loss]] = Param([REMAINING_DISCREPANCY_LOSS])
+    generator_losses: List[RegistrationKey["pyhighlights.utility.losses.Loss"]] = Param(
+        [REMAINING_DISCREPANCY_LOSS]
+    )
 
 
 @register_class(key=TRANSFORMER_MRD, component=MRD_COMPONENT)
 class TransformerMRDConfig(GRUMRDConfig):
-    selector_backbones: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)
-    predictor_backbone: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)
+    selector_backbones: RegistrationKey[
+        "pyhighlights.components.models.spp.base.SPPBackbone"
+    ] = Param(TRANSFORMER_BACKBONE)
+    predictor_backbone: RegistrationKey[
+        "pyhighlights.components.models.spp.base.SPPBackbone"
+    ] = Param(TRANSFORMER_BACKBONE)

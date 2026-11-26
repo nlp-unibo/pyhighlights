@@ -1,12 +1,10 @@
 """EVAL-X: the random selector, the evaluator model and its toy task."""
 
-from typing import List
+from typing import TYPE_CHECKING, List
 
 from cinnamon.configuration import Configuration, Param
 from cinnamon.registry import RegistrationKey, register_class
 
-from pyhighlights.components.models.base import Model
-from pyhighlights.components.models.spp.base import SPPSelector
 from pyhighlights.configurations.base import SPPShapeConfig
 from pyhighlights.configurations.keys import (
     CLASSIFICATION_LOSS,
@@ -15,7 +13,11 @@ from pyhighlights.configurations.keys import (
     TOY_EVALX_TASK,
 )
 from pyhighlights.configurations.tasks import ToyTaskConfig
-from pyhighlights.utility.losses import Loss
+
+if TYPE_CHECKING:
+    import pyhighlights.components.models.base
+    import pyhighlights.components.models.spp.base
+    import pyhighlights.utility.losses
 
 EVALX_COMPONENT = "pyhighlights.components.models.spp.evalx.EvalX"
 
@@ -55,8 +57,10 @@ class RandomSelectorConfig(Configuration):
 @register_class(key=GRU_EVALX, component=EVALX_COMPONENT)
 class GRUEvalXConfig(SPPShapeConfig):
     name: str = Param("evalx")
-    selectors: RegistrationKey[SPPSelector] = Param(RANDOM_SELECTOR)
-    losses: List[RegistrationKey[Loss]] = Param(
+    selectors: RegistrationKey[
+        "pyhighlights.components.models.spp.base.SPPSelector"
+    ] = Param(RANDOM_SELECTOR)
+    losses: List[RegistrationKey["pyhighlights.utility.losses.Loss"]] = Param(
         [CLASSIFICATION_LOSS],
         description=(
             "Registration keys of the losses, where the document's label is the "
@@ -75,4 +79,6 @@ class ToyEvalXTaskConfig(ToyTaskConfig):
     """The synthetic corpus read by an evaluator: the end-to-end check."""
 
     name: str = Param("toy-evalx")
-    model: RegistrationKey[Model] = Param(GRU_EVALX)
+    model: RegistrationKey["pyhighlights.components.models.base.Model"] = Param(
+        GRU_EVALX
+    )

@@ -7,16 +7,11 @@ instead. Highlight and selection metrics are the same everywhere, since a
 token is either selected or it is not.
 """
 
-from typing import Any, Dict, List, Sequence
+from typing import TYPE_CHECKING, Any, Dict, List, Sequence
 
 from cinnamon.configuration import Configuration, Param
 from cinnamon.registry import RegistrationKey, register_class
-from lightning.pytorch.callbacks import Callback
 
-from pyhighlights.components.loaders import HighlightLoader
-from pyhighlights.components.models.base import Model
-from pyhighlights.components.models.spp.genspp import GenSPPTrainer
-from pyhighlights.components.preprocessors import ClassWeights, Preprocessor
 from pyhighlights.configurations.keys import (
     ACCURACY_METRIC,
     CLASS_WEIGHTS,
@@ -38,9 +33,17 @@ from pyhighlights.configurations.keys import (
     TOY_GENSPP_TRAINER,
     TOY_TASK,
 )
-from pyhighlights.utility.losses import Loss
-from pyhighlights.utility.metrics import BoundMetric
 from pyhighlights.utility.spaces import token_spaces
+
+if TYPE_CHECKING:
+    import lightning.pytorch.callbacks
+
+    import pyhighlights.components.loaders
+    import pyhighlights.components.models.base
+    import pyhighlights.components.models.spp.genspp
+    import pyhighlights.components.preprocessors
+    import pyhighlights.utility.losses
+    import pyhighlights.utility.metrics
 
 #: What every select-then-predict run reports, whatever the corpus: how much
 #: of the document was kept, where it sits, and how well what was kept matches
@@ -159,7 +162,7 @@ class TaskConfig(Configuration):
             "such table."
         ),
     )
-    callbacks: List[RegistrationKey[Callback]] = Param(
+    callbacks: List[RegistrationKey["lightning.pytorch.callbacks.Callback"]] = Param(
         [LOSS_EARLY_STOPPING, LOSS_CHECKPOINT],
         description=(
             "Registration keys of the callbacks that monitor the run: early "
@@ -215,7 +218,7 @@ class TaskConfig(Configuration):
             "through ``highlight_loss``, which needs an annotated training split."
         ),
     )
-    highlight_loss: RegistrationKey[Loss] = Param(
+    highlight_loss: RegistrationKey["pyhighlights.utility.losses.Loss"] = Param(
         HIGHLIGHT_LOSS,
         description=(
             "Registration key of the loss that scores the selection against the "
@@ -266,32 +269,42 @@ class ToyTaskConfig(TaskConfig):
     """The synthetic corpus against FR: a sanity check run that trains in seconds."""
 
     name: str = Param("toy")
-    loader: RegistrationKey[HighlightLoader] = Param(
+    loader: RegistrationKey["pyhighlights.components.loaders.HighlightLoader"] = Param(
         TOY, description="Registration key of the loader that reads the corpus."
     )
-    model: RegistrationKey[Model] = Param(
+    model: RegistrationKey["pyhighlights.components.models.base.Model"] = Param(
         GRU_FR, description="Registration key of the model the task trains."
     )
-    preprocessor: RegistrationKey[Preprocessor] | None = Param(
+    preprocessor: (
+        RegistrationKey["pyhighlights.components.preprocessors.Preprocessor"] | None
+    ) = Param(
         None,
         description=(
             "Registration key of the preprocessor applied to the corpus, or None "
             "for a corpus that needs none."
         ),
     )
-    train_metrics: List[RegistrationKey[BoundMetric]] = Param(
-        BINARY_METRICS,
-        description=("Registration keys of the metrics scored on the training split."),
+    train_metrics: List[RegistrationKey["pyhighlights.utility.metrics.BoundMetric"]] = (
+        Param(
+            BINARY_METRICS,
+            description=(
+                "Registration keys of the metrics scored on the training split."
+            ),
+        )
     )
-    val_metrics: List[RegistrationKey[BoundMetric]] = Param(
-        BINARY_METRICS,
-        description=(
-            "Registration keys of the metrics scored on the validation split."
-        ),
+    val_metrics: List[RegistrationKey["pyhighlights.utility.metrics.BoundMetric"]] = (
+        Param(
+            BINARY_METRICS,
+            description=(
+                "Registration keys of the metrics scored on the validation split."
+            ),
+        )
     )
-    test_metrics: List[RegistrationKey[BoundMetric]] = Param(
-        BINARY_METRICS,
-        description=("Registration keys of the metrics scored on the test split."),
+    test_metrics: List[RegistrationKey["pyhighlights.utility.metrics.BoundMetric"]] = (
+        Param(
+            BINARY_METRICS,
+            description=("Registration keys of the metrics scored on the test split."),
+        )
     )
     batch_size: int = Param(8, ge=1)
     trainer_args: Dict[str, Any] = Param({"accelerator": "cpu", "max_epochs": 2})
@@ -311,17 +324,21 @@ class ClassWeightsTaskConfig(Configuration):
         "class-weights",
         description="Name of the task, which names the directory its results go to.",
     )
-    loader: RegistrationKey[HighlightLoader] = Param(
+    loader: RegistrationKey["pyhighlights.components.loaders.HighlightLoader"] = Param(
         TOY,
         description="Registration key of the loader that reads the corpus to weigh.",
     )
-    weights: RegistrationKey[ClassWeights] = Param(
-        CLASS_WEIGHTS,
-        description=(
-            "Registration key of the preprocessor that computes the class weights."
-        ),
+    weights: RegistrationKey["pyhighlights.components.preprocessors.ClassWeights"] = (
+        Param(
+            CLASS_WEIGHTS,
+            description=(
+                "Registration key of the preprocessor that computes the class weights."
+            ),
+        )
     )
-    preprocessor: RegistrationKey[Preprocessor] | None = Param(
+    preprocessor: (
+        RegistrationKey["pyhighlights.components.preprocessors.Preprocessor"] | None
+    ) = Param(
         None,
         description=(
             "Registration key of the preprocessor applied to the corpus before it "
@@ -358,32 +375,40 @@ class GenSPPTaskConfig(TaskConfig):
     carry metrics.
     """
 
-    loader: RegistrationKey[HighlightLoader] = Param(
+    loader: RegistrationKey["pyhighlights.components.loaders.HighlightLoader"] = Param(
         TOY, description="Registration key of the loader that reads the corpus."
     )
-    search: RegistrationKey[GenSPPTrainer] = Param(
+    search: RegistrationKey[
+        "pyhighlights.components.models.spp.genspp.GenSPPTrainer"
+    ] = Param(
         TOY_GENSPP_TRAINER,
         description=(
             "Registration key of the GenSPP search, which also names the model "
             "the task evolves."
         ),
     )
-    preprocessor: RegistrationKey[Preprocessor] | None = Param(
+    preprocessor: (
+        RegistrationKey["pyhighlights.components.preprocessors.Preprocessor"] | None
+    ) = Param(
         None,
         description=(
             "Registration key of the preprocessor applied to the corpus, or None "
             "for a corpus that needs none."
         ),
     )
-    val_metrics: List[RegistrationKey[BoundMetric]] = Param(
-        BINARY_METRICS,
-        description=(
-            "Registration keys of the metrics scored on the validation split."
-        ),
+    val_metrics: List[RegistrationKey["pyhighlights.utility.metrics.BoundMetric"]] = (
+        Param(
+            BINARY_METRICS,
+            description=(
+                "Registration keys of the metrics scored on the validation split."
+            ),
+        )
     )
-    test_metrics: List[RegistrationKey[BoundMetric]] = Param(
-        BINARY_METRICS,
-        description=("Registration keys of the metrics scored on the test split."),
+    test_metrics: List[RegistrationKey["pyhighlights.utility.metrics.BoundMetric"]] = (
+        Param(
+            BINARY_METRICS,
+            description=("Registration keys of the metrics scored on the test split."),
+        )
     )
 
 

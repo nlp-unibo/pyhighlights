@@ -1,13 +1,10 @@
 """GenSPP: an SPP whose generator is searched genetically, plus its trainer."""
 
-from typing import List
+from typing import TYPE_CHECKING, List
 
-import torch as th
 from cinnamon.configuration import Configuration, Param
 from cinnamon.registry import RegistrationKey, register_class
 
-from pyhighlights.components.models.spp.base import SPPBackbone, SPPSelector
-from pyhighlights.components.models.spp.genspp import GenSPP
 from pyhighlights.configurations.backbones import (
     GRUBackboneConfig,
     TransformerBackboneConfig,
@@ -26,7 +23,13 @@ from pyhighlights.configurations.keys import (
     TRANSFORMER_GENSPP_TRAINER,
 )
 from pyhighlights.configurations.optimizers import AdamConfig
-from pyhighlights.utility.losses import Loss
+
+if TYPE_CHECKING:
+    import torch
+
+    import pyhighlights.components.models.spp.base
+    import pyhighlights.components.models.spp.genspp
+    import pyhighlights.utility.losses
 
 GENSPP_COMPONENT = "pyhighlights.components.models.spp.genspp.GenSPP"
 GENSPP_TRAINER_COMPONENT = "pyhighlights.components.models.spp.genspp.GenSPPTrainer"
@@ -66,32 +69,40 @@ class GenSPPAdamConfig(AdamConfig):
 @register_class(key=GRU_GENSPP, component=GENSPP_COMPONENT)
 class GRUGenSPPConfig(SPPModelConfig):
     name: str = Param("genspp")
-    selector_backbones: RegistrationKey[SPPBackbone] = Param(GENSPP_GRU_BACKBONE)
-    selectors: RegistrationKey[SPPSelector] = Param(
+    selector_backbones: RegistrationKey[
+        "pyhighlights.components.models.spp.base.SPPBackbone"
+    ] = Param(GENSPP_GRU_BACKBONE)
+    selectors: RegistrationKey[
+        "pyhighlights.components.models.spp.base.SPPSelector"
+    ] = Param(
         SIGMOID_SELECTOR,
         description=(
             "Registration key of the selector. One sigmoid unit, as the "
             "reference generator ends, so the decision threshold is one gene."
         ),
     )
-    predictor_backbone: RegistrationKey[SPPBackbone] = Param(GENSPP_GRU_BACKBONE)
-    losses: List[RegistrationKey[Loss]] = Param([CLASSIFICATION_LOSS])
-    optimizer: RegistrationKey[th.optim.Optimizer] = Param(GENSPP_ADAM)
+    predictor_backbone: RegistrationKey[
+        "pyhighlights.components.models.spp.base.SPPBackbone"
+    ] = Param(GENSPP_GRU_BACKBONE)
+    losses: List[RegistrationKey["pyhighlights.utility.losses.Loss"]] = Param(
+        [CLASSIFICATION_LOSS]
+    )
+    optimizer: RegistrationKey["torch.optim.Optimizer"] = Param(GENSPP_ADAM)
 
 
 @register_class(key=TRANSFORMER_GENSPP, component=GENSPP_COMPONENT)
 class TransformerGenSPPConfig(GRUGenSPPConfig):
-    selector_backbones: RegistrationKey[SPPBackbone] = Param(
-        GENSPP_TRANSFORMER_BACKBONE
-    )
-    predictor_backbone: RegistrationKey[SPPBackbone] = Param(
-        GENSPP_TRANSFORMER_BACKBONE
-    )
+    selector_backbones: RegistrationKey[
+        "pyhighlights.components.models.spp.base.SPPBackbone"
+    ] = Param(GENSPP_TRANSFORMER_BACKBONE)
+    predictor_backbone: RegistrationKey[
+        "pyhighlights.components.models.spp.base.SPPBackbone"
+    ] = Param(GENSPP_TRANSFORMER_BACKBONE)
 
 
 @register_class(key=GRU_GENSPP_TRAINER, component=GENSPP_TRAINER_COMPONENT)
 class GRUGenSPPTrainerConfig(Configuration):
-    model: RegistrationKey[GenSPP] = Param(
+    model: RegistrationKey["pyhighlights.components.models.spp.genspp.GenSPP"] = Param(
         GRU_GENSPP,
         description="Registration key of the GenSPP model whose generator is searched.",
     )
@@ -181,7 +192,9 @@ class GRUGenSPPTrainerConfig(Configuration):
 
 @register_class(key=TRANSFORMER_GENSPP_TRAINER, component=GENSPP_TRAINER_COMPONENT)
 class TransformerGenSPPTrainerConfig(GRUGenSPPTrainerConfig):
-    model: RegistrationKey[GenSPP] = Param(TRANSFORMER_GENSPP)
+    model: RegistrationKey["pyhighlights.components.models.spp.genspp.GenSPP"] = Param(
+        TRANSFORMER_GENSPP
+    )
 
 
 @register_class(key=TOY_GENSPP_TRAINER, component=GENSPP_TRAINER_COMPONENT)

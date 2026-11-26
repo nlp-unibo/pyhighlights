@@ -1,15 +1,10 @@
 """G-RAT: an attention guider regularizing the selector it is trained beside."""
 
-from typing import List
+from typing import TYPE_CHECKING, List
 
 from cinnamon.configuration import Configuration, Param
 from cinnamon.registry import RegistrationKey, register_class
 
-from pyhighlights.components.models.spp.base import (
-    SPPBackbone,
-    SPPPredictor,
-)
-from pyhighlights.components.models.spp.grat import GRATGuider
 from pyhighlights.configurations.base import SPPModelConfig
 from pyhighlights.configurations.keys import (
     CLASSIFICATION_LOSS,
@@ -26,7 +21,11 @@ from pyhighlights.configurations.keys import (
     TRANSFORMER_GRAT,
     TRANSFORMER_GUIDER,
 )
-from pyhighlights.utility.losses import Loss
+
+if TYPE_CHECKING:
+    import pyhighlights.components.models.spp.base
+    import pyhighlights.components.models.spp.grat
+    import pyhighlights.utility.losses
 
 ATTENTION_GUIDER_COMPONENT = "pyhighlights.components.models.spp.grat.AttentionGuider"
 GRAT_COMPONENT = "pyhighlights.components.models.spp.grat.GRAT"
@@ -35,13 +34,17 @@ GUIDANCE_GUIDER_COMPONENT = "pyhighlights.components.models.spp.grat.GuidanceGui
 
 @register_class(key=GRU_GUIDER, component=ATTENTION_GUIDER_COMPONENT)
 class AttentionGuiderConfig(Configuration):
-    backbone: RegistrationKey[SPPBackbone] = Param(
-        GRU_BACKBONE,
-        description=(
-            "Registration key of the backbone the guider encodes the input with."
-        ),
+    backbone: RegistrationKey["pyhighlights.components.models.spp.base.SPPBackbone"] = (
+        Param(
+            GRU_BACKBONE,
+            description=(
+                "Registration key of the backbone the guider encodes the input with."
+            ),
+        )
     )
-    predictor: RegistrationKey[SPPPredictor] = Param(
+    predictor: RegistrationKey[
+        "pyhighlights.components.models.spp.base.SPPPredictor"
+    ] = Param(
         MLP_PREDICTOR,
         description=(
             "Registration key of the predictor that maps the guider's "
@@ -60,7 +63,9 @@ class AttentionGuiderConfig(Configuration):
 
 @register_class(key=TRANSFORMER_GUIDER, component=ATTENTION_GUIDER_COMPONENT)
 class TransformerAttentionGuiderConfig(AttentionGuiderConfig):
-    backbone: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)
+    backbone: RegistrationKey["pyhighlights.components.models.spp.base.SPPBackbone"] = (
+        Param(TRANSFORMER_BACKBONE)
+    )
 
 
 @register_class(key=GUIDANCE_GUIDER, component=GUIDANCE_GUIDER_COMPONENT)
@@ -84,7 +89,9 @@ class GuidanceGuiderConfig(Configuration):
             "``GRUBackboneConfig``, so the guider's states are twice as wide."
         ),
     )
-    predictor: RegistrationKey[SPPPredictor] = Param(
+    predictor: RegistrationKey[
+        "pyhighlights.components.models.spp.base.SPPPredictor"
+    ] = Param(
         MLP_PREDICTOR,
         description=(
             "Registration key of the predictor that maps the guider's pooled "
@@ -128,7 +135,9 @@ class GRUGRATConfig(SPPModelConfig):
             "threshold of 0.5 is the argmax, so the selection is not sampled."
         ),
     )
-    predictor_backbone: RegistrationKey[SPPBackbone] = Param(
+    predictor_backbone: RegistrationKey[
+        "pyhighlights.components.models.spp.base.SPPBackbone"
+    ] = Param(
         GRU_BACKBONE,
         description=(
             "Registration key of the backbone that encodes the highlight for "
@@ -136,17 +145,19 @@ class GRUGRATConfig(SPPModelConfig):
             "encodes the highlight with its own backbone."
         ),
     )
-    guider: RegistrationKey[GRATGuider] = Param(
-        GUIDANCE_GUIDER,
-        description=(
-            "Registration key of the guider, the attention classifier over the "
-            "full input whose attention guides the selector."
-        ),
+    guider: RegistrationKey["pyhighlights.components.models.spp.grat.GRATGuider"] = (
+        Param(
+            GUIDANCE_GUIDER,
+            description=(
+                "Registration key of the guider, the attention classifier over the "
+                "full input whose attention guides the selector."
+            ),
+        )
     )
-    losses: List[RegistrationKey[Loss]] = Param(
+    losses: List[RegistrationKey["pyhighlights.utility.losses.Loss"]] = Param(
         [CLASSIFICATION_LOSS, SPARSITY_LOSS, CONTIGUITY_LOSS, GUIDE_LOSS, JSD_LOSS]
     )
-    guider_losses: List[RegistrationKey[Loss]] = Param(
+    guider_losses: List[RegistrationKey["pyhighlights.utility.losses.Loss"]] = Param(
         [CLASSIFICATION_LOSS],
         description="Registration keys of the losses that train the guider alone.",
     )
@@ -192,9 +203,15 @@ class GRUGRATConfig(SPPModelConfig):
 
 @register_class(key=TRANSFORMER_GRAT, component=GRAT_COMPONENT)
 class TransformerGRATConfig(GRUGRATConfig):
-    selector_backbones: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)
-    predictor_backbone: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)
-    guider: RegistrationKey[GRATGuider] = Param(TRANSFORMER_GUIDER)
+    selector_backbones: RegistrationKey[
+        "pyhighlights.components.models.spp.base.SPPBackbone"
+    ] = Param(TRANSFORMER_BACKBONE)
+    predictor_backbone: RegistrationKey[
+        "pyhighlights.components.models.spp.base.SPPBackbone"
+    ] = Param(TRANSFORMER_BACKBONE)
+    guider: RegistrationKey["pyhighlights.components.models.spp.grat.GRATGuider"] = (
+        Param(TRANSFORMER_GUIDER)
+    )
     share_layer_norm: bool = Param(
         False,
         description=(

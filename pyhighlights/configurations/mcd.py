@@ -1,13 +1,10 @@
 """MCD: selected-input and full-input predictions trained in two phases."""
 
-from typing import List
+from typing import TYPE_CHECKING, List
 
 from cinnamon.configuration import Param
 from cinnamon.registry import RegistrationKey, register_class
 
-from pyhighlights.components.models.spp.base import (
-    SPPBackbone,
-)
 from pyhighlights.configurations.base import PhasedSPPModelConfig
 from pyhighlights.configurations.keys import (
     CLASSIFICATION_LOSS,
@@ -18,7 +15,10 @@ from pyhighlights.configurations.keys import (
     TRANSFORMER_MCD,
     UNNORMALISED_GRU_BACKBONE,
 )
-from pyhighlights.utility.losses import Loss
+
+if TYPE_CHECKING:
+    import pyhighlights.components.models.spp.base
+    import pyhighlights.utility.losses
 
 MCD_COMPONENT = "pyhighlights.components.models.spp.mcd.MCD"
 
@@ -42,7 +42,9 @@ class GRUMCDConfig(PhasedSPPModelConfig):
             "does not."
         ),
     )
-    predictor_backbone: RegistrationKey[SPPBackbone] = Param(
+    predictor_backbone: RegistrationKey[
+        "pyhighlights.components.models.spp.base.SPPBackbone"
+    ] = Param(
         UNNORMALISED_GRU_BACKBONE,
         description=(
             "Registration key of the backbone that encodes for the predictor, "
@@ -51,13 +53,19 @@ class GRUMCDConfig(PhasedSPPModelConfig):
             "implementation's predictor encoder is."
         ),
     )
-    predictor_losses: List[RegistrationKey[Loss]] = Param(
+    predictor_losses: List[RegistrationKey["pyhighlights.utility.losses.Loss"]] = Param(
         [CLASSIFICATION_LOSS, FULL_CLASSIFICATION_LOSS]
     )
-    generator_losses: List[RegistrationKey[Loss]] = Param([DISCREPANCY_LOSS])
+    generator_losses: List[RegistrationKey["pyhighlights.utility.losses.Loss"]] = Param(
+        [DISCREPANCY_LOSS]
+    )
 
 
 @register_class(key=TRANSFORMER_MCD, component=MCD_COMPONENT)
 class TransformerMCDConfig(GRUMCDConfig):
-    selector_backbones: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)
-    predictor_backbone: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)
+    selector_backbones: RegistrationKey[
+        "pyhighlights.components.models.spp.base.SPPBackbone"
+    ] = Param(TRANSFORMER_BACKBONE)
+    predictor_backbone: RegistrationKey[
+        "pyhighlights.components.models.spp.base.SPPBackbone"
+    ] = Param(TRANSFORMER_BACKBONE)

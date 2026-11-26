@@ -14,11 +14,10 @@ class-agnostic, since a token is selected or it is not, so they are registered
 once and used by every corpus.
 """
 
-from typing import List, Sequence
+from typing import TYPE_CHECKING, List, Sequence
 
 from cinnamon.configuration import Configuration, Param
 from cinnamon.registry import RegistrationKey, register_class
-from torchmetrics import Metric
 
 from pyhighlights.configurations.keys import (
     ACCURACY,
@@ -54,6 +53,9 @@ from pyhighlights.configurations.keys import (
     SELECTION_SPANS,
     SELECTION_SPANS_METRIC,
 )
+
+if TYPE_CHECKING:
+    import torchmetrics
 
 #: Classes the multiclass variants score. HateXplain is the corpus that needs
 #: them: ``hatespeech``, ``normal`` and ``offensive``.
@@ -224,7 +226,7 @@ class MetricConfig(Configuration):
             "from every loss name and from the summed loss."
         ),
     )
-    metric: RegistrationKey[Metric] = Param(
+    metric: RegistrationKey["torchmetrics.Metric"] = Param(
         ACCURACY, description="Registration key of the torchmetrics scoring object."
     )
     inputs: Sequence[str] = Param(
@@ -238,25 +240,25 @@ class MetricConfig(Configuration):
 
 @register_class(key=MULTICLASS_ACCURACY_METRIC, component=BOUND_METRIC_COMPONENT)
 class MulticlassAccuracyMetricConfig(MetricConfig):
-    metric: RegistrationKey[Metric] = Param(MULTICLASS_ACCURACY)
+    metric: RegistrationKey["torchmetrics.Metric"] = Param(MULTICLASS_ACCURACY)
 
 
 @register_class(key=F1_METRIC, component=BOUND_METRIC_COMPONENT)
 class F1MetricConfig(MetricConfig):
     name: str = Param("f1")
-    metric: RegistrationKey[Metric] = Param(F1)
+    metric: RegistrationKey["torchmetrics.Metric"] = Param(F1)
 
 
 @register_class(key=MULTICLASS_F1_METRIC, component=BOUND_METRIC_COMPONENT)
 class MulticlassF1MetricConfig(F1MetricConfig):
-    metric: RegistrationKey[Metric] = Param(MULTICLASS_F1)
+    metric: RegistrationKey["torchmetrics.Metric"] = Param(MULTICLASS_F1)
 
 
 @register_class(key=CLASS_F1_METRIC, component=BOUND_METRIC_COMPONENT)
 class ClassF1MetricConfig(F1MetricConfig):
     """Still reported as ``f1``: which F1 it is, the manifest's key says."""
 
-    metric: RegistrationKey[Metric] = Param(CLASS_F1)
+    metric: RegistrationKey["torchmetrics.Metric"] = Param(CLASS_F1)
 
 
 @register_class(key=HIGHLIGHT_F1_METRIC, component=BOUND_METRIC_COMPONENT)
@@ -264,26 +266,26 @@ class HighlightF1MetricConfig(MetricConfig):
     """Scores the selected tokens against the annotated ones."""
 
     name: str = Param("highlight_f1")
-    metric: RegistrationKey[Metric] = Param(HIGHLIGHT_F1)
+    metric: RegistrationKey["torchmetrics.Metric"] = Param(HIGHLIGHT_F1)
     inputs: Sequence[str] = Param(["highlight_mask", "highlight_true"])
 
 
 @register_class(key=HIGHLIGHT_IOU_METRIC, component=BOUND_METRIC_COMPONENT)
 class HighlightIoUMetricConfig(HighlightF1MetricConfig):
     name: str = Param("highlight_iou")
-    metric: RegistrationKey[Metric] = Param(HIGHLIGHT_IOU)
+    metric: RegistrationKey["torchmetrics.Metric"] = Param(HIGHLIGHT_IOU)
 
 
 @register_class(key=HIGHLIGHT_PRECISION_METRIC, component=BOUND_METRIC_COMPONENT)
 class HighlightPrecisionMetricConfig(HighlightF1MetricConfig):
     name: str = Param("highlight_precision")
-    metric: RegistrationKey[Metric] = Param(HIGHLIGHT_PRECISION)
+    metric: RegistrationKey["torchmetrics.Metric"] = Param(HIGHLIGHT_PRECISION)
 
 
 @register_class(key=HIGHLIGHT_RECALL_METRIC, component=BOUND_METRIC_COMPONENT)
 class HighlightRecallMetricConfig(HighlightF1MetricConfig):
     name: str = Param("highlight_recall")
-    metric: RegistrationKey[Metric] = Param(HIGHLIGHT_RECALL)
+    metric: RegistrationKey["torchmetrics.Metric"] = Param(HIGHLIGHT_RECALL)
 
 
 @register_class(key=SELECTION_RATE_METRIC, component=BOUND_METRIC_COMPONENT)
@@ -296,20 +298,20 @@ class SelectionRateMetricConfig(HighlightF1MetricConfig):
     """
 
     name: str = Param("selection_rate")
-    metric: RegistrationKey[Metric] = Param(SELECTION_RATE)
+    metric: RegistrationKey["torchmetrics.Metric"] = Param(SELECTION_RATE)
     inputs: Sequence[str] = Param(["highlight_mask", "mask"])
 
 
 @register_class(key=SELECTION_SIZE_METRIC, component=BOUND_METRIC_COMPONENT)
 class SelectionSizeMetricConfig(SelectionRateMetricConfig):
     name: str = Param("selection_size")
-    metric: RegistrationKey[Metric] = Param(SELECTION_SIZE)
+    metric: RegistrationKey["torchmetrics.Metric"] = Param(SELECTION_SIZE)
 
 
 @register_class(key=SELECTION_SPANS_METRIC, component=BOUND_METRIC_COMPONENT)
 class SelectionSpansMetricConfig(SelectionRateMetricConfig):
     name: str = Param("selection_spans")
-    metric: RegistrationKey[Metric] = Param(SELECTION_SPANS)
+    metric: RegistrationKey["torchmetrics.Metric"] = Param(SELECTION_SPANS)
 
 
 __all__: List[str] = [
@@ -437,7 +439,7 @@ class KnowledgeMetricConfig(MetricConfig):
     """A link metric reads the gate and the annotation behind it."""
 
     name: str = Param("link_f1")
-    metric: RegistrationKey[Metric] = Param(LINK_F1)
+    metric: RegistrationKey["torchmetrics.Metric"] = Param(LINK_F1)
     inputs: Sequence[str] = Param(["knowledge_mask", "knowledge_true"])
 
 
@@ -449,16 +451,16 @@ class LinkF1MetricConfig(KnowledgeMetricConfig):
 @register_class(key=LINK_MACRO_F1_METRIC, component=BOUND_METRIC_COMPONENT)
 class LinkMacroF1MetricConfig(KnowledgeMetricConfig):
     name: str = Param("link_macro_f1")
-    metric: RegistrationKey[Metric] = Param(LINK_MACRO_F1)
+    metric: RegistrationKey["torchmetrics.Metric"] = Param(LINK_MACRO_F1)
 
 
 @register_class(key=EXACT_SET_METRIC, component=BOUND_METRIC_COMPONENT)
 class ExactSetMetricConfig(KnowledgeMetricConfig):
     name: str = Param("exact_set_match")
-    metric: RegistrationKey[Metric] = Param(EXACT_SET_MATCH)
+    metric: RegistrationKey["torchmetrics.Metric"] = Param(EXACT_SET_MATCH)
 
 
 @register_class(key=EMPTY_SET_METRIC, component=BOUND_METRIC_COMPONENT)
 class EmptySetMetricConfig(KnowledgeMetricConfig):
     name: str = Param("empty_set_accuracy")
-    metric: RegistrationKey[Metric] = Param(EMPTY_SET_ACCURACY)
+    metric: RegistrationKey["torchmetrics.Metric"] = Param(EMPTY_SET_ACCURACY)

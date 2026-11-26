@@ -110,11 +110,12 @@ A ``criterion`` is the scoring object and a ``loss`` binds it to the fields it r
    @register_class(key=LEAD_BIAS_LOSS, component="pyhighlights.utility.losses.Loss")
    class LeadBiasLossConfig(Configuration):
        name: str = Param("lead_bias")
-       loss: RegistrationKey[th.nn.Module] = Param(LEAD_BIAS_CRITERION)
+       loss: RegistrationKey["torch.nn.Module"] = Param(LEAD_BIAS_CRITERION)
        inputs: List[str] = Param(["highlight_mask", "mask"])
        coefficient: float = Param(1.0, ge=0.0)
        enabled: bool = Param(True)
 
+The type of a key is written as a dotted path, like the component, so a registry build imports no torch for it.
 ``inputs`` names fields of the **namespace**, which is what the batch and the model's output look like to a loss: ``class_logits``, ``highlight_logits``, ``highlight_mask``, ``y_true``, ``mask``, ``highlight_true``, and whatever a model adds to it.
 The names are positional, so ``["highlight_mask", "mask"]`` is what makes ``forward(selection, mask)`` receive the selection first.
 ``name`` is what the term is reported under, so this one appears as ``train_lead_bias`` and ``test_lead_bias`` in every results file.
@@ -171,7 +172,7 @@ The consistency term needs no new criterion, since a divergence between two clas
    @register_class(key=CONSISTENCY_LOSS, component="pyhighlights.utility.losses.Loss")
    class ConsistencyLossConfig(LeadBiasLossConfig):
        name: str = Param("consistency")
-       loss: RegistrationKey[th.nn.Module] = Param(JS_DIV)
+       loss: RegistrationKey["torch.nn.Module"] = Param(JS_DIV)
        inputs: List[str] = Param(["class_logits", "thinned_class_logits"])
        coefficient: float = Param(0.5, ge=0.0)
 
@@ -187,7 +188,7 @@ Then the model itself, which inherits every field an SPP model has from :class:`
        name: str = Param("consistency")
        predictor_backbone: RegistrationKey = Param(GRU_BACKBONE)
        drop_probability: float = Param(0.2, gt=0.0, lt=1.0)
-       losses: List[RegistrationKey[Loss]] = Param(
+       losses: List[RegistrationKey["pyhighlights.utility.losses.Loss"]] = Param(
            [CLASSIFICATION_LOSS, SPARSITY_LOSS, CONTIGUITY_LOSS,
             CONSISTENCY_LOSS, LEAD_BIAS_LOSS]
        )

@@ -1,14 +1,10 @@
 """MGR: several independent generators feeding one shared predictor."""
 
-from typing import List, Literal
+from typing import TYPE_CHECKING, List, Literal
 
 from cinnamon.configuration import Param
 from cinnamon.registry import RegistrationKey, register_class
 
-from pyhighlights.components.models.spp.base import (
-    SPPBackbone,
-    SPPSelector,
-)
 from pyhighlights.configurations.base import SPPModelConfig
 from pyhighlights.configurations.keys import (
     GRU_BACKBONE,
@@ -18,6 +14,9 @@ from pyhighlights.configurations.keys import (
     TRANSFORMER_MGR,
     UNNORMALISED_GRU_BACKBONE,
 )
+
+if TYPE_CHECKING:
+    import pyhighlights.components.models.spp.base
 
 MGR_COMPONENT = "pyhighlights.components.models.spp.mgr.MGR"
 
@@ -41,7 +40,9 @@ class GRUMGRConfig(SPPModelConfig):
             "does not."
         ),
     )
-    selector_backbones: List[RegistrationKey[SPPBackbone]] = Param(
+    selector_backbones: List[
+        RegistrationKey["pyhighlights.components.models.spp.base.SPPBackbone"]
+    ] = Param(
         [GRU_BACKBONE, GRU_BACKBONE, GRU_BACKBONE],
         description=(
             "Registration keys of the selector backbones, one per generator, "
@@ -49,7 +50,9 @@ class GRUMGRConfig(SPPModelConfig):
             "are the whole of MGR, so the base class cannot carry this default."
         ),
     )
-    selectors: List[RegistrationKey[SPPSelector]] = Param(
+    selectors: List[
+        RegistrationKey["pyhighlights.components.models.spp.base.SPPSelector"]
+    ] = Param(
         [MLP_SELECTOR, MLP_SELECTOR, MLP_SELECTOR],
         description=(
             "Registration keys of the selectors, one per generator, where every "
@@ -57,7 +60,9 @@ class GRUMGRConfig(SPPModelConfig):
             "whole of MGR, so the base class cannot carry this default."
         ),
     )
-    predictor_backbone: RegistrationKey[SPPBackbone] = Param(
+    predictor_backbone: RegistrationKey[
+        "pyhighlights.components.models.spp.base.SPPBackbone"
+    ] = Param(
         UNNORMALISED_GRU_BACKBONE,
         description=(
             "Registration key of the backbone of the predictor the generators "
@@ -116,7 +121,9 @@ class GRUMGRConfig(SPPModelConfig):
 
 @register_class(key=TRANSFORMER_MGR, component=MGR_COMPONENT)
 class TransformerMGRConfig(GRUMGRConfig):
-    selector_backbones: List[RegistrationKey[SPPBackbone]] = Param(
-        [TRANSFORMER_BACKBONE, TRANSFORMER_BACKBONE, TRANSFORMER_BACKBONE]
-    )
-    predictor_backbone: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)
+    selector_backbones: List[
+        RegistrationKey["pyhighlights.components.models.spp.base.SPPBackbone"]
+    ] = Param([TRANSFORMER_BACKBONE, TRANSFORMER_BACKBONE, TRANSFORMER_BACKBONE])
+    predictor_backbone: RegistrationKey[
+        "pyhighlights.components.models.spp.base.SPPBackbone"
+    ] = Param(TRANSFORMER_BACKBONE)

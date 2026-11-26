@@ -1,9 +1,10 @@
 """DAR: a highlight scored by a module that only ever read the full input."""
 
+from typing import TYPE_CHECKING
+
 from cinnamon.configuration import Param
 from cinnamon.registry import RegistrationKey, register_class
 
-from pyhighlights.components.models.spp.base import SPPBackbone
 from pyhighlights.configurations.base import SPPModelConfig
 from pyhighlights.configurations.keys import (
     ALIGNMENT_CLASSIFICATION_LOSS,
@@ -12,7 +13,10 @@ from pyhighlights.configurations.keys import (
     TRANSFORMER_BACKBONE,
     TRANSFORMER_DAR,
 )
-from pyhighlights.utility.losses import Loss
+
+if TYPE_CHECKING:
+    import pyhighlights.components.models.spp.base
+    import pyhighlights.utility.losses
 
 DAR_COMPONENT = "pyhighlights.components.models.spp.dar.DAR"
 
@@ -36,7 +40,9 @@ class GRUDARConfig(SPPModelConfig):
             "does not."
         ),
     )
-    predictor_backbone: RegistrationKey[SPPBackbone] = Param(
+    predictor_backbone: RegistrationKey[
+        "pyhighlights.components.models.spp.base.SPPBackbone"
+    ] = Param(
         GRU_BACKBONE,
         description=(
             "Registration key of the backbone that encodes for the predictor, "
@@ -45,7 +51,9 @@ class GRUDARConfig(SPPModelConfig):
             "drift DAR is about."
         ),
     )
-    aligner_backbone: RegistrationKey[SPPBackbone] = Param(
+    aligner_backbone: RegistrationKey[
+        "pyhighlights.components.models.spp.base.SPPBackbone"
+    ] = Param(
         GRU_BACKBONE,
         description=(
             "Registration key of the aligner's own backbone. The aligner's head "
@@ -53,7 +61,7 @@ class GRUDARConfig(SPPModelConfig):
             "question about the same labels."
         ),
     )
-    aligner_loss: RegistrationKey[Loss] = Param(
+    aligner_loss: RegistrationKey["pyhighlights.utility.losses.Loss"] = Param(
         ALIGNMENT_CLASSIFICATION_LOSS,
         description=(
             "Registration key of the loss that scores the aligner on the full "
@@ -76,6 +84,12 @@ class GRUDARConfig(SPPModelConfig):
 
 @register_class(key=TRANSFORMER_DAR, component=DAR_COMPONENT)
 class TransformerDARConfig(GRUDARConfig):
-    selector_backbones: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)
-    predictor_backbone: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)
-    aligner_backbone: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)
+    selector_backbones: RegistrationKey[
+        "pyhighlights.components.models.spp.base.SPPBackbone"
+    ] = Param(TRANSFORMER_BACKBONE)
+    predictor_backbone: RegistrationKey[
+        "pyhighlights.components.models.spp.base.SPPBackbone"
+    ] = Param(TRANSFORMER_BACKBONE)
+    aligner_backbone: RegistrationKey[
+        "pyhighlights.components.models.spp.base.SPPBackbone"
+    ] = Param(TRANSFORMER_BACKBONE)

@@ -1,12 +1,10 @@
 """Grounded SPP: the comparer, and a model that reads a knowledge base."""
 
-from typing import List
+from typing import TYPE_CHECKING, List
 
 from cinnamon.configuration import Configuration, Param
 from cinnamon.registry import RegistrationKey, register_class
 
-from pyhighlights.components.models.spp.base import SPPBackbone
-from pyhighlights.components.models.spp.grounded import SPPComparer
 from pyhighlights.configurations.base import SPPModelConfig
 from pyhighlights.configurations.keys import (
     CLASSIFICATION_LOSS,
@@ -19,7 +17,11 @@ from pyhighlights.configurations.keys import (
     TRANSFORMER_BACKBONE,
     TRANSFORMER_GROUNDED,
 )
-from pyhighlights.utility.losses import Loss
+
+if TYPE_CHECKING:
+    import pyhighlights.components.models.spp.base
+    import pyhighlights.components.models.spp.grounded
+    import pyhighlights.utility.losses
 
 GROUNDED_COMPONENT = "pyhighlights.components.models.spp.grounded.GroundedSPP"
 
@@ -62,21 +64,25 @@ class GRUGroundedConfig(SPPModelConfig):
     """
 
     name: str = Param("grounded")
-    comparer: RegistrationKey[SPPComparer] = Param(
+    comparer: RegistrationKey[
+        "pyhighlights.components.models.spp.grounded.SPPComparer"
+    ] = Param(
         ENTAILMENT_COMPARER,
         description=(
             "Registration key of the comparer that scores whether an input "
             "highlight instantiates a knowledge highlight."
         ),
     )
-    losses: List[RegistrationKey[Loss]] = Param(
+    losses: List[RegistrationKey["pyhighlights.utility.losses.Loss"]] = Param(
         [CLASSIFICATION_LOSS, SPARSITY_LOSS, CONTIGUITY_LOSS, KNOWLEDGE_LOSS]
     )
 
 
 @register_class(key=TRANSFORMER_GROUNDED, component=GROUNDED_COMPONENT)
 class TransformerGroundedConfig(GRUGroundedConfig):
-    selector_backbones: RegistrationKey[SPPBackbone] = Param(TRANSFORMER_BACKBONE)
+    selector_backbones: RegistrationKey[
+        "pyhighlights.components.models.spp.base.SPPBackbone"
+    ] = Param(TRANSFORMER_BACKBONE)
 
 
 __all__ = [
