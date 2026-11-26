@@ -393,6 +393,7 @@ def test_a_task_that_embeds_from_a_file_refuses_to_run_without_one():
     The registered HateXplain task declared a vocabulary of two, so a build
     without ``embeddings=`` produced ``{'the': 1}`` and trained on it.
     """
+    build_registry()
     with pytest.raises(ValueError, match="given none"):
         SPPTask(loader=TOY, model=GRU_FR, vocabulary_from="vectors")
     with pytest.raises(ValueError, match="given none"):
@@ -630,6 +631,7 @@ def test_a_task_that_embeds_from_a_file_refuses_to_build_without_the_matrix(tmp_
 def test_supervision_needs_every_positive_example_annotated():
     """An `any` check passed a corpus annotated on three rows of twenty
     thousand, which trains exactly as an unsupervised run does."""
+    build_registry()
     task = SPPTask(
         loader=TOY, model=GRU_FR, highlight_supervision=True, highlight_loss=None
     )
@@ -656,6 +658,7 @@ def test_supervision_needs_every_positive_example_annotated():
 def test_two_runs_started_in_one_second_take_separate_directories(tmp_path):
     """The stamp is claimed by creating it: an `exists()` check lets two
     processes past and then both write into one directory."""
+    build_registry()
     first = SPPTask(loader=TOY, model=GRU_FR, name="grid", save_path=str(tmp_path))
     second = SPPTask(loader=TOY, model=GRU_FR, name="grid", save_path=str(tmp_path))
 
