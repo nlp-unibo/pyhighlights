@@ -276,3 +276,21 @@ def test_the_registered_detector_builds():
 
     assert isinstance(detector, ShortcutDetector)
     assert detector.max_length == 4 and detector.permutations == 30
+
+
+def test_the_gate_ablates_the_column_it_scans():
+    """A corpus whose tokens live under another name is ablated there too.
+
+    ``ablated`` once wrote the ``tokens`` column whatever the detector scanned,
+    so a detector reading ``words`` scanned the column with the evidence still
+    in it and refused a corpus whose highlight explains the label.
+    """
+    loader = ToyLoader(sizes={"train": 600}, vocabulary_size=10, seed=1)
+    words = loader.load()["train"].rename(columns={"tokens": "words"})
+
+    ShortcutDetector(max_length=4, tokens="words").check(words)
+    hole = ablated(
+        frame([(list("abcd"), 0, [0, 1, 1, 0])]).rename(columns={"tokens": "words"}),
+        tokens="words",
+    )
+    assert hole.iloc[0]["words"] == ["a", "▮", "▮", "d"]

@@ -48,6 +48,10 @@ class CrossEntropyConfig(Configuration):
             "predicts the rare class, so its weights belong to its configuration."
         ),
     )
+    ignore_index: int = Param(
+        -100,
+        description="Target value of an example the loss skips.",
+    )
 
 
 @register_class(
@@ -63,6 +67,13 @@ class MaskedCrossEntropyConfig(Configuration):
             "``None`` for an unweighted loss. The knowledge axis typically is "
             "imbalanced, since an example instantiates few entries of a base and "
             "many examples instantiate none."
+        ),
+    )
+    ignore_index: int = Param(
+        -1,
+        description=(
+            "Target value that marks a position without annotation, which the "
+            "loss skips."
         ),
     )
 

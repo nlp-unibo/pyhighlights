@@ -208,7 +208,10 @@ def lengths(
 
 
 def ablated(
-    frame: pd.DataFrame, filler: str = "\u25ae", separator: str = ""
+    frame: pd.DataFrame,
+    filler: str = "\u25ae",
+    separator: str = "",
+    tokens: str = "tokens",
 ) -> pd.DataFrame:
     """The corpus with every annotated position replaced by one filler token.
 
@@ -234,11 +237,11 @@ def ablated(
             "Scan such a split with `report` instead of `check`"
         )
     out = frame.copy()
-    out["tokens"] = [
-        [filler if flag else token for token, flag in zip(row.tokens, row.highlights)]
-        for row in frame.itertuples()
+    out[tokens] = [
+        [filler if flag else token for token, flag in zip(sequence, flags)]
+        for sequence, flags in zip(frame[tokens], frame["highlights"])
     ]
-    out["text"] = out["tokens"].map(separator.join)
+    out["text"] = out[tokens].map(separator.join)
     return out
 
 
@@ -319,7 +322,9 @@ class ShortcutDetector:
         corpus grows, where noise clears it by a hair and decays towards the
         baseline. Re-run on more rows before believing a narrow failure.
         """
-        report = self.report(ablated(frame, separator=self.separator))
+        report = self.report(
+            ablated(frame, separator=self.separator, tokens=self.tokens)
+        )
         threshold = report["permuted"].max()
         offending = report[report["accuracy"] > threshold].copy()
         if not offending.empty:

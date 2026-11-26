@@ -135,6 +135,16 @@ class ClassF1Config(Configuration):
     )
     num_classes: int = Param(2, ge=2, description="Number of classes, at least 2.")
 
+    @classmethod
+    def default(cls):
+        config = super().default()
+        config.add_condition(
+            name="pos_label_is_a_class",
+            description="The reported class is one of the num_classes classes.",
+            condition=lambda metric: metric.pos_label < metric.num_classes,
+        )
+        return config
+
 
 class HighlightMetricConfig(Configuration):
     """Token-level scores over the positions a corpus annotated.
@@ -146,6 +156,7 @@ class HighlightMetricConfig(Configuration):
 
     pos_label: int = Param(
         1,
+        ge=0,
         description=(
             "Value that marks a token as a highlight, in the selection and in the "
             "annotation alike."

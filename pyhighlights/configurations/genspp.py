@@ -117,6 +117,7 @@ class GRUGenSPPTrainerConfig(Configuration):
     population_size: int = Param(
         50,
         ge=2,
+        multiple_of=2,
         description=(
             "Number of candidates each generation keeps. It has to be even, "
             "because the survivors are the best half plus a half drawn by fitness."
@@ -144,9 +145,20 @@ class GRUGenSPPTrainerConfig(Configuration):
     mutation_std: float = Param(
         0.05,
         gt=0.0,
+        allow_inf_nan=False,
         description=(
             "Standard deviation of the Gaussian noise a mutation adds to each "
             "perturbed gene."
+        ),
+    )
+    threshold_mutation_std: float | None = Param(
+        None,
+        gt=0.0,
+        allow_inf_nan=False,
+        description=(
+            "Standard deviation of the perturbation a mutation applies to the "
+            "selector's decision threshold, or ``None`` to perturb the threshold "
+            "genes at ``mutation_std`` like every other gene, as the paper does."
         ),
     )
     predictor_epochs: int = Param(
@@ -160,6 +172,7 @@ class GRUGenSPPTrainerConfig(Configuration):
     task_loss_limit: float = Param(
         0.1,
         ge=0.0,
+        allow_inf_nan=False,
         description=(
             "Validation cross entropy above which a candidate gets the lowest "
             "fitness, 1.0, whatever it selected, so the search cannot buy a "
@@ -169,6 +182,7 @@ class GRUGenSPPTrainerConfig(Configuration):
     stop_threshold: float = Param(
         0.01,
         gt=0.0,
+        allow_inf_nan=False,
         description=(
             "Objective, the reciprocal of the fitness, at or below which the "
             "best candidate of a generation stops the search."
@@ -180,6 +194,7 @@ class GRUGenSPPTrainerConfig(Configuration):
     )
     devices: List[str] = Param(
         ["cpu"],
+        min_length=1,
         description=(
             "Devices that score candidates, one worker and one whole candidate "
             "at a time per device, such as ``['cpu'] * 8`` for eight cores or "
@@ -188,6 +203,21 @@ class GRUGenSPPTrainerConfig(Configuration):
             "explains."
         ),
     )
+
+    @classmethod
+    def default(cls):
+        config = super().default()
+        config.add_condition(
+            name="draws_a_couple",
+            description=(
+                "A generation draws int(selection_rate * population_size) "
+                "couples, and none means a generation has no children."
+            ),
+            condition=lambda search: (
+                int(search.selection_rate * search.population_size) >= 1
+            ),
+        )
+        return config
 
 
 @register_class(key=TRANSFORMER_GENSPP_TRAINER, component=GENSPP_TRAINER_COMPONENT)
@@ -206,6 +236,6 @@ class ToyGenSPPTrainerConfig(GRUGenSPPTrainerConfig):
     """
 
     n_generations: int = Param(1, ge=0)
-    population_size: int = Param(2, ge=2)
+    population_size: int = Param(2, ge=2, multiple_of=2)
     predictor_epochs: int = Param(1, ge=1)
-    task_loss_limit: float = Param(10.0, ge=0.0)
+    task_loss_limit: float = Param(10.0, ge=0.0, allow_inf_nan=False)

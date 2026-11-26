@@ -1,9 +1,12 @@
+import inspect
+import math
 from pathlib import Path
 
 import lightning as L
 import pytest
 import torch as th
 from cinnamon.registry import RegistrationKey, Registry
+from pydantic import BaseModel, ValidationError
 from torch.utils.data import DataLoader
 
 import pyhighlights
@@ -11,6 +14,11 @@ from pyhighlights.components.models import InputData
 from pyhighlights.components.models.base import Model
 from pyhighlights.components.models.spp import FR, MCD, MGR
 from pyhighlights.configurations import keys
+from pyhighlights.configurations.evalx import RandomSelectorConfig
+from pyhighlights.configurations.genspp import (
+    GRUGenSPPTrainerConfig,
+    ToyGenSPPTrainerConfig,
+)
 from pyhighlights.configurations.grat import GRUGRATConfig
 from pyhighlights.configurations.keys import (
     ADAM,
@@ -28,8 +36,13 @@ from pyhighlights.configurations.keys import (
     TRANSFORMER_GRAT,
     TRANSFORMER_GUIDER,
 )
+from pyhighlights.configurations.losses import (
+    CrossEntropyConfig,
+    MaskedCrossEntropyConfig,
+)
+from pyhighlights.configurations.metrics import ClassF1Config, HighlightMetricConfig
 from pyhighlights.configurations.mgr import GRUMGRConfig
-from pyhighlights.configurations.tasks import ToyTaskConfig
+from pyhighlights.configurations.tasks import TaskConfig, ToyTaskConfig
 from pyhighlights.utility.spaces import token_spaces
 
 
@@ -668,3 +681,128 @@ def test_no_registered_key_fails_its_conditions():
     _, invalid = Registry.build(directory=Path(pyhighlights.__file__).parent)
 
     assert not invalid, {str(key): key.metadata for key in invalid}
+
+
+# -- what a configuration refuses before a component does -------------------
+
+
+@pytest.mark.parametrize("search", [GRUGenSPPTrainerConfig, ToyGenSPPTrainerConfig])
+@pytest.mark.parametrize(
+    "values",
+    [
+        {"population_size": 51},
+        {"mutation_std": math.inf},
+        {"threshold_mutation_std": 0.0},
+        {"threshold_mutation_std": math.nan},
+        {"task_loss_limit": math.inf},
+        {"stop_threshold": math.inf},
+        {"devices": []},
+    ],
+)
+def test_a_search_refuses_what_its_trainer_would(search, values):
+    """Each value raises in ``GenSPPTrainer.__init__``, so the key refuses it."""
+    with pytest.raises(ValidationError):
+        search(**values)
+
+
+def test_a_search_that_draws_no_couple_fails_its_condition():
+    search = GRUGenSPPTrainerConfig.default()
+    assert search.validate_conditions(strict=False).passed
+
+    search.population_size, search.selection_rate = 4, 0.1
+    result = search.validate_conditions(strict=False)
+    assert not result.passed
+    assert "draws_a_couple" in str(result.error_message)
+
+
+def test_the_random_selector_refuses_an_unknown_mode_and_crossed_rates():
+    with pytest.raises(ValidationError):
+        RandomSelectorConfig(mode="words")
+
+    selector = RandomSelectorConfig.default()
+    selector.min_keep, selector.max_keep = 0.8, 0.2
+    result = selector.validate_conditions(strict=False)
+    assert not result.passed
+    assert "ordered_keep_rates" in str(result.error_message)
+
+
+def test_the_reported_class_is_a_class():
+    with pytest.raises(ValidationError):
+        HighlightMetricConfig(pos_label=-1)
+
+    metric = ClassF1Config.default()
+    metric.pos_label = 2
+    result = metric.validate_conditions(strict=False)
+    assert not result.passed
+    assert "pos_label_is_a_class" in str(result.error_message)
+
+
+@pytest.mark.parametrize(
+    "configuration, values",
+    [
+        (ToyTaskConfig, {"vocabulary_from": "words"}),
+        (GRUGRATConfig, {"select_over": "characters"}),
+    ],
+)
+def test_a_choice_refuses_a_value_its_component_does_not_know(configuration, values):
+    with pytest.raises(ValidationError):
+        configuration(**values)
+
+
+@pytest.mark.parametrize(
+    "component, configuration",
+    [
+        (
+            "pyhighlights.components.models.spp.genspp.GenSPPTrainer",
+            GRUGenSPPTrainerConfig,
+        ),
+        ("pyhighlights.utility.losses.CrossEntropy", CrossEntropyConfig),
+        ("pyhighlights.utility.losses.MaskedCrossEntropy", MaskedCrossEntropyConfig),
+    ],
+)
+def test_a_configuration_declares_every_parameter_of_its_component(
+    component, configuration
+):
+    from cinnamon.utility.registration import import_class_from_string
+
+    parameters = inspect.signature(import_class_from_string(component)).parameters
+    assert set(parameters) <= set(configuration.model_fields)
+
+
+def test_a_task_leaves_the_device_to_lightning():
+    """Only a task that must stay on the CPU, such as a toy one, pins it."""
+    assert "accelerator" not in TaskConfig.model_fields["trainer_args"].default
+    assert ToyTaskConfig().trainer_args["accelerator"] == "cpu"
+
+
+def test_an_override_keeps_the_constraints_of_its_base():
+    """Pydantic replaces a redeclared field whole, constraints included.
+
+    A subclass that changes only a default would otherwise accept what its
+    base refuses, as an override of ``population_size`` once accepted an odd
+    population. ``RemainingDiscrepancyLossConfig.coefficient`` is negative on
+    purpose: it is the one term a model maximizes.
+    """
+    Registry.build(directory=Path(pyhighlights.__file__).parent)
+    exempt = {("RemainingDiscrepancyLossConfig", "coefficient")}
+
+    dropped = set()
+    for key in Registry.retrieve_keys(namespaces=str(keys.NAMESPACE)):
+        for klass in type(Registry.retrieve_configuration(key)).__mro__:
+            if not (isinstance(klass, type) and issubclass(klass, BaseModel)):
+                continue
+            for name in klass.__dict__.get("__annotations__", {}):
+                base = next(
+                    (
+                        parent.model_fields[name]
+                        for parent in klass.__mro__[1:]
+                        if issubclass(parent, BaseModel) and name in parent.model_fields
+                    ),
+                    None,
+                )
+                own = klass.model_fields.get(name)
+                if base is None or own is None:
+                    continue
+                if set(map(repr, base.metadata)) - set(map(repr, own.metadata)):
+                    dropped.add((klass.__name__, name))
+    assert dropped == exempt
